@@ -1,0 +1,49 @@
+<svg width="680" height="680" viewBox="0 0 680 680" xmlns="http://www.w3.org/2000/svg">
+<!-- Cute coding whale mascot - transparent background -->
+
+<g transform="translate(340,340)">
+  <!-- Whale body -->
+  <ellipse cx="-10" cy="30" rx="175" ry="140" fill="white"/>
+  <!-- Belly/chin area -->
+  <path d="M-185,30 Q-190,120 -140,170 Q-80,220 40,200 Q120,185 165,140 Q180,100 165,30" fill="white"/>
+
+  <!-- Tail -->
+  <path d="M-175,80 Q-230,60 -260,20 Q-280,-10 -260,-30 Q-240,-20 -220,0 Q-200,20 -175,40" fill="white" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M-175,100 Q-240,130 -270,160 Q-280,180 -260,190 Q-240,175 -220,155 Q-200,135 -175,115" fill="white" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- Flipper (left side) -->
+  <path d="M-80,160 Q-120,190 -140,220 Q-130,230 -100,220 Q-60,200 -30,175" fill="white" stroke="white" stroke-width="2"/>
+
+  <!-- Flipper (right side) -->
+  <path d="M80,150 Q110,180 130,200 Q140,205 145,195 Q135,175 110,155" fill="white" stroke="white" stroke-width="2"/>
+
+  <!-- Eye (closed/happy) -->
+  <path d="M60,40 Q70,30 80,40" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Mouth -->
+  <path d="M95,65 Q105,75 100,80" fill="none" stroke="white" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Blowhole water spout -->
+  <path d="M-10,-110 Q-25,-150 -15,-180" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/>
+  <path d="M-10,-110 Q10,-155 5,-185" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/>
+  <path d="M-10,-110 Q-5,-160 -5,-190" fill="none" stroke="white" stroke-width="5" stroke-linecap="round"/>
+  <!-- Water droplets -->
+  <circle cx="-20" cy="-185" r="6" fill="white"/>
+  <circle cx="8" cy="-192" r="5" fill="white"/>
+  <circle cx="-8" cy="-198" r="4" fill="white"/>
+
+  <!-- Code brackets </> -->
+  <g transform="translate(-5,-230)">
+    <path d="M-35,0 L-55,25 L-35,50" fill="none" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="0" y1="-5" x2="-10" y2="55" stroke="white" stroke-width="8" stroke-linecap="round"/>
+    <path d="M25,0 L45,25 L25,50" fill="none" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Laptop -->
+  <g transform="translate(30,180)">
+    <path d="M-100,-40 L-80,-80 L80,-80 L100,-40 Z" fill="none" stroke="white" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M-120,-40 L120,-40 L105,10 Q100,20 -95,20 L-120,-40 Z" fill="none" stroke="white" stroke-width="4" stroke-linejoin="round"/>
+    <line x1="-95" y1="-40" x2="95" y2="-40" stroke="white" stroke-width="3"/>
+  </g>
+</g>
+</svg>
