@@ -774,7 +774,8 @@
     list_dir:     { verb:"Listed",       icon:"codicon-folder-opened", kind:"read"   },
     grep_search:  { verb:"Searched",     icon:"codicon-search",        kind:"search" },
     run_shell:    { verb:"Ran",          icon:"codicon-terminal",      kind:"shell"  },
-    update_plan:  { verb:"Updated plan", icon:"codicon-checklist",     kind:"plan"   }
+    update_plan:  { verb:"Updated plan", icon:"codicon-checklist",     kind:"plan"   },
+    spawn_agent:  { verb:"Sub-agent",    icon:"codicon-robot",         kind:"agent"  }
   };
   /* Detect the program/shell being invoked so we can show "powershell" / "python" / "bash"
      as the verb (mirrors GH Copilot's "Ran terminal command: powershell" style). */
@@ -818,6 +819,7 @@
       var p = (o.steps && o.steps.length) ? o.steps : ((o.plan && o.plan.length) ? o.plan : []);
       return p.length ? (p.length + " step" + (p.length>1?"s":"")) : "";
     }
+    if (name === "spawn_agent") return o.description || (o.prompt && String(o.prompt).slice(0, 80)) || "";
     var v = o.path || o.file || o.query || o.pattern || o.command || ""; return String(v).slice(0,120);
   }
 
@@ -841,6 +843,10 @@
     if (name === "run_shell"){
       var cmd = String(o.command || o.cmd || "");
       return verb + " " + code(cmd.length > 60 ? cmd.slice(0,60) + "\u2026" : cmd);
+    }
+    if (name === "spawn_agent"){
+      var lbl = String(o.description || (o.prompt && String(o.prompt).slice(0,60)) || "");
+      return verb + ": " + code(lbl || "task");
     }
     var tgt = String(o.path || o.file || o.query || o.pattern || o.command || "");
     return verb + (tgt ? " " + code(tgt) : "");

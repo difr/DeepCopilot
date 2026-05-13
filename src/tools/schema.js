@@ -208,6 +208,51 @@ const TOOL_DEFS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'spawn_agent',
+            description:
+                'Launch a focused sub-agent in a fresh, isolated context to handle a complex ' +
+                'multi-step research or exploration task. The sub-agent receives ONLY the `prompt` ' +
+                '(no parent conversation history) and returns a single structured Markdown summary. ' +
+                'PREFER this over chaining 5+ read_file / grep_search calls — keeps the main ' +
+                'context lean and the answer focused.\n' +
+                'Good uses: "find all call sites of function X", "summarise the architecture of ' +
+                'folder Y", "trace why test Z fails", "list every TODO comment in src/".\n' +
+                'Bad uses: simple one-shot reads, file writes, tasks that need parent-conversation ' +
+                'context.\n' +
+                'Default agent_type is "explore" (read-only, safe). Use "general" only when the ' +
+                'sub-task explicitly requires shell commands or file edits.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    prompt: {
+                        type: 'string',
+                        description:
+                            'Self-contained task description for the sub-agent. Include ALL ' +
+                            'context it needs — it has no access to the parent conversation.',
+                    },
+                    description: {
+                        type: 'string',
+                        description: 'Short label (3–7 words) shown in the tool card UI.',
+                    },
+                    agent_type: {
+                        type: 'string',
+                        enum: ['explore', 'general'],
+                        description:
+                            '"explore" = read-only tools only (default, always safe). ' +
+                            '"general" = full toolset except spawn_agent.',
+                    },
+                    max_iters: {
+                        type: 'integer',
+                        description: 'Max sub-agent loop iterations (default 20, max 40).',
+                    },
+                },
+                required: ['prompt', 'description'],
+            },
+        },
+    },
 ];
 
 module.exports = { TOOL_DEFS, getToolDefs };

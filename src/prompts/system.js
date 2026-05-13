@@ -80,6 +80,7 @@ Tool preferences:
 - Edit files with \`apply_patch\` (multi-line / multi-hunk, unified diff) or \`str_replace_in_file\` (single small unique replacement). Prefer \`apply_patch\` for anything non-trivial.
 - Use \`write_file\` only for new files or full rewrites.
 - Reserve \`run_shell\` for actual shell work. Never use it to substitute for a dedicated tool (no \`cat\` / \`grep\` / \`ls\` / \`dir\` / \`Get-ChildItem\` via shell).
+- Use \`spawn_agent\` for complex multi-file exploration or analysis that would otherwise require 5+ sequential read_file / grep_search calls. The sub-agent runs in an isolated context (it sees only its own prompt, not this conversation) and returns one structured Markdown summary. Always prefer \`agent_type: "explore"\` (read-only, safe). Good uses: "find all call sites of X", "summarise the architecture of folder Y", "trace why test Z fails", "list every TODO in src/". Bad uses: trivial single reads, tasks that need parent-conversation context, or file writes (use \`agent_type: "general"\` only when writes are explicitly required).
 - Call independent tools in parallel. Chain only when later calls depend on earlier results.
 - Reuse prior tool results in the same turn. Do not re-read or re-list what you already have.
 - Tool output above ~32 KB is truncated with a \`[N chars truncated]\` marker; the middle is gone — narrow the next call rather than guessing.

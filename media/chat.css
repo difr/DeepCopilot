@@ -142,6 +142,7 @@ body.narrow #main{padding-left:12px;padding-right:12px}
 .tool.k-search .h .ico{color:#dcdcaa}
 .tool.k-write .h .ico{color:#ce9178}
 .tool.k-plan  .h .ico{color:#c586c0}
+.tool.k-agent .h .ico{color:#b5cea8}
 .tool.k-other .h .ico{color:var(--vscode-descriptionForeground)}
 /* States */
 .tool.err .h .st{color:var(--vscode-errorForeground);opacity:.95}
@@ -160,7 +161,7 @@ body.narrow #main{padding-left:12px;padding-right:12px}
 .tl .tl-res{flex-shrink:0;font-size:10.5px;opacity:.55;margin-left:4px}
 .tl.run .tl-res::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:#e8b86d;margin-right:4px;vertical-align:middle;animation:thpulse 1.4s ease-out infinite}
 .tl.err .tl-res{color:var(--vscode-errorForeground);opacity:.9}
-.tl.k-shell .ico{color:#4ec9b0}.tl.k-read .ico{color:#9cdcfe}.tl.k-search .ico{color:#dcdcaa}.tl.k-write .ico{color:#ce9178}.tl.k-plan .ico{color:#c586c0}
+.tl.k-shell .ico{color:#4ec9b0}.tl.k-read .ico{color:#9cdcfe}.tl.k-search .ico{color:#dcdcaa}.tl.k-write .ico{color:#ce9178}.tl.k-plan .ico{color:#c586c0}.tl.k-agent .ico{color:#b5cea8}
 /* Live streaming preview for write_file / str_replace_in_file / apply_patch */
 .tl-stream{margin:2px 0 6px 22px;padding:6px 8px;max-height:220px;overflow:auto;background:var(--vscode-textCodeBlock-background,rgba(127,127,127,.08));border:1px solid var(--vscode-panel-border);border-left:2px solid #ce9178;border-radius:4px;font-family:var(--vscode-editor-font-family,monospace);font-size:11.5px;line-height:1.45;white-space:pre;color:var(--vscode-editor-foreground);position:relative}
 .tl-stream code{font-family:inherit;font-size:inherit;background:transparent;padding:0;display:block}

@@ -42,6 +42,10 @@ class ToolExecutor {
         this._postToRun = postToRun || (() => {});
         this._post      = post      || (() => {});
 
+        // Lazy-init SubAgentRunner to avoid circular require at module load time.
+        // Assigned on first use inside _handleSpawnAgent().
+        this._subAgentRunner = null;
+
         // ── Built-in tool registry ────────────────────────────────────────
         // Keys are exact tool names. Values: async (args, ctx) => string.
         // Hot-pluggable: swap any entry with registerTool().
@@ -343,6 +347,9 @@ class ToolExecutor {
         if (name === 'update_plan')      return this._handleUpdatePlan(args, run);
         if (name === 'revert_last_turn') return this._handleRevertLastTurn(args, run);
 
+        // Sub-agent dispatch
+        if (name === 'spawn_agent')      return this._handleSpawnAgent(args, run, abortSignal);
+
         // MCP pass-through
         if (mcpManager.isMcpTool(name)) {
             try { return await mcpManager.callTool(name, args); }
@@ -409,6 +416,21 @@ class ToolExecutor {
         let msg = `Reverted ${reverted.length} file(s) to pre-turn state: ${reverted.join(', ')}`;
         if (failed.length) msg += `\nFailed to revert: ${failed.join('; ')}`;
         return msg;
+    }
+
+    // ─── spawn_agent ─────────────────────────────────────────────────────────
+
+    _handleSpawnAgent(args, run, abortSignal) {
+        // Lazy initialise SubAgentRunner on first use to avoid circular-require at boot.
+        if (!this._subAgentRunner) {
+            const { SubAgentRunner } = require('./sub-agent');
+            this._subAgentRunner = new SubAgentRunner({
+                context:   this._context,
+                exec:      this,
+                postToRun: this._postToRun,
+            });
+        }
+        return this._subAgentRunner.spawn(args, run, abortSignal);
     }
 }
 
