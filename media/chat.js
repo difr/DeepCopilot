@@ -907,7 +907,18 @@
     /* Tool card breaks the current text run; next replyDelta will start a new segment. */
     if (cur && cur.classList && cur.classList.contains("seg")) cur.setAttribute("data-raw", curText || "");
     cur = null; curText = "";
-    d.querySelector(".h").addEventListener("click", function(){ d.classList.toggle("open"); });
+    d.querySelector(".h").addEventListener("click", function(){
+      d.classList.toggle("open");
+      /* User manually toggled — lock against auto-collapse on completion */
+      var rec = toolMap[id]; if (rec) rec._userToggled = true;
+    });
+    /* run_shell: start expanded so the live stdout tail is visible while
+       the command is running (GH Copilot terminal-card convention).
+       On completion, toolResult() will collapse it iff success and the user
+       hasn't manually toggled. */
+    if (name === "run_shell" && !opts.approval) {
+      d.classList.add("open");
+    }
     if (opts.approval){
       d.classList.add("open");
       var ap = document.createElement("div");
@@ -923,7 +934,13 @@
         d.querySelector(".st").textContent = "拒绝"; d.classList.remove("run"); d.classList.add("err");
       });
     }
-    toolMap[id] = { root:d, body:d.querySelector(".b .out"), status:d.querySelector(".st"), name:name, args:args };
+    toolMap[id] = {
+      root:d, body:d.querySelector(".b .out"), status:d.querySelector(".st"),
+      name:name, args:args,
+      _startedAt: Date.now(),
+      _liveBuf: "",          /* accumulated streamed bytes (shell live tail)   */
+      _userToggled: false,   /* set when user clicks header — locks auto-state */
+    };
     ascroll();
     return d;
   }
@@ -1547,6 +1564,36 @@
     } else if (m.type === "toolArgsFinal"){
       var tcF = toolMap[m.id];
       if (tcF) tcF.args = m.args || tcF.args;
+    } else if (m.type === "toolStreamDelta"){
+      /* Live stdout/stderr chunks from a running tool (currently run_shell).
+         Append to the card body as a <pre> so the user sees a tail-like
+         preview while the command runs.  Throttled via requestAnimationFrame. */
+      var tcSd = toolMap[m.id];
+      if (!tcSd || !tcSd.body) return;
+      tcSd._liveBuf = (tcSd._liveBuf || "") + (m.delta || "");
+      /* Ensure a <pre class="live"> exists inside the body */
+      var livePre = tcSd._livePre;
+      if (!livePre){
+        livePre = document.createElement("pre");
+        livePre.className = "live-out";
+        tcSd.body.appendChild(livePre);
+        tcSd._livePre = livePre;
+      }
+      if (!tcSd._livePending){
+        tcSd._livePending = true;
+        var doLive = function(){
+          tcSd._livePending = false;
+          if (!tcSd._livePre) return;
+          /* Keep DOM cheap: show only the last 6000 chars */
+          var s = tcSd._liveBuf;
+          if (s.length > 6000) s = "…\n" + s.slice(-6000);
+          tcSd._livePre.textContent = s;
+          /* Auto-scroll body to bottom */
+          if (tcSd.body) tcSd.body.scrollTop = tcSd.body.scrollHeight;
+        };
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(doLive);
+        else setTimeout(doLive, 16);
+      }
     } else if (m.type === "toolResult"){
       var tc = toolMap[m.id];
       if (!tc){ addToolLine(m.id, m.name || "tool", "{}"); tc = toolMap[m.id]; }
@@ -1571,6 +1618,19 @@
         /* Sub-agent result is Markdown — render it, show iter/tool counts from metadata header */
         var itersMatch = out.match(/\((\d+) tool calls[^)]*\)/);
         resTxt = itersMatch ? itersMatch[0] : "done";
+      } else if ((m.name === "run_shell" || tc.name === "run_shell")) {
+        /* Shell: build a GH-Copilot-style summary "exit N · L lines · Ts" */
+        var elapsed = tc._startedAt ? ((Date.now() - tc._startedAt) / 1000) : 0;
+        var elapsedStr = elapsed >= 10 ? elapsed.toFixed(0) + "s"
+                       : elapsed >=  1 ? elapsed.toFixed(1) + "s"
+                       :                 Math.max(1, Math.round(elapsed * 1000)) + "ms";
+        if (m.ok){
+          resTxt = "exit 0 · " + (lines > 1 ? lines + " lines · " : (bytes ? bytes + "B · " : "")) + elapsedStr;
+        } else {
+          var em = out.match(/^Exit (\S+):/);
+          var exitTag = em ? ("exit " + em[1]) : "failed";
+          resTxt = exitTag + " · " + elapsedStr;
+        }
       } else {
         resTxt = m.ok ? (lines>1 ? lines + " lines" : (bytes ? bytes + "B" : "ok")) : "failed";
       }
@@ -1583,15 +1643,31 @@
         } else if (tc.name === "spawn_agent" || m.name === "spawn_agent") {
           /* spawn_agent returns Markdown — render it inside the card body */
           tc.body.innerHTML = renderMd(out);
-          tc.root.classList.add("open");
+          if (!tc._userToggled) tc.root.classList.add("open");
+        } else if (tc.name === "run_shell" || m.name === "run_shell") {
+          /* Replace the streaming live tail with the final, complete output.
+             GH-Copilot behaviour: success → auto-collapse (header summary is
+             enough); failure → keep expanded so the error is immediately
+             visible.  Respect any prior manual user toggle. */
+          if (tc._livePre){ tc._livePre.remove(); tc._livePre = null; }
+          var outPre = document.createElement("pre");
+          outPre.className = "final-out";
+          outPre.textContent = out;
+          tc.body.appendChild(outPre);
+          if (!tc._userToggled){
+            if (m.ok) tc.root.classList.remove("open");
+            else      tc.root.classList.add("open");
+          }
+        } else if (tc.name === "web_search" || m.name === "web_search") {
+          /* web_search: same rule as shell — collapse on success, expand on failure */
+          tc.body.textContent = out;
+          if (!tc._userToggled){
+            if (m.ok) tc.root.classList.remove("open");
+            else      tc.root.classList.add("open");
+          }
         } else {
           tc.body.textContent = out;
-          /* Auto-expand shell/web-search cards so output is immediately visible. */
-          if (tc.name === "run_shell" || tc.name === "web_search") {
-            tc.root.classList.add("open");
-          } else {
-            tc.root.classList.remove("open");
-          }
+          if (!tc._userToggled) tc.root.classList.remove("open");
         }
       }
       ascroll();

@@ -244,7 +244,7 @@ class ToolExecutor {
 
     // ─── Main entry point ────────────────────────────────────────────────────
 
-    async execute(name, args, approvalMode, run, abortSignal) {
+    async execute(name, args, approvalMode, run, abortSignal, tcId) {
         // Deny list / readonly guard
         const cfg = vscode.workspace.getConfiguration('deepseekAgent');
         const denyList    = cfg.get('denyTools')      || [];
@@ -295,7 +295,7 @@ class ToolExecutor {
         }
 
         // Dispatch to registry or special handlers
-        const result = await this.dispatch(name, args, run, abortSignal);
+        const result = await this.dispatch(name, args, run, abortSignal, tcId);
 
         // Cache store (read-only)
         if (cache && ToolExecutor.CACHEABLE.has(name) && typeof result === 'string' && !result.startsWith('Error:')) {
@@ -338,10 +338,23 @@ class ToolExecutor {
 
     // ─── Dispatch ────────────────────────────────────────────────────────────
 
-    async dispatch(name, args, run, abortSignal) {
+    async dispatch(name, args, run, abortSignal, tcId) {
         // Registry tools (hot-pluggable)
         const fn = this._registry.get(name);
-        if (fn) return fn(args, { abortSignal, secrets: this._context.secrets });
+        if (fn) {
+            // Streaming hook: tools that produce live output (run_shell) call
+            // ctx.onStreamDelta(chunk) as data arrives; we forward each chunk to
+            // the webview tagged with the tool-call id so the card can render
+            // a live tail (GH-Copilot-style terminal card).
+            const ctx = { abortSignal, secrets: this._context.secrets };
+            if (tcId) {
+                ctx.onStreamDelta = (delta) => {
+                    if (!delta) return;
+                    this._postToRun(run, { type: 'toolStreamDelta', id: tcId, delta: String(delta) });
+                };
+            }
+            return fn(args, ctx);
+        }
 
         // Special tools that need run-level state
         if (name === 'update_plan')      return this._handleUpdatePlan(args, run);

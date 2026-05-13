@@ -145,6 +145,23 @@
           ],
           "description": "Default DeepSeek model."
         },
+        "deepseekAgent.subAgentModel": {
+          "type": "string",
+          "default": "deepseek-v4-flash",
+          "enum": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner"
+          ],
+          "enumDescriptions": [
+            "V4 Flash — fast & cheap (recommended for sub-agents)",
+            "V4 Pro — same as parent; slower and may hit rate limits when parallel",
+            "Compat alias (= v4-flash, non-thinking)",
+            "Compat alias (= v4-flash, thinking mode)"
+          ],
+          "description": "Model used by spawn_agent sub-agents. Defaults to v4-flash so parallel sub-agents don't exhaust the Pro/R1 rate limit quota."
+        },
         "deepseekAgent.approvalMode": {
           "type": "string",
           "default": "manual",

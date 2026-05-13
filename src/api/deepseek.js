@@ -10,7 +10,7 @@ const { TOOL_DEFS } = require('../tools/schema');
 /**
  * @returns Promise<{ toolCalls: Array<{id, name, args}>, usage: object }>
  */
-function streamDeepSeek({ apiKey, baseUrl, messages, model, noTools, toolChoice, tools }, callbacks, abortSignal) {
+function streamDeepSeek({ apiKey, baseUrl, messages, model, noTools, toolChoice, tools, httpAgent }, callbacks, abortSignal) {
     return new Promise((resolve, reject) => {
         const base = (baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
         const urlObj = new URL('/chat/completions', base);
@@ -47,6 +47,9 @@ function streamDeepSeek({ apiKey, baseUrl, messages, model, noTools, toolChoice,
                 'Accept': 'text/event-stream',
                 'Content-Length': bodyBytes,
             },
+            // Reuse an existing keep-alive HTTPS agent when provided (e.g. from
+            // SubAgentRunner) to avoid a full TLS handshake on every API call.
+            ...(httpAgent ? { agent: httpAgent } : {}),
         };
 
         const mod = isHttps ? https : http;

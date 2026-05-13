@@ -153,7 +153,11 @@ class AgentLoop {
         const askMode = (cfg.get('interactionMode') || 'agent') === 'ask';
         Logger.info('INTERACTION_MODE', { mode: cfg.get('interactionMode') || 'agent' });
 
-        const READ_ONLY = new Set(['read_file', 'list_dir', 'grep_search', 'find_files', 'web_search']);
+        // spawn_agent is included here so multiple sub-agent calls issued in the
+        // same turn are dispatched concurrently (Phase 1), matching the behaviour of
+        // read_file / grep_search.  Serial execution (Phase 2) was the reason
+        // sub-agents appeared one after another instead of in parallel.
+        const READ_ONLY = new Set(['read_file', 'list_dir', 'grep_search', 'find_files', 'web_search', 'spawn_agent']);
 
         let iter = 0;
         const recentToolSig   = [];
@@ -337,7 +341,7 @@ class AgentLoop {
                     const args = this._exec.logToolStart(run, tc);
                     const tT0  = Date.now();
                     parallelTasks.push(
-                        this._exec.execute(tc.name, args, mode, run, signal)
+                        this._exec.execute(tc.name, args, mode, run, signal, tc.id)
                             .catch(e => `Error: ${e.message}`)
                             .then(res => {
                                 results[i] = { tc, args, result: this._exec.logToolResult(run, tc, res, Date.now() - tT0) };
@@ -353,7 +357,7 @@ class AgentLoop {
                     const args = this._exec.logToolStart(run, tc);
                     const tT0  = Date.now();
                     let rawResult = '';
-                    try { rawResult = await this._exec.execute(tc.name, args, mode, run, signal); }
+                    try { rawResult = await this._exec.execute(tc.name, args, mode, run, signal, tc.id); }
                     catch (e) { rawResult = `Error: ${e.message}`; }
                     results[i] = { tc, args, result: this._exec.logToolResult(run, tc, rawResult, Date.now() - tT0) };
                 }

@@ -12,6 +12,7 @@
 //   - Parent AbortController cascades to all live children.
 'use strict';
 
+const https = require('https');
 const vscode = require('vscode');
 const { Logger }         = require('../logger');
 const { streamDeepSeek } = require('../api/deepseek');
@@ -34,7 +35,14 @@ function buildSubAgentSystemPrompt(agentType) {
 - Be efficient: use targeted tool calls rather than broad exploration.
 - When you have enough information to answer the task, stop calling tools and write your final summary.
 - Do not produce long explanations — the parent agent needs structured facts.
-- Format your output as a concise Markdown summary with headers and code references where useful.`;
+- Format your output as a concise Markdown summary with headers and code references where useful.
+
+# File Reading Strategy (IMPORTANT — minimise API round-trips)
+- When reading a file, use large line ranges: read at least 200 lines per call (e.g. 1-250, 251-500 …).
+- For files ≤ 400 lines: read in ONE call with no start/end range (full file).
+- For files 401-800 lines: read in TWO calls (1-400, 401-end).
+- For files > 800 lines: read in chunks of 300 lines; you may skip boilerplate sections once you have enough context.
+- Prefer grep_search to locate specific symbols rather than scanning the whole file line-by-line.`;
 
     if (agentType === 'explore') {
         return `${common}
@@ -96,8 +104,24 @@ class SubAgentRunner {
         if (!apiKey) return '[spawn_agent] Error: no API key configured.';
 
         const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-        const model   = cfg.get('defaultModel') || 'deepseek-v4-pro';
+        // Sub-agents default to a fast/cheap model (flash) so that multiple
+        // concurrent sub-agents don't saturate the rate-limit quota of the
+        // parent's (possibly expensive) model.  Users can override via the
+        // deepseekAgent.subAgentModel setting.
+        const model   = cfg.get('subAgentModel') || cfg.get('defaultModel') || 'deepseek-v4-flash';
         const baseUrl = (cfg.get('apiBaseUrl') || '').trim() || 'https://api.deepseek.com';
+
+        // ── Keep-alive HTTPS agent ─────────────────────────────────────────
+        // Re-use the same TLS connection for every API call in this sub-agent's
+        // while-loop.  Without this, each iteration performs a full TLS handshake;
+        // for a 18-iteration sub-agent that's 18 independent TLS sessions which
+        // dramatically increases the probability of a mid-session socket reset.
+        const keepAliveAgent = new https.Agent({
+            keepAlive:           true,
+            keepAliveMsecs:      10000,
+            maxSockets:          1,
+            scheduling:          'lifo',
+        });
 
         const MAX_ITERS = Math.min(40, Math.max(1, Number(max_iters) || 20));
         const agentType = agent_type === 'general' ? 'general' : 'explore';
@@ -147,6 +171,36 @@ class SubAgentRunner {
         let toolCallsRan = 0;
         let iters        = 0;
 
+        // ── Retry-aware streamDeepSeek wrapper ────────────────────────────
+        // Transient network errors (TLS reset, ECONNRESET, ETIMEDOUT) are
+        // retried up to MAX_NET_RETRIES times with exponential back-off.
+        // Abort signals and non-network errors are NOT retried.
+        const MAX_NET_RETRIES = 3;
+        const RETRYABLE = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|TLS|socket\s+hang\s+up|Client\s+network\s+socket\s+disconnected/i;
+        const streamWithRetry = async (params, callbacks) => {
+            let lastErr;
+            for (let attempt = 0; attempt <= MAX_NET_RETRIES; attempt++) {
+                if (childAbort.signal.aborted) throw new Error('aborted');
+                try {
+                    return await streamDeepSeek(
+                        { ...params, httpAgent: keepAliveAgent },
+                        callbacks,
+                        childAbort.signal,
+                    );
+                } catch (e) {
+                    lastErr = e;
+                    const isNet = RETRYABLE.test(e && e.message ? e.message : String(e));
+                    if (!isNet || attempt >= MAX_NET_RETRIES) throw e;
+                    const backoffMs = 800 * Math.pow(2, attempt); // 800ms, 1.6s, 3.2s
+                    Logger.info('SUB_AGENT_NET_RETRY', {
+                        child: childRun.sessionId, attempt: attempt + 1, backoffMs, error: e.message,
+                    });
+                    await new Promise(r => setTimeout(r, backoffMs));
+                }
+            }
+            throw lastErr;
+        };
+
         try {
             const COMPACT_BUDGET = 48000; // smaller budget for sub-agents
 
@@ -167,13 +221,12 @@ class SubAgentRunner {
 
                 let assistantText = '';
                 let reasoningText  = ''; // must be passed back to DeepSeek in thinking mode
-                const { toolCalls } = await streamDeepSeek(
+                const { toolCalls } = await streamWithRetry(
                     { apiKey, baseUrl, messages: apiMessages, model, noTools: false, tools: childTools },
                     {
                         onDelta:    d => { assistantText += d; },
                         onThinking: d => { reasoningText  += d; }, // keep — API requires passback
                     },
-                    childAbort.signal,
                 );
 
                 if (!toolCalls || !toolCalls.length) {
@@ -235,6 +288,9 @@ class SubAgentRunner {
                 finalText = '[spawn_agent] Sub-agent was aborted.';
             }
         } finally {
+            // Always destroy the keep-alive agent so the TCP socket is released
+            // and doesn't linger after the sub-agent completes or fails.
+            try { keepAliveAgent.destroy(); } catch { /* ignore */ }
             if (signal) {
                 try { signal.removeEventListener('abort', onParentAbort); } catch { /* ignore */ }
             }
