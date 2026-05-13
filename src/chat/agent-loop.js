@@ -51,7 +51,7 @@ class AgentLoop {
 
     // ─── Main entry ──────────────────────────────────────────────────────────
 
-    async handleSend(text, attachments = []) {
+    async handleSend(text, attachments = [], skillContent = null) {
         if (!text?.trim()) return;
 
         const existingActive = this._getRun(this._store.sessionId);
@@ -95,7 +95,9 @@ class AgentLoop {
                 totalSize += block.length;
             }
         }
-        const fullText = attachmentBlocks ? attachmentBlocks + text : text;
+        // Skill content is injected as hidden context (never shown in chat bubbles).
+        const skillBlock = skillContent ? `<skill-context>\n${skillContent}\n</skill-context>\n\n` : '';
+        const fullText = skillBlock + (attachmentBlocks ? attachmentBlocks + text : text);
 
         // Build content: array (multimodal) when images present, plain string otherwise.
         // DeepSeek vision API accepts the standard OpenAI image_url content block format.

@@ -1021,15 +1021,21 @@
   // ── @file chips (attached files) ──────────────────────────────────────
   var atChipsEl = document.getElementById("at-chips");
   var attachedFiles = []; // [{ path, content }]
+  var pendingSkill  = null; // { name, content } — staged skill chip
 
   function renderChips() {
     if (!atChipsEl) return;
-    if (!attachedFiles.length) { atChipsEl.innerHTML = ""; atChipsEl.style.display = "none"; return; }
-    atChipsEl.style.display = "flex";
-    atChipsEl.innerHTML = attachedFiles.map(function(f, i){
+    var html = "";
+    if (pendingSkill) {
+      html += '<span class="chip chip-skill" id="skill-chip" title="' + pendingSkill.name + '">⚡ /' + pendingSkill.name + ' <button class="chip-x" id="skill-chip-x" title="移除">×</button></span>';
+    }
+    html += attachedFiles.map(function(f, i){
       var name = f.path.replace(/^.*[\\/]/, '');
       return '<span class="chip" data-i="'+i+'" title="'+f.path+'">📄 '+name+' <button class="chip-x" data-i="'+i+'" title="移除">×</button></span>';
     }).join('');
+    if (!html) { atChipsEl.innerHTML = ""; atChipsEl.style.display = "none"; return; }
+    atChipsEl.style.display = "flex";
+    atChipsEl.innerHTML = html;
   }
 
   function removeChip(i) {
@@ -1040,6 +1046,7 @@
   atChipsEl && atChipsEl.addEventListener("click", function(e){
     var btn = e.target.closest(".chip-x");
     if (!btn) return;
+    if (btn.id === "skill-chip-x") { pendingSkill = null; renderChips(); return; }
     removeChip(parseInt(btn.getAttribute("data-i"), 10));
   });
 
@@ -1104,15 +1111,17 @@
     var it = popItems[popSel];
     if (popKind === "slash"){
       if (it.expand === "__CLEAR__"){ hidePop(); inp.value = ""; cbt && cbt.click(); return; }
-      // Dynamic skill: send skillInvoke and clear the input.
+      // Dynamic skill: stage as chip, let the user keep typing.
       if (it._skill) {
-        var skillToken = inp.value.slice(popTrigStart).replace(/^\S*\s?/, "");
-        var skillArgs  = inp.value.slice(0, popTrigStart).trim();
-        if (skillToken) skillArgs = (skillArgs ? skillArgs + " " : "") + skillToken;
-        inp.value = ""; autosize();
+        // Remove the /skillname token from the input box, keep any text before it
+        var before = inp.value.slice(0, popTrigStart);
+        var after  = inp.value.slice(popTrigStart).replace(/^\S*\s?/, "");
+        inp.value  = before + after;
+        autosize();
         hidePop();
-        vscode.postMessage({ type: "skillInvoke", skillName: it.name.slice(1), args: skillArgs });
-        setTimeout(function(){ inp.focus(); }, 0);
+        pendingSkill = { name: it.name.slice(1), content: it._skillContent || "" };
+        renderChips();
+        setTimeout(function(){ inp.focus(); inp.setSelectionRange(before.length, before.length); }, 0);
         return;
       }
       // Replace "/xyz..." prefix at popTrigStart with the expansion text
@@ -1214,6 +1223,11 @@
     if (attachedFiles.length) {
       // Include text attachments (content loaded) and image attachments (imageData present).
       toSend.attachments = attachedFiles.filter(function(f){ return f.content !== null || !!f.imageData; });
+    }
+    if (pendingSkill) {
+      toSend.skillName    = pendingSkill.name;
+      toSend.skillContent = pendingSkill.content;
+      pendingSkill = null;
     }
     attachedFiles = []; renderChips();
     vscode.postMessage(toSend);
@@ -1577,11 +1591,12 @@
         if (existingNames.indexOf(slashName) !== -1) return;
         var shortDesc = sk.desc.length > 72 ? sk.desc.slice(0, 69) + "\u2026" : sk.desc;
         SLASH_CMDS.push({
-          name:   slashName,
-          desc:   shortDesc,
-          hint:   sk.hint || "",
-          expand: null,    // not used for skills
-          _skill: true,    // marks this as a dynamic skill
+          name:          slashName,
+          desc:          shortDesc,
+          hint:          sk.hint || "",
+          expand:        null,         // not used for skills
+          _skill:        true,         // marks this as a dynamic skill
+          _skillContent: sk.content || "", // full SKILL.md text (for chip staging)
         });
         existingNames.push(slashName);
       });

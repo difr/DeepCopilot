@@ -173,7 +173,28 @@ class ChatViewProvider {
             }
             case 'openApiSettings': vscode.commands.executeCommand('deepseekAgent.showApiStatus'); break;
             case 'openFile':        openFile(msg.path, msg.line); break;
-            case 'send':   this._loop.handleSend(msg.text, msg.attachments || []); break;
+            case 'send': {
+                let skillContent = null;
+                if (msg.skillContent) {
+                    try {
+                        const { discoverSkills } = require('../skills');
+                        const sk = discoverSkills().find(s => s.name === msg.skillName);
+                        if (sk) {
+                            // Strip frontmatter, substitute $ARGUMENTS with the user's message.
+                            const body = sk.content.replace(/^---[\s\S]*?---\r?\n/, '').trim();
+                            skillContent = body.replace(/\$ARGUMENTS/g, (msg.text || '').trim());
+                        } else {
+                            // Fallback: use the content the webview already carries.
+                            skillContent = msg.skillContent.replace(/^---[\s\S]*?---\r?\n/, '').trim()
+                                              .replace(/\$ARGUMENTS/g, (msg.text || '').trim());
+                        }
+                    } catch (e) {
+                        this._post({ type: 'error', text: `Skill load failed: ${e.message}` });
+                    }
+                }
+                this._loop.handleSend(msg.text, msg.attachments || [], skillContent);
+                break;
+            }
             case 'stop': {
                 const run = this._activeRun();
                 if (run?.abortCtrl) { run.abortCtrl.abort(); run.abortCtrl = null; }
@@ -230,23 +251,6 @@ class ChatViewProvider {
                     }
                 } catch (e) { error = e.message; }
                 this._post({ type: 'fileContentResult', path: rel, content, error, imageData });
-                break;
-            }
-            case 'skillInvoke': {
-                // User selected a dynamic skill from the slash-command popup.
-                // msg.skillName: skill directory name, msg.args: optional user arguments.
-                try {
-                    const { discoverSkills } = require('../skills');
-                    const sk = discoverSkills().find(s => s.name === msg.skillName);
-                    if (sk) {
-                        // Strip frontmatter, substitute $ARGUMENTS, then send as a normal user turn.
-                        const body = sk.content.replace(/^---[\s\S]*?---\r?\n/, '').trim();
-                        const prompt = body.replace(/\$ARGUMENTS/g, (msg.args || '').trim());
-                        this._loop.handleSend(prompt);
-                    }
-                } catch (e) {
-                    this._post({ type: 'error', text: `Skill invoke failed: ${e.message}` });
-                }
                 break;
             }
         }

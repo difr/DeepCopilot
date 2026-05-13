@@ -250,6 +250,7 @@ body.narrow #ia{padding-left:8px;padding-right:8px}
 /* @file attachment chips */
 #at-chips{display:none;flex-wrap:wrap;gap:4px;padding:4px 2px;max-width:100%}
 .chip{display:inline-flex;align-items:center;gap:3px;background:var(--vscode-badge-background,#0074cc22);color:var(--vscode-badge-foreground,var(--vscode-editor-foreground));border:1px solid var(--vscode-button-background,#0074cc);border-radius:12px;font-size:11px;padding:2px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip-skill{background:var(--vscode-terminal-ansiMagenta,#8b5cf622);border-color:var(--vscode-terminal-ansiMagenta,#8b5cf6);color:var(--vscode-terminal-ansiMagenta,#8b5cf6);max-width:260px}
 .chip-x{background:none;border:none;color:inherit;cursor:pointer;font-size:13px;line-height:1;padding:0;opacity:.7}
 .chip-x:hover{opacity:1}
 .chip.loading{opacity:.6}
