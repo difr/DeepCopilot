@@ -189,6 +189,15 @@
   }
 
   function renderInline(t){
+    /* Park inline $...$ BEFORE escHtml so raw TeX is never HTML-entity-encoded.
+       Critical: without this, > in math becomes &gt; which KaTeX rejects.
+       After renderMd() pre-parks math as \u0000MATHn\u0000, this fallback
+       handles any $...$ that still reaches renderInline() directly. */
+    var mathStash = [];
+    t = String(t||"").replace(/(?<!\$)\$([^\$\n]{1,200})\$(?!\$)/g, function(_, tex){
+      mathStash.push(tex);
+      return "\u0002M" + (mathStash.length - 1) + "\u0002";
+    });
     var x = escHtml(t);
     var stash = [];
     function park(html){ stash.push(html); return "\u0001FL" + (stash.length - 1) + "\u0001"; }
@@ -202,14 +211,14 @@
     x = x.replace(bareFileRe, function(_, pre, p, line, col){
       return pre + park(makeFileLink(p, line, col));
     });
-    /* Step C: remaining backticks → inline code; bold; inline math $...$; etc. */
+    /* Step C: remaining backticks → inline code; bold; etc. */
     x = x.replace(/`([^`\n]+)`/g, "<code class=\"ic\">$1</code>");
     x = x.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-    /* Inline math: $...$ (not preceded/followed by another $, avoid $$) */
-    x = x.replace(/(?<!\$)\$([^\$\n]{1,200})\$(?!\$)/g, function(_, tex){
-      return renderMathSafe(tex, false);
+    /* Step D: restore inline math with original (pre-escHtml) TeX. */
+    x = x.replace(/\u0002M(\d+)\u0002/g, function(_, i){
+      return renderMathSafe(mathStash[+i], false);
     });
-    /* Step D: restore parked file-link HTML. */
+    /* Step E: restore parked file-link HTML. */
     x = x.replace(/\u0001FL(\d+)\u0001/g, function(_, i){ return stash[+i]; });
     return x;
   }
@@ -388,7 +397,14 @@
       /* display: \[...\] */
       .replace(/\\\[([\s\S]*?)\\\]/g, function(_, tex){ return parkMath(tex, true); })
       /* inline: \(...\) */
-      .replace(/\\\(([\s\S]*?)\\\)/g, function(_, tex){ return parkMath(tex, false); });
+      .replace(/\\\(([\s\S]*?)\\\)/g, function(_, tex){ return parkMath(tex, false); })
+      /* inline: $...$ — must come AFTER $$...$$ so double-dollar is already gone.
+         Parking here (before table/paragraph/renderInline) fixes two bugs:
+         (a) | inside math (e.g. |\boldsymbol{\xi}|) no longer breaks table
+             column splitting in splitRow(); and
+         (b) raw TeX reaches KaTeX before any escHtml() call, so > is never
+             corrupted into &gt; which KaTeX cannot parse. */
+      .replace(/(?<!\$)\$([^\$\n]{1,200})\$(?!\$)/g, function(_, tex){ return parkMath(tex, false); });
     /* Step 1: extract fenced code blocks as placeholders */
     var codes = [];
     var src = String(src0||"").replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, function(_, lang, code){
