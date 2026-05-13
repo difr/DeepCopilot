@@ -183,13 +183,11 @@ class ChatViewProvider {
                             ? sk.content.replace(/^---[\s\S]*?---\r?\n/, '').trim()
                             : msg.skillContent.replace(/^---[\s\S]*?---\r?\n/, '').trim();
                         const userArg = (msg.text || '').trim();
-                        // Substitute $ARGUMENTS; if the placeholder isn't present, append the
-                        // user's text explicitly so the topic is always in the skill context.
-                        if (rawBody.includes('$ARGUMENTS')) {
-                            skillContent = rawBody.replace(/\$ARGUMENTS/g, userArg);
-                        } else {
-                            skillContent = rawBody + (userArg ? `\n\nUser argument: ${userArg}` : '');
-                        }
+                        const body = rawBody.includes('$ARGUMENTS')
+                            ? rawBody.replace(/\$ARGUMENTS/g, userArg)
+                            : rawBody + (userArg ? `\n\nUser argument: ${userArg}` : '');
+                        // Wrap as object so agent-loop can inject as synthetic tool call + result.
+                        skillContent = { _skillName: msg.skillName || 'skill', body };
                     } catch (e) {
                         this._post({ type: 'error', text: `Skill load failed: ${e.message}` });
                     }

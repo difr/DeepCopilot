@@ -95,11 +95,32 @@ class AgentLoop {
                 totalSize += block.length;
             }
         }
-        // Skill content is stored as a one-shot system instruction (never in the user bubble).
-        // It will be appended to sysPrompt on iter==1 only, so the model treats it as
-        // authoritative instructions — matching how Claude Code / GitHub Copilot handle skills.
+        // Skill injection: simulate a read_file tool call + result BEFORE the user message.
+        // This mirrors exactly how GitHub Copilot works: the model "reads" the SKILL.md via
+        // tool call, then acts on it as self-obtained instructions rather than user-injected text.
+        // The synthetic messages are inserted into run.messages BEFORE the user turn.
         if (skillContent) {
-            run._skillInstruction = skillContent;
+            const skillName = skillContent._skillName || 'skill';
+            const body      = typeof skillContent === 'string' ? skillContent : skillContent.body;
+            // assistant turn: announce reading the skill file
+            run.messages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                    id:       'synthetic_skill_read',
+                    type:     'function',
+                    function: {
+                        name:      'read_file',
+                        arguments: JSON.stringify({ path: `~/.claude/skills/${skillName}/SKILL.md` }),
+                    },
+                }],
+            });
+            // tool result turn: the skill content
+            run.messages.push({
+                role:         'tool',
+                tool_call_id: 'synthetic_skill_read',
+                content:      body,
+            });
         }
         const fullText = attachmentBlocks ? attachmentBlocks + text : text;
 
@@ -179,17 +200,9 @@ class AgentLoop {
                     }
                 }
 
-                // On the first iteration only, append the skill instruction to the system prompt.
-                // This matches the GitHub Copilot / Claude Code pattern: skill = system-level authority.
-                let effectiveSysPrompt = sysPrompt;
-                if (iter === 1 && run._skillInstruction) {
-                    effectiveSysPrompt = sysPrompt +
-                        '\n\n---\n## Active Skill Workflow\n\n' +
-                        'The user has activated a skill. You MUST follow the workflow below step by step. ' +
-                        'Do NOT simply answer the question — execute every phase described.\n\n' +
-                        run._skillInstruction;
-                    delete run._skillInstruction; // fire once only
-                }
+                // effectiveSysPrompt: no longer modified per-iter; skill is now injected as
+                // synthetic tool call + result in run.messages (see pre-loop section above).
+                const effectiveSysPrompt = sysPrompt;
                 const msgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
                 let assistantText = '';
                 let reasoningText = '';
