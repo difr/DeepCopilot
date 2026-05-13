@@ -3,6 +3,7 @@
   try { vscode = acquireVsCodeApi(); } catch(e) { document.body.innerHTML += "<div style=\"color:red;padding:10px\">vscode API error: "+e.message+"</div>"; return; }
   var msgs = document.getElementById("main");
   var thk  = document.getElementById("thk");
+  var skillNoticeEl = document.getElementById("skill-notice");
   var inp  = document.getElementById("inp");
   var sbtn = document.getElementById("sbtn");
   var es   = document.getElementById("es");
@@ -1060,19 +1061,26 @@
   var attachedFiles = []; // [{ path, content }]
   var pendingSkill  = null; // { name, content } — staged skill chip
 
+  function renderSkillNotice() {
+    if (!skillNoticeEl) return;
+    if (pendingSkill) {
+      skillNoticeEl.style.display = "inline-flex";
+      skillNoticeEl.innerHTML = '/' + pendingSkill.name + ' <button class="skill-notice-x" title="移除">×</button>';
+    } else {
+      skillNoticeEl.style.display = "none";
+      skillNoticeEl.innerHTML = "";
+    }
+  }
+
   function renderChips() {
     if (!atChipsEl) return;
-    var html = "";
-    if (pendingSkill) {
-      html += '<span class="chip chip-skill" id="skill-chip" title="' + pendingSkill.name + '">⚡ /' + pendingSkill.name + ' <button class="chip-x" id="skill-chip-x" title="移除">×</button></span>';
-    }
-    html += attachedFiles.map(function(f, i){
+    var html = attachedFiles.map(function(f, i){
       var name = f.path.replace(/^.*[\\/]/, '');
       return '<span class="chip" data-i="'+i+'" title="'+f.path+'">📄 '+name+' <button class="chip-x" data-i="'+i+'" title="移除">×</button></span>';
     }).join('');
-    if (!html) { atChipsEl.innerHTML = ""; atChipsEl.style.display = "none"; return; }
-    atChipsEl.style.display = "flex";
-    atChipsEl.innerHTML = html;
+    if (!html) { atChipsEl.innerHTML = ""; atChipsEl.style.display = "none"; }
+    else { atChipsEl.style.display = "flex"; atChipsEl.innerHTML = html; }
+    renderSkillNotice();
   }
 
   function removeChip(i) {
@@ -1083,8 +1091,14 @@
   atChipsEl && atChipsEl.addEventListener("click", function(e){
     var btn = e.target.closest(".chip-x");
     if (!btn) return;
-    if (btn.id === "skill-chip-x") { pendingSkill = null; renderChips(); return; }
     removeChip(parseInt(btn.getAttribute("data-i"), 10));
+  });
+
+  skillNoticeEl && skillNoticeEl.addEventListener("click", function(e){
+    var btn = e.target.closest(".skill-notice-x");
+    if (!btn) return;
+    pendingSkill = null;
+    renderChips();
   });
 
   function requestFileContent(path) {

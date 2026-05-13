@@ -251,6 +251,10 @@ body.narrow #ia{padding-left:8px;padding-right:8px}
 #at-chips{display:none;flex-wrap:wrap;gap:4px;padding:6px 10px 2px;max-width:100%}
 .chip{display:inline-flex;align-items:center;gap:3px;background:var(--vscode-badge-background,#0074cc22);color:var(--vscode-badge-foreground,var(--vscode-editor-foreground));border:1px solid var(--vscode-button-background,#0074cc);border-radius:12px;font-size:11px;padding:2px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip-skill{background:rgba(0,116,204,.12);border-color:var(--vscode-button-background,#0074cc);color:var(--vscode-button-background,#0074cc);max-width:260px;font-weight:500}
+#inp-row{display:flex;align-items:flex-start;width:100%}
+#skill-notice{display:none;align-items:center;gap:5px;background:#0074cc;color:#fff;border-radius:12px;padding:3px 8px 3px 11px;font-size:12px;font-weight:500;white-space:nowrap;flex-shrink:0;margin:8px 0 0 10px;align-self:flex-start}
+#skill-notice .skill-notice-x{background:none;border:none;color:#fff;cursor:pointer;font-size:15px;line-height:1;padding:0;opacity:.75}
+#skill-notice .skill-notice-x:hover{opacity:1}
 .chip-x{background:none;border:none;color:inherit;cursor:pointer;font-size:13px;line-height:1;padding:0;opacity:.7}
 .chip-x:hover{opacity:1}
 .chip.loading{opacity:.6}
@@ -261,7 +265,7 @@ body.narrow #ia{padding-left:8px;padding-right:8px}
 #composer-card{display:flex;flex-direction:column;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border);border-radius:10px;transition:border-color .12s,box-shadow .12s}
 #composer-card:focus-within{border-color:var(--vscode-focusBorder);box-shadow:0 0 0 1px var(--vscode-focusBorder)}
 #composer-card.drag-over{border-color:var(--vscode-button-background);box-shadow:0 0 0 2px var(--vscode-button-background)}
-#inp{flex:0 0 auto;resize:none;background:transparent;color:var(--vscode-input-foreground);border:none;border-radius:10px 10px 0 0;padding:9px 12px 6px;font-family:inherit;font-size:13px;line-height:1.45;min-height:36px;max-height:200px;outline:none;overflow-y:hidden;box-sizing:border-box;width:100%;display:block}
+#inp{flex:1 1 auto;min-width:0;resize:none;background:transparent;color:var(--vscode-input-foreground);border:none;border-radius:10px 10px 0 0;padding:9px 12px 6px;font-family:inherit;font-size:13px;line-height:1.45;min-height:36px;max-height:200px;outline:none;overflow-y:hidden;box-sizing:border-box;display:block}
 #composer-bar{display:flex;align-items:center;gap:4px;padding:4px 6px 6px}
 #composer-bar .cb-left{flex:1;display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
 #composer-bar .cbtn{background:none;border:none;color:var(--vscode-icon-foreground);cursor:pointer;padding:3px 7px;border-radius:6px;font-size:13px;line-height:1;height:24px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}

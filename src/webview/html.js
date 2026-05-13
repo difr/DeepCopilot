@@ -79,7 +79,10 @@ function buildWebviewHtml(webview, extensionUri) {
   <div id="pop" class="pop" style="display:none"></div>
   <div id="composer-card">
     <div id="at-chips"></div>
-    <textarea id="inp" rows="1" placeholder="描述要构建的内容"></textarea>
+    <div id="inp-row">
+      <div id="skill-notice"></div>
+      <textarea id="inp" rows="1" placeholder="描述要构建的内容"></textarea>
+    </div>
     <div id="composer-bar">
       <div class="cb-left">
         <button id="cxbt" class="cbtn" title="包含当前文件 / 选中代码">📎</button>
