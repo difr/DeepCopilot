@@ -716,23 +716,24 @@
     var flow = curBubble.querySelector(".flow");
     if (!flow) return;
     var children = Array.from(flow.children);
-    var toolRuns = [];
+    /* Collect trailing .tl-wrap elements (each wraps a .tl prose row + its detail) */
+    var toolWraps = [];
     for (var i = children.length - 1; i >= 0; i--){
-      if (children[i].classList.contains("tl")) toolRuns.unshift(children[i]);
+      if (children[i].classList.contains("tl-wrap")) toolWraps.unshift(children[i]);
       else break;
     }
-    if (toolRuns.length < 2) return;
-    /* Build "Read ×2 · Ran shell" style label */
+    if (toolWraps.length < 2) return;
+    /* Build "Read ×2 · Searched" style summary label */
     var verbCounts = {};
-    toolRuns.forEach(function(t){
-      var proseEl = t.querySelector(".tl-prose");
+    toolWraps.forEach(function(w){
+      var proseEl = w.querySelector(".tl-prose");
       var verb = proseEl ? proseEl.textContent.trim().split(/\s+/)[0] : "Tool";
       verbCounts[verb] = (verbCounts[verb] || 0) + 1;
     });
     var label = Object.keys(verbCounts).map(function(v){
       return verbCounts[v] > 1 ? v + " \xd7" + verbCounts[v] : v;
     }).join("  \xb7  ");
-    var firstIco = toolRuns[0].querySelector(".ico");
+    var firstIco = toolWraps[0].querySelector(".ico");
     var icoHtml = firstIco ? firstIco.outerHTML : "";
     var grp = document.createElement("div");
     grp.className = "tl-group";
@@ -741,7 +742,7 @@
     sumRow.innerHTML = icoHtml + "<span class=\"tl-prose\">" + escHtml(label) + "</span><span class=\"tl-chev\">\u2228</span>";
     var listEl = document.createElement("div");
     listEl.className = "tl-list";
-    toolRuns.forEach(function(t){ listEl.appendChild(t); });
+    toolWraps.forEach(function(w){ listEl.appendChild(w); });
     grp.appendChild(sumRow);
     grp.appendChild(listEl);
     flow.appendChild(grp);
@@ -856,17 +857,30 @@
   function addToolLine(id, name, args){
     ensureBubble();
     var holder = curBubble.querySelector(".flow");
+    var wrap = document.createElement("div");
+    wrap.className = "tl-wrap";
     var d = document.createElement("div");
     var meta = toolMeta(name, args);
     d.className = "tl run k-" + meta.kind;
     d.innerHTML =
       "<i class=\"ico codicon " + escHtml(meta.icon) + "\"></i>" +
       "<span class=\"tl-prose\">" + toolProseHtml(name, args, meta) + "</span>" +
-      "<span class=\"tl-res\"></span>";
-    holder.appendChild(d);
+      "<span class=\"tl-res\"></span>" +
+      "<span class=\"tl-exp codicon codicon-chevron-right\" title=\"展开\"></span>";
+    var detail = document.createElement("div");
+    detail.className = "tl-detail";
+    wrap.appendChild(d);
+    wrap.appendChild(detail);
+    holder.appendChild(wrap);
     if (cur && cur.classList && cur.classList.contains("seg")) { flushRender(); cur.setAttribute("data-raw", curText || ""); }
     cur = null; curText = "";
-    toolMap[id] = { root:d, body:null, status:d.querySelector(".tl-res"), isLine:true, name:name, args:args };
+    /* Toggle expand on row click — only active after has-detail is set */
+    d.addEventListener("click", function(){
+      if (!d.classList.contains("has-detail")) return;
+      var open = d.classList.toggle("open");
+      detail.style.display = open ? "block" : "none";
+    });
+    toolMap[id] = { root:d, body:detail, status:d.querySelector(".tl-res"), isLine:true, name:name, args:args };
     ascroll();
     return d;
   }
@@ -1561,16 +1575,19 @@
         resTxt = m.ok ? (lines>1 ? lines + " lines" : (bytes ? bytes + "B" : "ok")) : "failed";
       }
       tc.status.textContent = resTxt;
-      if (!tc.isLine && tc.body) {
-        /* spawn_agent returns Markdown — render it inside the card body */
-        if (tc.name === "spawn_agent" || m.name === "spawn_agent") {
+      if (tc.body && out) {
+        if (tc.isLine) {
+          /* Prose line with output — write to detail pane, reveal hover-expand arrow */
+          tc.body.textContent = out;
+          tc.root.classList.add("has-detail");
+        } else if (tc.name === "spawn_agent" || m.name === "spawn_agent") {
+          /* spawn_agent returns Markdown — render it inside the card body */
           tc.body.innerHTML = renderMd(out);
           tc.root.classList.add("open");
         } else {
           tc.body.textContent = out;
-          /* Auto-expand shell/web-search cards so output is immediately visible.
-             User can collapse by clicking the header. */
-          if (out && (tc.name === "run_shell" || tc.name === "web_search")) {
+          /* Auto-expand shell/web-search cards so output is immediately visible. */
+          if (tc.name === "run_shell" || tc.name === "web_search") {
             tc.root.classList.add("open");
           } else {
             tc.root.classList.remove("open");
