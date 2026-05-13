@@ -1,7 +1,7 @@
 {
   "name": "deep-copilot",
   "displayName": "Deep Copilot",
-  "description": "Deep Copilot �?AI coding agent embedded in VS Code. Powered by DeepSeek V4, with file editing, terminal, search, and plan/todos. Standalone, no backend required.",
+  "description": "Deep Copilot — AI coding agent embedded in VS Code. Powered by DeepSeek V4, with file editing, terminal, search, and plan/todos. Standalone, no backend required.",
   "version": "0.30.9",
   "publisher": "ZhouChaunge",
   "icon": "imgs/logo.png",
@@ -116,7 +116,7 @@
         "deepseekAgent.serverExecutablePath": {
           "type": "string",
           "default": "",
-          "description": "Path to deepseek-app-server executable. Leave empty �?Deep Copilot is standalone and does not need a backend."
+          "description": "Path to deepseek-app-server executable. Leave empty — Deep Copilot is standalone and does not need a backend."
         },
         "deepseekAgent.serverPort": {
           "type": "number",
@@ -138,8 +138,8 @@
             "deepseek-reasoner"
           ],
           "enumDescriptions": [
-            "V4 Pro �?strongest, ¥3/¥6 per 1M tokens (2.5折至 2026-05-31，原�?¥12/¥24)",
-            "V4 Flash �?fast & cheap, ¥1/¥2 per 1M tokens",
+            "V4 Pro — strongest, ¥3/¥6 per 1M tokens (2.5折至 2026-05-31，原价 ¥12/¥24)",
+            "V4 Flash — fast & cheap, ¥1/¥2 per 1M tokens",
             "Compat alias (= v4-flash, non-thinking)",
             "Compat alias (= v4-flash, thinking mode)"
           ],
@@ -155,10 +155,10 @@
             "readonly"
           ],
           "enumDescriptions": [
-            "Manual �?approve write_file / run_shell each time (safest, default)",
-            "Auto-Edit �?auto-approve file writes, prompt for shell commands",
-            "Autopilot �?auto-approve everything (use with caution)",
-            "Read-Only �?deny all write/shell tools"
+            "Manual — approve write_file / run_shell each time (safest, default)",
+            "Auto-Edit — auto-approve file writes, prompt for shell commands",
+            "Autopilot — auto-approve everything (use with caution)",
+            "Read-Only — deny all write/shell tools"
           ],
           "description": "Tool approval policy for write_file / run_shell."
         },
@@ -181,7 +181,7 @@
         "deepseekAgent.enableDebugLog": {
           "type": "boolean",
           "default": true,
-          "description": "记录每次请求的思维�?/ 工具调用 / API 事件�?.deep-copilot/logs/ �?Output 面板，便于排查卡住的问题�?
+          "description": "记录每次请求的思维链 / 工具调用 / API 事件到 .deep-copilot/logs/ 与 Output 面板，便于排查卡住的问题。"
         },
         "deepseekAgent.maxIterations": {
           "type": "number",
@@ -209,8 +209,8 @@
             "ask"
           ],
           "enumDescriptions": [
-            "Agent �?model can autonomously call tools (file reads, edits, shell, etc.). Recommended for coding tasks.",
-            "Ask �?pure conversational mode. Tools are NEVER exposed to the model. Use for Q&A or when you don't want any workspace exploration."
+            "Agent — model can autonomously call tools (file reads, edits, shell, etc.). Recommended for coding tasks.",
+            "Ask — pure conversational mode. Tools are NEVER exposed to the model. Use for Q&A or when you don't want any workspace exploration."
           ],
           "description": "Interaction mode (analogous to GitHub Copilot's Ask vs Agent). Agent mode also runs a per-turn intent classifier that auto-disables tools on greetings."
         }
