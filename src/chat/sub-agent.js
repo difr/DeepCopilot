@@ -166,18 +166,23 @@ class SubAgentRunner {
                 ];
 
                 let assistantText = '';
+                let reasoningText  = ''; // must be passed back to DeepSeek in thinking mode
                 const { toolCalls } = await streamDeepSeek(
                     { apiKey, baseUrl, messages: apiMessages, model, noTools: false, tools: childTools },
                     {
-                        onDelta:    d  => { assistantText += d; },
-                        onThinking: () => {},  // discard sub-agent reasoning — not shown to parent
+                        onDelta:    d => { assistantText += d; },
+                        onThinking: d => { reasoningText  += d; }, // keep — API requires passback
                     },
                     childAbort.signal,
                 );
 
                 if (!toolCalls || !toolCalls.length) {
                     // No more tool calls — sub-agent has finished
-                    childRun.messages.push({ role: 'assistant', content: assistantText });
+                    childRun.messages.push({
+                        role: 'assistant',
+                        content: assistantText,
+                        ...(reasoningText ? { reasoning_content: reasoningText } : {}),
+                    });
                     finalText = assistantText;
                     break;
                 }
@@ -185,6 +190,7 @@ class SubAgentRunner {
                 childRun.messages.push({
                     role: 'assistant',
                     content: assistantText || null,
+                    ...(reasoningText ? { reasoning_content: reasoningText } : {}),
                     tool_calls: toolCalls.map(tc => ({
                         id:   tc.id,
                         type: 'function',
