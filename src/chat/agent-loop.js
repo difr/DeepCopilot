@@ -149,7 +149,7 @@ class AgentLoop {
 
         const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true });
         const MAX_ITERS = Math.max(1, Math.min(64, Number(cfg.get('maxIterations')) || 15));
-        const COMPACT_BUDGET = Math.max(8000, Number(cfg.get('compactBudgetTokens')) || 96000);
+        const COMPACT_BUDGET = Math.max(8000, Number(cfg.get('compactBudgetTokens')) || 600000);
         const askMode = (cfg.get('interactionMode') || 'agent') === 'ask';
         Logger.info('INTERACTION_MODE', { mode: cfg.get('interactionMode') || 'agent' });
 
@@ -213,10 +213,10 @@ class AgentLoop {
                 Logger.info('ITER_START', { sid, iter, msg_count: msgs.length, est_tokens: estimateMessagesTokens(msgs) });
 
                 // Pre-flight hard token cap — prevents HTTP 400 context-too-long errors.
-                // DeepSeek context window is 128K tokens. We guard at 60K (conservative)
-                // to leave room for the response. If still over after regular compaction,
-                // run an aggressive pass (keepTail=6), then an emergency pass (keepTail=3).
-                const MODEL_CTX_HARD_LIMIT = 60000;
+                // DeepSeek context window is 1M tokens; max output is 384K.
+                // Guard at 900K to leave ~100K headroom for the response.
+                // If still over after regular compaction, run aggressive passes.
+                const MODEL_CTX_HARD_LIMIT = 900000;
                 let preflightTokens = estimateMessagesTokens(msgs);
                 let ctxLimitHit = false;
                 if (preflightTokens > MODEL_CTX_HARD_LIMIT) {

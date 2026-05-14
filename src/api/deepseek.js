@@ -20,7 +20,7 @@ function streamDeepSeek({ apiKey, baseUrl, messages, model, noTools, toolChoice,
             model: model || 'deepseek-chat',
             messages,
             stream: true,
-            max_tokens: 8192,
+            max_tokens: 32768,
         };
         if (!noTools) {
             reqPayload.tools = tools || TOOL_DEFS;

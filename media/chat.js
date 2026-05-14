@@ -372,7 +372,7 @@
        so users / the model can use <details>, <kbd>, <mark>, etc.
        DOMPurify (loaded globally) sanitizes the final HTML as a
        defense-in-depth net for anything that slipped through. */
-    var SAFE_HTML_TAGS = "details|summary|kbd|mark|sub|sup|abbr|ins|del|dfn|samp|var|br|hr|u|small|s|q|cite|figure|figcaption";
+    var SAFE_HTML_TAGS = "details|summary|kbd|mark|sub|sup|abbr|ins|del|dfn|samp|var|br|hr|wbr|u|small|s|q|cite|figure|figcaption|p|strong|em|b|i|span|code|a|time|data|bdi|bdo|ruby|rt|rp|rb";
     var SAFE_TAG_RE = new RegExp(
       "<\\/?(?:" + SAFE_HTML_TAGS + ")(?:\\s+[a-zA-Z_:][\\w:.-]*(?:\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+))?)*\\s*\\/?>",
       "gi"
@@ -421,7 +421,7 @@
        the whole block as \u0000HB{n}\u0000.  The Markdown line processor
        never sees the raw HTML; DOMPurify sanitises it in the final pass. */
     var htmlBlocks = [];
-    var HB_TAGS = "table|ul|ol|dl|div|section|article|aside|header|footer|main|nav|blockquote|fieldset";
+    var HB_TAGS = "table|ul|ol|dl|div|section|article|aside|header|footer|main|nav|blockquote|fieldset|h1|h2|h3|h4|h5|h6";
     var HB_START = new RegExp("^\\s*<(" + HB_TAGS + ")(\\s[^>]*)?>" , "i");
     (function(){
       var srcArr = src.split(/\r?\n/);
@@ -560,13 +560,17 @@
         ? "<div class=\"math-block\">" + renderMathSafe(m.tex.trim(), true) + "</div>"
         : renderMathSafe(m.tex.trim(), false);
     });
-    /* Restore whitelisted HTML tag tokens (Issue #35). */
-    finalHtml = finalHtml.replace(/\u0000HTML(\d+)\u0000/g, function(_, idx){
-      return htmlToks[+idx] || "";
-    });
-    /* Restore raw HTML blocks; DOMPurify sanitises them in the next step. */
+    /* Restore raw HTML blocks FIRST so that any \u0000HTML{n}\u0000 tokens
+       embedded inside them (parked by SAFE_TAG_RE before HB extraction) are
+       still present when the HTML-token pass runs below. Reversing this order
+       causes those embedded tokens to appear as literal "HTML12" text. */
     finalHtml = finalHtml.replace(/\u0000HBRAW(\d+)\u0000/g, function(_, idx){
       return htmlBlocks[+idx] || "";
+    });
+    /* Restore whitelisted HTML tag tokens (Issue #35).
+       Must run AFTER HBRAW so tokens embedded inside HB blocks are caught. */
+    finalHtml = finalHtml.replace(/\u0000HTML(\d+)\u0000/g, function(_, idx){
+      return htmlToks[+idx] || "";
     });
     /* Defense-in-depth: DOMPurify strips anything not in the whitelist
        (scripts, event handlers, javascript: URIs, etc.). Code blocks and
@@ -576,6 +580,7 @@
         finalHtml = DOMPurify.sanitize(finalHtml, {
           ADD_TAGS: ["details", "summary", "kbd", "mark", "sub", "sup", "abbr",
                      "ins", "del", "dfn", "samp", "var", "figure", "figcaption",
+                     "h1", "h2", "h3", "h4", "h5", "h6",
                      "math", "annotation", "semantics", "mrow", "mi", "mo", "mn",
                      "msup", "msub", "mfrac", "msqrt", "mtext", "munder", "mover"],
           ADD_ATTR: ["open", "colspan", "rowspan", "data-path", "data-line",
