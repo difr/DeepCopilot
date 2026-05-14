@@ -21,8 +21,36 @@
 
 ---
 
-## 📑 Table of Contents · 目录
+## � API Keys Required · 需要配置的 API Key
 
+开始使用前只需准备以下 Key（最少只需第一个）：  
+You only need the following keys to get started — at minimum just the first one:
+
+| # | API Key | 用途 · Purpose | 获取地址 · Get it here | 是否必须 · Required |
+|---|---|---|---|---|
+| 1 | **DeepSeek API Key** | 驱动 AI 对话与 Agent 工具调用 · Powers all AI chat & agent tool calls | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) | ✅ 必须 · Required |
+| 2 | **Tavily API Key** | 启用联网搜索工具 `web_search` · Enables the `web_search` tool | [app.tavily.com](https://app.tavily.com) | ⚙️ 可选 · Optional |
+
+### 如何填入 · How to set them
+
+**🇨🇳**
+1. 安装扩展后，点击侧边栏活动栏的 🐋 图标打开 Deep Copilot 面板
+2. 点击面板**右下角** 🔑 按钮 → 粘贴 **DeepSeek API Key** → 保存
+3. 若需要联网搜索，在同一弹窗里继续填入 **Tavily API Key**
+
+**🇬🇧**
+1. After installing, click the 🐋 icon in the activity bar to open the Deep Copilot panel
+2. Click the 🔑 button in the **bottom-right** of the panel → paste your **DeepSeek API Key** → save
+3. For web search, fill in your **Tavily API Key** in the same dialog
+
+> **🇨🇳 国内用户**：若 `api.deepseek.com` 连接不稳定，在 🔑 弹窗中将 Base URL 改为 `https://api.deepseeki.com`。  
+> **🇬🇧 China users**: if `api.deepseek.com` is slow, set Base URL to `https://api.deepseeki.com` in the 🔑 dialog.
+
+---
+
+## �📑 Table of Contents · 目录
+
+- [API Keys · 需要配置的 Key](#-api-keys-required--需要配置的-api-key)
 - [Highlights · 亮点](#-highlights--亮点)
 - [Quick Start · 快速开始](#-quick-start--快速开始)
 - [Build from Source · 源码构建](#-build-from-source--源码构建)
@@ -90,10 +118,6 @@ Or in VS Code: **Extensions** view → `⋯` menu → **Install from VSIX...** a
 1. Click the 🐋 Deep Copilot icon in the **activity bar** to open the chat panel.点击**活动栏**中的 🐋 Deep Copilot 图标，打开聊天面板。
 2. Click the 🔑 button at the **bottom right** of the panel, paste your [DeepSeek API key](https://platform.deepseek.com/api_keys).点击面板**右下角** 🔑 按钮，粘贴你的 [DeepSeek API Key](https://platform.deepseek.com/api_keys)。
 3. Start chatting! 开始对话！
-
-> **🇨🇳 国内用户提示**：如果连接 `api.deepseek.com` 不稳定，点 🔑 按钮后再点 **Base URL** 切到 `https://api.deepseeki.com`。
->
-> **🇬🇧 China users**: if `api.deepseek.com` is slow, click 🔑 → set Base URL to `https://api.deepseeki.com`.
 
 ---
 
