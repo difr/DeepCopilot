@@ -42,8 +42,18 @@ function autoCompactIfNeeded(messages, budgetTokens, keepTail = 12) {
     const KEEP_TAIL = keepTail;
     if (messages.length <= KEEP_TAIL + 2) return { messages, compacted: false, dropped: 0 };
 
-    const tail = messages.slice(-KEEP_TAIL);
-    const head = messages.slice(0, -KEEP_TAIL);
+    // Walk the split point backwards past any leading tool messages so the tail
+    // never starts in the middle of a tool_calls group. The API requires that
+    // all tool result messages immediately follow their assistant{tool_calls}
+    // message with no other roles interleaved between them.
+    let splitIdx = messages.length - KEEP_TAIL;
+    while (splitIdx > 0 && messages[splitIdx].role === 'tool') {
+        splitIdx--;
+    }
+    if (splitIdx <= 0) return { messages, compacted: false, dropped: 0 };
+
+    const tail = messages.slice(splitIdx);
+    const head = messages.slice(0, splitIdx);
 
     const firstUserIdx = head.findIndex(m => m.role === 'user');
     const firstUser = firstUserIdx >= 0 ? head[firstUserIdx] : null;

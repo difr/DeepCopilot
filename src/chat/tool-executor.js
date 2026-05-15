@@ -21,12 +21,12 @@ const { mcpManager }   = require('../mcp');
 
 const {
     toolReadFile, toolListDir, toolGrepSearch, toolFindFiles,
-    toolWriteFile, toolStrReplaceInFile, toolApplyPatch, toolRunShell, toolWebSearch,
+    toolWriteFile, toolStrReplaceInFile, toolApplyPatch, toolRunShell, toolWebSearch, toolWebFetch,
 } = require('../tools/exec');
 
 class ToolExecutor {
     // Read-only tools whose results can be cached until workspace changes.
-    static CACHEABLE = new Set(['read_file', 'grep_search', 'find_files', 'list_dir', 'web_search']);
+    static CACHEABLE = new Set(['read_file', 'grep_search', 'find_files', 'list_dir', 'web_search', 'web_fetch']);
     // Mutating tools that invalidate the file cache after execution.
     static MUTATING  = new Set(['write_file', 'str_replace_in_file', 'apply_patch', 'run_shell']);
 
@@ -59,6 +59,7 @@ class ToolExecutor {
             ['apply_patch',         (args)      => toolApplyPatch(args)],
             ['run_shell',           (args, ctx) => toolRunShell(args, ctx)],
             ['web_search',          (args, ctx) => toolWebSearch(args, ctx)],
+            ['web_fetch',           (args, ctx) => toolWebFetch(args, ctx)],
         ]);
     }
 

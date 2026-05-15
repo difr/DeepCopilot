@@ -140,7 +140,7 @@ const TOOL_DEFS = [
             },
         },
     },
-    // ─── network / research tool ────────────────────────────────────────
+    // ─── network / research tools ───────────────────────────────────────
     {
         type: 'function',
         function: {
@@ -155,6 +155,20 @@ const TOOL_DEFS = [
                     include_answer: { type: 'boolean', description: 'If true, ask Tavily to also return a synthesized answer paragraph (default true).' },
                 },
                 required: ['query'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'web_fetch',
+            description: 'Fetch the content of a specific URL and return it as plain text. Use when the user provides a URL to read, or when web_search returns a URL you need to inspect in detail. Do NOT use for internal workspace files — use read_file instead. Blocks access to private/internal IP addresses.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    url: { type: 'string', description: 'The full URL to fetch (http or https). Must be a public URL.' },
+                },
+                required: ['url'],
             },
         },
     },

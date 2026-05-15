@@ -148,7 +148,10 @@ class AgentLoop {
         const signal  = run.abortCtrl.signal;
 
         const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true });
-        const MAX_ITERS = Math.max(1, Math.min(64, Number(cfg.get('maxIterations')) || 15));
+        const _itersRaw = Number(cfg.get('maxIterations'));
+        // 0 (or unset) means "run until task is complete" — stagnation detection
+        // (repeat-tool hints + ABAB cycle guard) is the real runaway guard.
+        const MAX_ITERS = (_itersRaw > 0) ? Math.min(200, _itersRaw) : 9999;
         const COMPACT_BUDGET = Math.max(8000, Number(cfg.get('compactBudgetTokens')) || 600000);
         const askMode = (cfg.get('interactionMode') || 'agent') === 'ask';
         Logger.info('INTERACTION_MODE', { mode: cfg.get('interactionMode') || 'agent' });
@@ -157,7 +160,7 @@ class AgentLoop {
         // same turn are dispatched concurrently (Phase 1), matching the behaviour of
         // read_file / grep_search.  Serial execution (Phase 2) was the reason
         // sub-agents appeared one after another instead of in parallel.
-        const READ_ONLY = new Set(['read_file', 'list_dir', 'grep_search', 'find_files', 'web_search', 'spawn_agent']);
+        const READ_ONLY = new Set(['read_file', 'list_dir', 'grep_search', 'find_files', 'web_search', 'web_fetch', 'spawn_agent']);
 
         let iter = 0;
         const recentToolSig   = [];
@@ -172,6 +175,7 @@ class AgentLoop {
         };
 
         let lastUsage = null;
+        let messagesSnapshot = null; // snapshot of run.messages before each API call; restored on protocol error
         try {
             while (iter++ < MAX_ITERS) {
                 run._iter = iter;
@@ -254,6 +258,9 @@ class AgentLoop {
                 // Rebuild msgs in case pre-flight compaction modified run.messages
                 const finalMsgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
 
+                // Snapshot current (valid) state before the API call. Restored in the
+                // catch block if a protocol error (e.g. HTTP 400) corrupts run.messages.
+                messagesSnapshot = [...run.messages];
                 const iterT0 = Date.now();
 
                 const argStreamers = new Map();
@@ -363,6 +370,16 @@ class AgentLoop {
                 }
 
                 // Phase 3: push tool messages + loop-guard checks
+                // IMPORTANT: The API requires all tool result messages to form a contiguous
+                // block immediately after their assistant{tool_calls} message — inserting
+                // any other role mid-block causes HTTP 400. Hints (role:'user') are therefore
+                // collected in pendingHints and appended only AFTER every tool result is pushed.
+                const SHELL_ERROR_PAT = /error|failed|exception|unrecognized|unexpected token|cannot|access.?denied|not recognized|garbled|malformed/i;
+                // Only dedicated file-write tools count toward write-category failures.
+                // run_shell is intentionally excluded: compile/lint/check commands often
+                // fail for environment reasons (missing headers, etc.) unrelated to writes.
+                const WRITE_TOOLS = new Set(['write_file']);
+                const pendingHints = []; // hints collected here; pushed after all tool messages
                 for (let i = 0; i < toolCalls.length; i++) {
                     const { tc, result } = results[i];
                     run.messages.push({ role: 'tool', tool_call_id: tc.id, content: String(result) });
@@ -374,24 +391,24 @@ class AgentLoop {
                     recentToolSig.push({ key, sig, lowInfo });
                     if (recentToolSig.length > 8) recentToolSig.shift();
 
-                    // (a) Same key+sig repeated → emit per-tool hint once
+                    // (a) Same key+sig repeated → queue per-tool hint once
                     const sameKeySig = recentToolSig.filter(e => e.key === key && e.sig === sig && e.lowInfo);
                     if (sameKeySig.length >= 2 && !repeatHintEmitted.has(key)) {
                         repeatHintEmitted.add(key);
-                        run.messages.push({
+                        pendingHints.push({
                             role: 'user',
                             content: `<system-reminder>\nYou have called \`${tc.name}\` with the same arguments ${sameKeySig.length} times and received the same low-information result. STOP retrying this exact approach. Pick a fundamentally different strategy: (1) redirect command output to a file then read_file it back, (2) use a different tool (read_file/grep_search/list_dir/find_files), (3) split the operation into smaller verifiable steps, (4) ask the user for clarification. Do not repeat this call.\n</system-reminder>`,
                         });
                         Logger.info('REPEAT_HINT_INJECTED', { tool: tc.name, occurrences: sameKeySig.length });
                     }
 
-                    // (b) ABAB cycle detection
+                    // (b) ABAB cycle detection → queue hint once
                     if (recentToolSig.length >= 6 && !repeatHintEmitted.has('__cycle__')) {
                         const last6 = recentToolSig.slice(-6);
                         const ks = last6.map(e => e.key);
                         if (ks[0] === ks[2] && ks[2] === ks[4] && ks[1] === ks[3] && ks[3] === ks[5] && ks[0] !== ks[1]) {
                             repeatHintEmitted.add('__cycle__');
-                            run.messages.push({
+                            pendingHints.push({
                                 role: 'user',
                                 content: `<system-reminder>\nYou are oscillating between two tool calls without making progress. Stop the cycle. Either commit to one path with a fundamentally different argument set, or write a plain-text reply explaining what you found and ask the user how to proceed.\n</system-reminder>`,
                             });
@@ -400,31 +417,27 @@ class AgentLoop {
                     }
 
                     // (c) Write-category error classification (#40)
-                    // Detect consecutive failures across write-class tools and inject a
-                    // categorical-switch hint instead of letting the model try another variant.
-                    const WRITE_TOOLS = new Set(['write_file', 'run_shell']);
-                    const SHELL_ERROR_PAT = /error|failed|exception|unrecognized|unexpected token|cannot|access.?denied|not recognized|garbled|malformed/i;
+                    // Detect consecutive write_file failures and queue a categorical-switch hint.
                     if (WRITE_TOOLS.has(tc.name) && SHELL_ERROR_PAT.test(resStr)) {
                         writeErrorCount++;
                         if (writeErrorCount >= 2 && !repeatHintEmitted.has('__write_category__')) {
                             repeatHintEmitted.add('__write_category__');
-                            run.messages.push({
+                            pendingHints.push({
                                 role: 'user',
                                 content: `<system-reminder>\nMultiple write operations have failed in a row. This is a CATEGORY failure — do not try another shell or write variant.\n\nClassify the error and switch category:\n- Garbled / missing chars / bad escaping → shell escape issue → use \`write_file\` (dedicated tool) with the exact content string\n- "Access Denied" / "Permission denied" → permissions → change the target path\n- "file in use" / "cannot access" → file lock → use a temp path\n- "not recognized" / "command not found" → missing tool → use a built-in alternative\n\nOne failure = entire category eliminated. If two categories have already failed, stop and ask the user.\n</system-reminder>`,
                             });
                             Logger.info('WRITE_CATEGORY_HINT_INJECTED', { tool: tc.name, writeErrorCount });
                         }
-                    } else if (!SHELL_ERROR_PAT.test(resStr) && WRITE_TOOLS.has(tc.name)) {
+                    } else if (WRITE_TOOLS.has(tc.name) && !SHELL_ERROR_PAT.test(resStr)) {
                         // Successful write resets the counter
                         writeErrorCount = 0;
                     }
 
-                    // (d) Context compression for large error results (#44)
-                    // When a failed tool result is very large (e.g. file content echoed back with
-                    // corruption), replace the stored message content with a compact summary so the
-                    // context window does not fill with repeated identical payload.
+                    // (d) Context compression for large shell error results (#44).
+                    // Restricted to run_shell to avoid compressing legitimate read_file
+                    // content that merely contains words like "error" or "failed".
                     const COMPRESS_THRESHOLD = 2000;
-                    if (resStr.length > COMPRESS_THRESHOLD && SHELL_ERROR_PAT.test(resStr)) {
+                    if (tc.name === 'run_shell' && resStr.length > COMPRESS_THRESHOLD && SHELL_ERROR_PAT.test(resStr)) {
                         const lastMsg = run.messages[run.messages.length - 1];
                         if (lastMsg && lastMsg.role === 'tool' && lastMsg.tool_call_id === tc.id) {
                             const head = resStr.slice(0, 300);
@@ -433,6 +446,19 @@ class AgentLoop {
                             Logger.info('TOOL_RESULT_COMPRESSED', { tool: tc.name, original: resStr.length, compressed: lastMsg.content.length });
                         }
                     }
+                }
+
+                // Append deferred hints after all tool messages — preserves the required
+                // API sequence: assistant{tool_calls} → N×tool → (optional) user hints.
+                for (const hint of pendingHints) run.messages.push(hint);
+
+                // update_plan is a pure UI action (sidebar only); it makes no task progress.
+                // Reclaim the iteration slot so plan housekeeping doesn't eat into the real
+                // work budget.  iter was already incremented by while(iter++ < MAX_ITERS),
+                // so decrementing here brings the count back as if this loop body never ran.
+                if (toolCalls.length > 0 && toolCalls.every(tc => tc.name === 'update_plan')) {
+                    iter--;
+                    Logger.info('PLAN_ONLY_ITER_RECLAIMED', { sid, iter });
                 }
             } // end while
 
@@ -458,6 +484,9 @@ class AgentLoop {
                 if (tail) run.messages.push({ role: 'assistant', content: tail });
             }
         } catch (e) {
+            // Restore the last known-good message state to prevent persisting a
+            // sequence that triggered an API protocol error (e.g. HTTP 400).
+            if (messagesSnapshot) run.messages = messagesSnapshot;
             Logger.info('LOOP_ERROR', { sid, message: e.message, stack: (e.stack || '').slice(0, 1500) });
             if (e.message !== 'aborted') {
                 const fe = friendlyError(e);

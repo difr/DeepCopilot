@@ -2,7 +2,7 @@
   "name": "deep-copilot",
   "displayName": "Deep Copilot",
   "description": "Deep Copilot — AI coding agent embedded in VS Code. Powered by DeepSeek V4, with file editing, terminal, search, and plan/todos. Standalone, no backend required.",
-  "version": "0.32.0",
+  "version": "0.32.5",
   "publisher": "ZhouChaunge",
   "icon": "imgs/logo.png",
   "repository": {
@@ -216,10 +216,10 @@
         },
         "deepseekAgent.maxIterations": {
           "type": "number",
-          "default": 15,
-          "minimum": 1,
-          "maximum": 64,
-          "description": "Hard ceiling on tool-call iterations per send. Prevents runaway loops. Increase for very large refactors."
+          "default": 0,
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Max tool-call iterations per send. 0 (default) = unlimited — the agent runs until the task is done, guarded by stagnation detection. Set a positive number (e.g. 20) only to cap API cost on simple tasks."
         },
         "deepseekAgent.compactBudgetTokens": {
           "type": "number",

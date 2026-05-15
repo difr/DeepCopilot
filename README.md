@@ -48,7 +48,7 @@ You only need the following keys to get started — at minimum just the first on
 
 ---
 
-## �📑 Table of Contents · 目录
+## 📑 Table of Contents · 目录
 
 - [API Keys · 需要配置的 Key](#-api-keys-required--需要配置的-api-key)
 - [Highlights · 亮点](#-highlights--亮点)
