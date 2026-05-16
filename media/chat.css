@@ -2,6 +2,9 @@
 body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);background:var(--vscode-sideBar-background);height:100vh;overflow:hidden;position:relative;
   display:grid;grid-template-columns:220px 1fr 280px;grid-template-rows:auto 1fr auto auto;
   grid-template-areas:"sb sb sb" "left main right" "left composer right" "foot foot foot"}
+/* ── Locale-aware fonts ── */
+html[data-locale="zh"] body{font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Source Han Sans CN","WenQuanYi Micro Hei",sans-serif}
+html[data-locale="en"] body{font-family:"Segoe UI","Inter",system-ui,-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
 body.no-left{grid-template-columns:0 1fr 280px}
 body.no-left #left{display:none}
 body.no-right{grid-template-columns:220px 1fr 0}

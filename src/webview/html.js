@@ -2,6 +2,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { isZh, t } = require('../utils/i18n');
 
 function buildWebviewHtml(webview, extensionUri) {
     const cssUri      = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.css'));
@@ -12,6 +13,29 @@ function buildWebviewHtml(webview, extensionUri) {
     const katexCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'katex.min.css'));
     const katexJsUri  = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'katex.min.js'));
     const dompurifyUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'purify.min.js'));
+    const locale  = isZh() ? 'zh' : 'en';
+    const ui = {
+        welcomeSub:      t('wvWelcomeSub'),
+        welcomeHint:     t('wvWelcomeHint'),
+        sessions:        t('wvSessions'),
+        workspace:       t('wvWorkspace'),
+        workspaceTitle:  t('wvWorkspaceTitle'),
+        all:             t('wvAll'),
+        searchPh:        t('wvSearchPlaceholder'),
+        newSession:      t('wvNewSession'),
+        noSessions:      t('wvNoSessions'),
+        thinking:        t('wvThinking'),
+        attachBadge:     t('wvAttachBadge'),
+        inputPh:         t('wvInputPlaceholder'),
+        attachTitle:     t('wvAttachTitle'),
+        send:            t('wvSend'),
+        apiTitle:        t('wvApiTitle'),
+        cacheTitle:      t('wvCacheTitle'),
+        switchModel:     t('wvSwitchModel'),
+        approvalMode:    t('wvApprovalMode'),
+        balanceTitle:    t('wvBalanceTitle'),
+        balanceInit:     t('wvBalanceInit'),
+    };
     const nonce   = Buffer.from(Date.now().toString() + Math.random().toString()).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
     const csp = [
         `default-src 'none'`,
@@ -21,7 +45,7 @@ function buildWebviewHtml(webview, extensionUri) {
         `font-src ${webview.cspSource} data:`,
     ].join('; ');
     return `<!DOCTYPE html>
-<html lang="zh"><head>
+<html lang="${locale}" data-locale="${locale}"><head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -34,7 +58,7 @@ function buildWebviewHtml(webview, extensionUri) {
 <!-- #cbt kept hidden: chat.js references it for /clear command & Ctrl+K shortcut -->
 <button id="cbt" style="display:none" aria-hidden="true"></button>
 <button id="edgeL" class="edge-toggle edge-l" title="Plan / Todos" aria-label="toggle left panel"></button>
-<button id="edgeR" class="edge-toggle edge-r" title="历史会话" aria-label="toggle right panel"></button>
+<button id="edgeR" class="edge-toggle edge-r" title="${ui.sessions}" aria-label="toggle right panel"></button>
 <div id="sb"></div>
 <aside id="left">
   <section class="pnl" id="planPnl" data-open="1">
@@ -53,49 +77,49 @@ function buildWebviewHtml(webview, extensionUri) {
 <div id="main">
   <div id="es">
     <div class="big"><img class="welcome-logo" src="${welcomeLogoUri}" alt="Deep Copilot"/></div>
-    <p><strong>Deep Copilot</strong><br>让高质量 AI 生产力开放、公平、普惠</p>
-    <p class="hint">输入消息，按 Enter 发送</p></div>
-  <div id="thk">● ● ● 思考中...</div>
+    <p><strong>Deep Copilot</strong><br>${ui.welcomeSub}</p>
+    <p class="hint">${ui.welcomeHint}</p></div>
+  <div id="thk">${ui.thinking}</div>
 </div>
 <aside id="right">
   <div class="rh">
-    <span class="rt">Sessions</span>
+    <span class="rt">${ui.sessions}</span>
   </div>
   <div class="rscope">
-    <button id="scopeWs" class="on" title="只显示当前工作区会话">本工作区</button>
-    <button id="scopeAll" title="显示全部会话">全部</button>
+    <button id="scopeWs" class="on" title="${ui.workspaceTitle}">${ui.workspace}</button>
+    <button id="scopeAll" title="${ui.all}">${ui.all}</button>
   </div>
-  <div class="rsearch"><input id="dsearch" type="text" placeholder="搜索会话..."/></div>
+  <div class="rsearch"><input id="dsearch" type="text" placeholder="${ui.searchPh}"/></div>
   <div class="rnew">
-    <button id="newSessionBtn" class="new-session-btn" title="新建会话">
+    <button id="newSessionBtn" class="new-session-btn" title="${ui.newSession}">
       <span class="icon">+</span>
-      <span class="text">新建会话</span>
+      <span class="text">${ui.newSession}</span>
     </button>
   </div>
-  <div class="rlist" id="dlist"><div class="empty">暂无会话</div></div>
+  <div class="rlist" id="dlist"><div class="empty">${ui.noSessions}</div></div>
 </aside>
 <div id="ia">
-  <div id="cxb">📎 将附带当前文件 / 选中代码</div>
+  <div id="cxb">${ui.attachBadge}</div>
   <div id="pop" class="pop" style="display:none"></div>
   <div id="composer-card">
     <div id="at-chips"></div>
     <div id="inp-row">
       <div id="skill-notice"></div>
-      <textarea id="inp" rows="1" placeholder="描述要构建的内容"></textarea>
+      <textarea id="inp" rows="1" placeholder="${ui.inputPh}"></textarea>
     </div>
     <div id="composer-bar">
       <div class="cb-left">
-        <button id="cxbt" class="cbtn" title="包含当前文件 / 选中代码">📎</button>
+        <button id="cxbt" class="cbtn" title="${ui.attachTitle}">📎</button>
         <div id="modelPicker" class="mode-picker" data-model="deepseek-v4-pro">
-          <button id="modelBtn" class="cbtn mode-trigger" title="切换模型">⚡ v4-pro <span class="mode-chev">▾</span></button>
+          <button id="modelBtn" class="cbtn mode-trigger" title="${ui.switchModel}">⚡ v4-pro <span class="mode-chev">▾</span></button>
           <div id="modelDrop" class="mode-drop" style="display:none"></div>
         </div>
         <div id="modePicker" class="mode-picker" data-m="manual">
-          <button id="modeBtn" class="cbtn mode-trigger" title="批准策略 (Approval Mode)">🛡 Manual <span class="mode-chev">▾</span></button>
+          <button id="modeBtn" class="cbtn mode-trigger" title="${ui.approvalMode}">🛡 Manual <span class="mode-chev">▾</span></button>
           <div id="modeDrop" class="mode-drop" style="display:none"></div>
         </div>
       </div>
-      <button id="sbtn" title="发送">↑</button>
+      <button id="sbtn" title="${ui.send}">↑</button>
     </div>
   </div>
 </div>
@@ -105,11 +129,11 @@ function buildWebviewHtml(webview, extensionUri) {
     <span id="ft-mode">agent · deepseek-v4-pro</span>
   </div>
   <div class="ft-right">
-    <button class="ft-btn" id="apibt" title="API 设置 · DeepSeek / Tavily / Base URL">🔑</button>
-    <span class="pill" id="ft-cache" title="prompt 缓存命中率（越高越省钱）">💾 0%</span>
+    <button class="ft-btn" id="apibt" title="${ui.apiTitle}">🔑</button>
+    <span class="pill" id="ft-cache" title="${ui.cacheTitle}">💾 0%</span>
     <span class="pill" id="ft-tokens">0 tokens</span>
     <span class="pill" id="ft-cost" style="color:#e8b86d">¥0.0000</span>
-    <span class="pill" id="ft-balance" title="账户余额（点击刷新）" style="display:none">💰 查询中…</span>
+    <span class="pill" id="ft-balance" title="${ui.balanceTitle}" style="display:none">${ui.balanceInit}</span>
   </div>
 </div>
 <script nonce="${nonce}" src="${katexJsUri}"></script>
