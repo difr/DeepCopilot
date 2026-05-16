@@ -86,7 +86,6 @@ function activate(context) {
             const choice = await vscode.window.showQuickPick(
                 [
                     { label: t('baseUrlIntl'), description: 'https://api.deepseek.com', value: 'https://api.deepseek.com' },
-                    { label: t('baseUrlCN'),   description: 'https://api.deepseeki.com', value: 'https://api.deepseeki.com' },
                     { label: t('baseUrlCustom'), description: '', value: '__custom__' },
                     { label: t('baseUrlClear'),  description: '', value: '' },
                 ],
@@ -169,8 +168,8 @@ function activate(context) {
                         label: `$(globe) ${zh ? 'Base URL' : 'Base URL'}`,
                         description: baseUrl,
                         detail: zh
-                            ? '国内网络不稳定时切换到 api.deepseeki.com'
-                            : 'Switch to api.deepseeki.com if your connection is slow',
+                            ? '支持任意 OpenAI 兼容接口'
+                            : 'Works with any OpenAI-compatible endpoint',
                         action: 'deepseekAgent.setBaseUrl',
                     },
                     {

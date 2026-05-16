@@ -116,13 +116,13 @@
   jumpBtn.addEventListener("click", function(){ stick = true; msgs.scrollTop = msgs.scrollHeight; jumpBtn.classList.remove("show"); });
   msgs.appendChild(jumpBtn);
   msgs.addEventListener("scroll", function(){
-    var nearBottom = (msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight) < 80;
+    var nearBottom = (msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight) < 120;
     stick = nearBottom;
     jumpBtn.classList.toggle("show", !nearBottom && busy);
   }, { passive: true });
   /* Disable autoscroll on user wheel/touch scroll up. */
   msgs.addEventListener("wheel", function(e){ if (e.deltaY < 0) stick = false; }, { passive: true });
-  function ascroll(){ if (stick) msgs.scrollTop = msgs.scrollHeight; else jumpBtn.classList.add("show"); }
+  function ascroll(){ if (stick) requestAnimationFrame(function(){ msgs.scrollTop = msgs.scrollHeight; }); else jumpBtn.classList.add("show"); }
 
   /* Auto narrow mode based on width (use webview container width, not full VS Code window) */
   function checkNarrow(){
@@ -691,61 +691,18 @@
     if (es) es.style.display = "none";
     var d = document.createElement("div");
     d.className = "msgA";
-    d.innerHTML =
-      "<div class=\"thinkhead\" style=\"display:none\"><span class=\"th-dot\"></span><span class=\"th-chev\">▸</span><span class=\"th-lbl\">thinking…</span></div>" +
-      "<div class=\"thinkblk\" style=\"display:none\"></div>" +
-      "<div class=\"flow\"></div>";
+    d.innerHTML = "<div class=\"flow\"></div>";
     if (thk && thk.parentNode === msgs) msgs.insertBefore(d, thk); else msgs.appendChild(d);
     curBubble = d;
     cur = null;        /* no active text segment yet */
     curText = "";
-    curThk = d.querySelector(".thinkblk");
-    curThkHead = d.querySelector(".thinkhead");
-    var thh = curThkHead;
-    thh.addEventListener("click", function(){
-      var blk = thh.parentNode.querySelector(".thinkblk");
-      if (!blk) return;
-      var open = blk.style.display === "block";
-      blk.style.display = open ? "none" : "block";
-      var chev = thh.querySelector(".th-chev");
-      if (chev) chev.textContent = open ? "▸" : "▾";
-    });
+    curThk = null;
+    curThkHead = null;
     return d;
   }
 
-  /* Create an inline thinking chip in .flow for subsequent-iteration reasoning
-     (called from thinkingDelta when curThk is null after a newTurn). */
-  function makeThinkChip() {
-    ensureBubble();
-    var flow = curBubble.querySelector(".flow");
-    /* Seal any in-progress text segment before inserting the chip */
-    if (cur && cur.classList && cur.classList.contains("seg")) {
-      flushRender(); cur.setAttribute("data-raw", curText || ""); cur = null; curText = "";
-    }
-    var slot = document.createElement("div");
-    slot.className = "think-slot";
-    var head = document.createElement("div");
-    head.className = "thinkhead";
-    head.style.display = "inline-block";
-    head.dataset.start = String(Date.now());
-    head.innerHTML = "<span class=\"th-dot\"></span><span class=\"th-chev\">\u25b8</span><span class=\"th-lbl\">Thinking\u2026</span>";
-    var blk = document.createElement("div");
-    blk.className = "thinkblk";
-    blk.style.display = "none";
-    slot.appendChild(head);
-    slot.appendChild(blk);
-    flow.appendChild(slot);
-    (function(h, b){
-      h.addEventListener("click", function(){
-        var open = b.style.display === "block";
-        b.style.display = open ? "none" : "block";
-        var chev = h.querySelector(".th-chev");
-        if (chev) chev.textContent = open ? "\u25b8" : "\u25be";
-      });
-    })(head, blk);
-    curThk = blk;
-    curThkHead = head;
-  }
+  /* Thinking chips removed — reasoning is silently accumulated but not shown. */
+  function makeThinkChip() { }
 
   /* Group the trailing run of consecutive tool elements (.tl-wrap and .tool
      cards) into a collapsible .tl-group. Called when text starts streaming
@@ -1405,14 +1362,81 @@
   var histStack = [];   /* list of past user prompts in chronological order */
   var histIdx = -1;     /* current cursor in history when navigating */
 
+  var DC_VERBS = [
+    'Reasoning…','Synthesizing…','Cogitating…','Deliberating…','Computing…',
+    'Inferring…','Distilling…','Modeling…','Weaving…','Decoding…',
+    'Manifesting…','Orchestrating…','Ruminating…','Pondering…','Crafting…',
+    'Assembling…','Percolating…','Ideating…','Transmuting…','Conjuring…'
+  ];
+
   function setBusy(on){
     busy = !!on;
+    if (!busy) {
+      _stopping = false; _busyStartTs = 0; _curPhase = ""; _curTool = ""; _verbTick = 0; _stopElapsedTimer();
+      if (_dcSpinner && _dcSpinner.parentNode) { _dcSpinner.parentNode.removeChild(_dcSpinner); }
+      _dcSpinner = null;
+    } else if (!_busyStartTs) {
+      _busyStartTs = Date.now(); _startElapsedTimer();
+      var _sp = document.createElement("div");
+      _sp.className = "dc-spinner";
+      _sp.innerHTML =
+        "<span class=\"dc-spinner-dot\"></span>" +
+        "<span class=\"dc-spinner-text\">" + DC_VERBS[Math.floor(Math.random() * DC_VERBS.length)] + "</span>" +
+        "<span class=\"dc-spinner-time\">0s</span>" +
+        "<span class=\"dc-spinner-esc\">&middot; Esc</span>";
+      msgs.appendChild(_sp);
+      _dcSpinner = _sp;
+    }
     sbtn.classList.toggle("stop", busy);
+    sbtn.classList.toggle("stopping", _stopping);
     sbtn.textContent = busy ? "\u23F9" : "\u2191";
-    sbtn.title = busy ? "\u505C\u6B62\u751F\u6210 (Esc)" : "\u53D1\u9001";
+    sbtn.title = _stopping ? "\u6B63\u5728\u505C\u6B62\u2026" : (busy ? "\u505C\u6B62\u751F\u6210 (Esc)" : "\u53D1\u9001");
+    sbtn.disabled = _stopping;
     dot.className = "dot" + (busy ? " warn" : "");
     var pb = document.getElementById("prog");
     if (pb) pb.classList.toggle("on", busy);
+    _renderStatus();
+  }
+
+  /* Issue #58: phase + elapsed indicator */
+  var _stopping = false, _busyStartTs = 0, _elapsedTimer = null, _curPhase = "", _curTool = "", _dcSpinner = null, _verbTick = 0;
+  var _phaseLabels = {
+    thinking: "\u601D\u8003\u4E2D",
+    streaming: "\u751F\u6210\u4E2D",
+    waiting_first_token: "\u7B49\u5F85\u54CD\u5E94",
+    tool_running: "\u5DE5\u5177\u8FD0\u884C",
+    compacting: "\u538B\u7F29\u5386\u53F2"
+  };
+  function _fmtElapsed(ms){
+    var s = Math.floor(ms/1000); var m = Math.floor(s/60); s = s%60;
+    return (m<10?"0":"")+m+":"+(s<10?"0":"")+s;
+  }
+  function _renderStatus(){
+    if (!_dcSpinner) return;
+    _dcSpinner.classList.toggle("stopping", _stopping);
+    var textEl = _dcSpinner.querySelector('.dc-spinner-text');
+    if (_stopping) { if (textEl) textEl.textContent = 'Stopping…'; return; }
+    var timeEl = _dcSpinner.querySelector('.dc-spinner-time');
+    if (timeEl && _busyStartTs) {
+      var elapsed = Math.floor((Date.now() - _busyStartTs) / 1000);
+      var m = Math.floor(elapsed / 60), s = elapsed % 60;
+      timeEl.textContent = m > 0 ? m + 'm' + s + 's' : s + 's';
+    }
+    _verbTick++;
+    if (_verbTick % 3 === 0 && textEl) {
+      textEl.classList.remove('flash');
+      void textEl.offsetWidth;
+      textEl.textContent = DC_VERBS[Math.floor(Math.random() * DC_VERBS.length)];
+      textEl.classList.add('flash');
+    }
+    ascroll();
+  }
+  function _startElapsedTimer(){
+    _stopElapsedTimer();
+    _elapsedTimer = setInterval(_renderStatus, 1000);
+  }
+  function _stopElapsedTimer(){
+    if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
   }
   function showCursor(){ /* disabled: blinking cursor removed for cleaner UI */ }
   function hideCursor(){
@@ -1421,6 +1445,7 @@
     for (var i=0; i<olds.length; i++) olds[i].parentNode && olds[i].parentNode.removeChild(olds[i]);
   }
   function doSend(){
+    if (_stopping) return;
     if (busy){ vscode.postMessage({type:"stop"}); return; }
     var t = inp.value.trim();
     if (!t) return;
@@ -1494,7 +1519,7 @@
       return;
     }
     if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); doSend(); }
-    else if (e.key === "Escape" && busy){ e.preventDefault(); vscode.postMessage({type:"stop"}); }
+    else if (e.key === "Escape" && busy){ e.preventDefault(); _stopping = true; if (_dcSpinner) _dcSpinner.classList.add("stopping"); vscode.postMessage({type:"stop"}); }
   });
   sbtn.addEventListener("click", doSend);
   cxbt.addEventListener("click", function(){
@@ -1529,7 +1554,141 @@
     if (modelPicker && !modelPicker.contains(e.target)) closeModelDrop();
     if (modePicker && !modePicker.contains(e.target)) closeModeDrop();
   });
-  apibt.addEventListener("click", function(){ vscode.postMessage({type:"openApiSettings"}); });
+  /* ── Settings Modal state ── */
+  var _stgOpen = false;
+  var _stgDsKeySet = false, _stgTvKeySet = false;
+  var _stgOrigBaseUrl = '';
+  var _stgTestTimers = {};
+
+  var stgOverlay   = document.getElementById('settings-overlay');
+  var stgDsKey     = document.getElementById('s-ds-key');
+  var stgDsEye     = document.getElementById('s-ds-key-eye');
+  var stgDsTest    = document.getElementById('s-ds-test');
+  var stgDsResult  = document.getElementById('s-ds-result');
+  var stgDsLink    = document.getElementById('s-ds-link');
+  var stgBaseUrl   = document.getElementById('s-base-url');
+  var stgBaseReset = document.getElementById('s-base-url-reset');
+  var stgTvKey     = document.getElementById('s-tv-key');
+  var stgTvEye     = document.getElementById('s-tv-key-eye');
+  var stgTvTest    = document.getElementById('s-tv-test');
+  var stgTvResult  = document.getElementById('s-tv-result');
+  var stgTvLink    = document.getElementById('s-tv-link');
+  var stgDirtyBar  = document.getElementById('s-dirty-bar');
+  var stgDiscard   = document.getElementById('s-discard');
+  var stgCancelBtn = document.getElementById('settingsCancelBtn');
+  var stgSaveBtn   = document.getElementById('settingsSaveBtn');
+  var stgCloseBtn  = document.getElementById('settingsCloseBtn');
+
+  function _stgIsDirty(){
+    return (stgDsKey && stgDsKey.value !== '') ||
+           (stgTvKey && stgTvKey.value !== '') ||
+           (stgBaseUrl && stgBaseUrl.value !== _stgOrigBaseUrl);
+  }
+  function _stgUpdateDirtyBar(){
+    if (stgDirtyBar) stgDirtyBar.style.display = _stgIsDirty() ? 'flex' : 'none';
+  }
+  function _stgSetResult(el, timer, state, text){
+    if (!el) return;
+    clearTimeout(_stgTestTimers[timer]);
+    el.className = 'settings-test-result ' + (state || '');
+    el.textContent = text || '';
+    if (state === 'ok' || state === 'err'){
+      _stgTestTimers[timer] = setTimeout(function(){
+        el.style.opacity = '0';
+        setTimeout(function(){ el.textContent = ''; el.style.opacity = ''; el.className = 'settings-test-result'; }, 400);
+      }, 5000);
+    }
+  }
+  function openSettingsModal(){
+    if (_stgOpen) return;
+    _stgOpen = true;
+    if (stgOverlay) stgOverlay.style.display = 'flex';
+    if (stgDsKey) stgDsKey.value = '';
+    if (stgTvKey) stgTvKey.value = '';
+    if (stgBaseUrl) stgBaseUrl.value = '';
+    _stgOrigBaseUrl = '';
+    _stgDsKeySet = false; _stgTvKeySet = false;
+    if (stgDirtyBar) stgDirtyBar.style.display = 'none';
+    _stgSetResult(stgDsResult, 'ds', '', '');
+    _stgSetResult(stgTvResult, 'tv', '', '');
+    vscode.postMessage({ type: 'openApiSettings' });
+    setTimeout(function(){ if (stgDsKey) stgDsKey.focus(); }, 80);
+    document.addEventListener('keydown', _stgEscHandler);
+  }
+  function closeSettingsModal(force){
+    if (!_stgOpen) return;
+    if (!force && _stgIsDirty()){
+      if (stgDirtyBar) stgDirtyBar.style.display = 'flex';
+      return;
+    }
+    _stgOpen = false;
+    if (stgOverlay) stgOverlay.style.display = 'none';
+    document.removeEventListener('keydown', _stgEscHandler);
+  }
+  function _stgEscHandler(e){
+    if (e.key === 'Escape') { e.preventDefault(); closeSettingsModal(false); }
+  }
+
+  stgOverlay && stgOverlay.addEventListener('click', function(e){
+    if (e.target === stgOverlay) closeSettingsModal(false);
+  });
+  stgCloseBtn  && stgCloseBtn.addEventListener('click',  function(){ closeSettingsModal(false); });
+  stgCancelBtn && stgCancelBtn.addEventListener('click', function(){ closeSettingsModal(true); });
+  stgDiscard   && stgDiscard.addEventListener('click',   function(){
+    if (stgDsKey) stgDsKey.value = '';
+    if (stgTvKey) stgTvKey.value = '';
+    if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
+    closeSettingsModal(true);
+  });
+  stgDsKey  && stgDsKey.addEventListener('input',  _stgUpdateDirtyBar);
+  stgTvKey  && stgTvKey.addEventListener('input',  _stgUpdateDirtyBar);
+  stgBaseUrl && stgBaseUrl.addEventListener('input', _stgUpdateDirtyBar);
+  stgDsEye && stgDsEye.addEventListener('click', function(){
+    if (!stgDsKey) return;
+    stgDsKey.type = stgDsKey.type === 'password' ? 'text' : 'password';
+  });
+  stgTvEye && stgTvEye.addEventListener('click', function(){
+    if (!stgTvKey) return;
+    stgTvKey.type = stgTvKey.type === 'password' ? 'text' : 'password';
+  });
+  stgBaseReset && stgBaseReset.addEventListener('click', function(){
+    if (stgBaseUrl) { stgBaseUrl.value = 'https://api.deepseek.com'; _stgUpdateDirtyBar(); }
+  });
+  stgDsLink && stgDsLink.addEventListener('click', function(e){
+    e.preventDefault();
+    vscode.postMessage({ type: 'openExternal', url: 'https://platform.deepseek.com/api_keys' });
+  });
+  stgTvLink && stgTvLink.addEventListener('click', function(e){
+    e.preventDefault();
+    vscode.postMessage({ type: 'openExternal', url: 'https://app.tavily.com' });
+  });
+  stgDsTest && stgDsTest.addEventListener('click', function(){
+    var key = stgDsKey ? stgDsKey.value.trim() : '';
+    var url = stgBaseUrl ? stgBaseUrl.value.trim() : '';
+    _stgSetResult(stgDsResult, 'ds', 'pending', '⟳ Testing...');
+    if (stgDsTest) stgDsTest.disabled = true;
+    vscode.postMessage({ type: 'testApiKey', which: 'ds', key: key || null, baseUrl: url || null });
+  });
+  stgTvTest && stgTvTest.addEventListener('click', function(){
+    var key = stgTvKey ? stgTvKey.value.trim() : '';
+    _stgSetResult(stgTvResult, 'tv', 'pending', '⟳ Testing...');
+    if (stgTvTest) stgTvTest.disabled = true;
+    vscode.postMessage({ type: 'testApiKey', which: 'tv', key: key || null });
+  });
+  stgSaveBtn && stgSaveBtn.addEventListener('click', function(){
+    var dsKey    = stgDsKey   ? stgDsKey.value.trim()   : null;
+    var tvKey    = stgTvKey   ? stgTvKey.value.trim()   : null;
+    var baseUrl  = stgBaseUrl ? stgBaseUrl.value.trim() : null;
+    vscode.postMessage({
+      type: 'saveApiSettings',
+      dsKey:   dsKey   || null,
+      tvKey:   tvKey   || null,
+      baseUrl: baseUrl !== null ? baseUrl : _stgOrigBaseUrl,
+    });
+    closeSettingsModal(true);
+  });
+
+  apibt.addEventListener("click", function(){ openSettingsModal(); });
   cbt.addEventListener("click", function(){
     resetChat();
     vscode.postMessage({type:"clear"});
@@ -1538,7 +1697,24 @@
   /* ─── Message handler ──────────────────────────────────────────────── */
   window.addEventListener("message", function(e){
     var m = e.data;
-    if (m.type === "thinking"){
+    if (m.type === "settingsLoaded"){
+      _stgDsKeySet = !!m.dsKeySet;
+      _stgTvKeySet = !!m.tvKeySet;
+      _stgOrigBaseUrl = m.baseUrl || 'https://api.deepseek.com';
+      if (stgDsKey) { stgDsKey.value = ''; stgDsKey.placeholder = _stgDsKeySet ? (m.dsKeyHint || '(configured)') : 'sk-...'; }
+      if (stgTvKey) { stgTvKey.value = ''; stgTvKey.placeholder = _stgTvKeySet ? (m.tvKeyHint || '(configured)') : 'tvly-...'; }
+      if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
+    } else if (m.type === "testApiKeyResult"){
+      var which = m.which;
+      var el = which === 'ds' ? stgDsResult : stgTvResult;
+      var btn = which === 'ds' ? stgDsTest : stgTvTest;
+      if (btn) btn.disabled = false;
+      if (m.ok){
+        _stgSetResult(el, which, 'ok', '\u2713 Connected \xb7 ' + (m.latency || 0) + 'ms');
+      } else {
+        _stgSetResult(el, which, 'err', '\u2717 ' + (m.error || 'Failed'));
+      }
+    } else if (m.type === "thinking"){
       thk.style.display = m.show ? "block" : "none";
     } else if (m.type === "userEcho"){
       add("user", m.text || "");
@@ -1594,8 +1770,7 @@
       if (curThkHead && !curThkHead.dataset.done) {
         curThkHead.dataset.done = "1";
         curThkHead.classList.add("done");
-        var secs_nt = curThkHead.dataset.start ? Math.round((Date.now() - parseInt(curThkHead.dataset.start,10))/1000) : 0;
-        var lbl_nt = "Thought" + (secs_nt ? " for " + secs_nt + "s" : "");
+        var lbl_nt = "Thought";
         curThkHead.dataset.label = lbl_nt;
         if (curThk) curThk.style.display = "none";
         var lblEl_nt = curThkHead.querySelector(".th-lbl"); if (lblEl_nt) lblEl_nt.textContent = lbl_nt;
@@ -1613,8 +1788,7 @@
       if (th2 && !th2.dataset.done) {
         th2.dataset.done = "1";
         th2.classList.add("done");
-        var secs = th2.dataset.start ? Math.round((Date.now() - parseInt(th2.dataset.start,10))/1000) : 0;
-        var lbl = "Thought" + (secs ? " for " + secs + "s" : "");
+        var lbl = "Thought";
         th2.dataset.label = lbl;
         /* auto-collapse once real reply begins */
         if (curThk) curThk.style.display = "none";
@@ -1638,10 +1812,6 @@
       }
       if (curThk) curThk.textContent += (m.text || "");
       if (th && !th.dataset.done) {
-        var es2 = th.dataset.start ? Math.round((Date.now() - parseInt(th.dataset.start,10))/1000) : 0;
-        var lbl3 = "Thinking… " + es2 + "s";
-        th.dataset.label = lbl3;
-        var lblEl3 = th.querySelector(".th-lbl"); if (lblEl3) lblEl3.textContent = lbl3;
         var chevEl3 = th.querySelector(".th-chev");
         if (chevEl3) chevEl3.textContent = (curThk && curThk.style.display === "block" ? "\u25BE" : "\u25B8");
       }
@@ -1821,6 +1991,16 @@
       renderPlan(m.steps || [], m.todos || []);
     } else if (m.type === "usage"){
       bumpUsage(m.usage || {});
+    } else if (m.type === "progress"){
+      if (m.phase) _curPhase = m.phase;
+      _curTool = m.activeTool || "";
+      _renderStatus();
+    } else if (m.type === "stopping"){
+      _stopping = true;
+      setBusy(true);
+    } else if (m.type === "stopped"){
+      _stopping = false;
+      setBusy(false);
     } else if (m.type === "replyEnd"){
       hideCursor();
       setBusy(false);

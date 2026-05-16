@@ -148,6 +148,21 @@ class AgentLoop {
 
         run.abortCtrl = new AbortController();
         const signal  = run.abortCtrl.signal;
+        const runT0   = Date.now();
+
+        // Helper: throw immediately if user pressed Stop.  Used at every
+        // await-boundary so the loop can unwind on the first stop click
+        // (issue #58 P0-2).
+        const checkAbort = () => { if (signal.aborted) throw new Error('aborted'); };
+        const postProgress = (phase, extra = {}) => {
+            this._postToRun(run, {
+                type: 'progress',
+                phase,
+                iter: run._iter || 0,
+                elapsedMs: Date.now() - runT0,
+                ...extra,
+            });
+        };
 
         const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true });
         const _itersRaw = Number(cfg.get('maxIterations'));
@@ -181,6 +196,7 @@ class AgentLoop {
         try {
             while (iter++ < MAX_ITERS) {
                 run._iter = iter;
+                checkAbort();
 
                 // Auto-compact
                 const compactRes = autoCompactIfNeeded(run.messages, COMPACT_BUDGET);
@@ -188,7 +204,9 @@ class AgentLoop {
                     run.messages = compactRes.messages;
                     Logger.info('AUTOCOMPACT', { sid, iter, dropped: compactRes.dropped });
                     this._postToRun(run, { type: 'status', text: isZh() ? '🗜 压缩历史…' : 'Compacting history…' });
+                    postProgress('compacting');
                 }
+                checkAbort();
 
                 // Plan nudge
                 if (run.plan && Array.isArray(run.plan.steps) && run.plan.steps.length) {
@@ -256,6 +274,7 @@ class AgentLoop {
                     }
                 }
                 if (ctxLimitHit) break; // break while loop — do not call the API
+                checkAbort();
 
                 // Rebuild msgs in case pre-flight compaction modified run.messages
                 const finalMsgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
@@ -270,10 +289,14 @@ class AgentLoop {
                 const STREAMABLE_TOOLS = new Set(['write_file', 'str_replace_in_file', 'apply_patch']);
                 const allTools = getToolDefs(mcpManager.getToolDefs());
 
+                postProgress('waiting_first_token');
+
+                let _gotFirstToken = false;
                 const { toolCalls, usage } = await streamDeepSeek(
                     { apiKey, baseUrl, messages: finalMsgs, model, noTools: askMode, tools: allTools },
                     {
                         onDelta: (delta) => {
+                            if (!_gotFirstToken) { _gotFirstToken = true; postProgress('streaming'); }
                             assistantText += delta; run.reply.asst += delta;
                             pendingDelta += delta;
                             const now = Date.now();
@@ -283,6 +306,7 @@ class AgentLoop {
                             }
                         },
                         onThinking: (delta) => {
+                            if (!_gotFirstToken) { _gotFirstToken = true; postProgress('thinking'); }
                             reasoningText += delta; run.reply.thoughts += delta;
                             Logger.thinking(delta);
                             this._postToRun(run, { type: 'thinkingDelta', text: delta });
@@ -341,6 +365,7 @@ class AgentLoop {
 
                 // ── Parallel read / serial mutating dispatch ──────────────────
                 const results = new Array(toolCalls.length);
+                checkAbort();
 
                 // Phase 1: read-only tools in parallel
                 const parallelTasks = [];
@@ -349,6 +374,7 @@ class AgentLoop {
                     if (!READ_ONLY.has(tc.name)) continue;
                     const args = this._exec.logToolStart(run, tc);
                     const tT0  = Date.now();
+                    postProgress('tool_running', { activeTool: tc.name });
                     parallelTasks.push(
                         this._exec.execute(tc.name, args, mode, run, signal, tc.id)
                             .catch(e => `Error: ${e.message}`)
@@ -358,18 +384,22 @@ class AgentLoop {
                     );
                 }
                 if (parallelTasks.length) await Promise.all(parallelTasks);
+                checkAbort();
 
                 // Phase 2: mutating tools serially
                 for (let i = 0; i < toolCalls.length; i++) {
                     const tc = toolCalls[i];
                     if (READ_ONLY.has(tc.name)) continue;
+                    checkAbort();
                     const args = this._exec.logToolStart(run, tc);
                     const tT0  = Date.now();
+                    postProgress('tool_running', { activeTool: tc.name });
                     let rawResult = '';
                     try { rawResult = await this._exec.execute(tc.name, args, mode, run, signal, tc.id); }
                     catch (e) { rawResult = `Error: ${e.message}`; }
                     results[i] = { tc, args, result: this._exec.logToolResult(run, tc, rawResult, Date.now() - tT0) };
                 }
+                checkAbort();
 
                 // Phase 3: push tool messages + loop-guard checks
                 // IMPORTANT: The API requires all tool result messages to form a contiguous
@@ -500,8 +530,10 @@ class AgentLoop {
         Logger.flush();
 
         try { flushDelta(); } catch {}
-        this._postToRun(run, { type: 'replyEnd', empty: false });
+        const wasAborted = signal.aborted;
+        this._postToRun(run, { type: 'replyEnd', empty: false, aborted: wasAborted });
         this._postToRun(run, { type: 'status', text: '' });
+        if (wasAborted) this._postToRun(run, { type: 'stopped' });
         run.abortCtrl = null;
         run.busy = false;
 

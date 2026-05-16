@@ -5,8 +5,9 @@
 const https = require('https');
 const { truncate } = require('./utils');
 
-function _tavilyRequest(payload, timeoutMs = 20000) {
+function _tavilyRequest(payload, timeoutMs = 20000, abortSignal = null) {
     return new Promise((resolve, reject) => {
+        if (abortSignal && abortSignal.aborted) return reject(new Error('aborted'));
         const body = JSON.stringify(payload);
         const req  = https.request({
             method: 'POST',
@@ -30,6 +31,11 @@ function _tavilyRequest(payload, timeoutMs = 20000) {
         });
         req.on('error', reject);
         req.on('timeout', () => { req.destroy(new Error('Tavily request timeout')); });
+        if (abortSignal) {
+            const onAbort = () => { try { req.destroy(new Error('aborted')); } catch {} reject(new Error('aborted')); };
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+            req.once('close', () => { try { abortSignal.removeEventListener('abort', onAbort); } catch {} });
+        }
         req.write(body);
         req.end();
     });
@@ -55,7 +61,7 @@ async function toolWebSearch(args, ctx = {}) {
             api_key: apiKey, query, max_results: max,
             search_depth: depth, include_answer: includeAnswer,
             include_raw_content: false, include_images: false,
-        });
+        }, 20000, ctx && ctx.abortSignal);
 
         const lines = [`Query: ${query}`];
         if (includeAnswer && data.answer) { lines.push('', '## Synthesized answer', data.answer); }

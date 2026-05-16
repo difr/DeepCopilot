@@ -182,7 +182,134 @@ class ChatViewProvider {
                     .then(() => this._post({ type: 'modelInfo', model: msg.model }));
                 break;
             }
-            case 'openApiSettings': vscode.commands.executeCommand('deepseekAgent.showApiStatus'); break;
+            case 'openApiSettings': {
+                const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
+                const dsKey     = await this._context.secrets.get('deepseekAgent.apiKey') || '';
+                const tvKey     = await this._context.secrets.get('deepseekAgent.tavilyKey') || '';
+                const baseUrl   = cfg.get('apiBaseUrl') || 'https://api.deepseek.com';
+                const maskKey   = (k) => k ? (k.slice(0, 6) + '...' + k.slice(-4)) : '';
+                this._post({
+                    type:       'settingsLoaded',
+                    dsKeySet:   !!dsKey,
+                    dsKeyHint:  maskKey(dsKey),
+                    tvKeySet:   !!tvKey,
+                    tvKeyHint:  maskKey(tvKey),
+                    baseUrl:    baseUrl,
+                });
+                break;
+            }
+            case 'testApiKey': {
+                const which = msg.which; // 'ds' | 'tv'
+                const t0    = Date.now();
+                if (which === 'ds') {
+                    const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.apiKey') || '');
+                    const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
+                    const baseUrl = (msg.baseUrl !== null && msg.baseUrl !== undefined && msg.baseUrl !== '')
+                        ? msg.baseUrl
+                        : (cfg.get('apiBaseUrl') || 'https://api.deepseek.com');
+                    if (!testKey) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No API key set' });
+                        break;
+                    }
+                    try {
+                        const https = require('https');
+                        const http  = require('http');
+                        const base  = (baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
+                        const urlObj = new URL('/chat/completions', base);
+                        const body   = JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
+                        const isHttps = urlObj.protocol === 'https:';
+                        const result = await new Promise((resolve) => {
+                            const req = (isHttps ? https : http).request({
+                                hostname: urlObj.hostname,
+                                port:     urlObj.port || (isHttps ? 443 : 80),
+                                path:     urlObj.pathname,
+                                method:   'POST',
+                                headers:  { 'Authorization': `Bearer ${testKey}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                timeout:  10000,
+                            }, (res) => {
+                                let raw = '';
+                                res.on('data', c => { raw += c; });
+                                res.on('end', () => {
+                                    if (res.statusCode === 200 || res.statusCode === 201) { resolve({ ok: true }); return; }
+                                    try {
+                                        const d = JSON.parse(raw);
+                                        resolve({ ok: false, error: (d.error && d.error.message) || `HTTP ${res.statusCode}` });
+                                    } catch { resolve({ ok: false, error: `HTTP ${res.statusCode}` }); }
+                                });
+                                res.on('error', e => resolve({ ok: false, error: e.message }));
+                            });
+                            req.on('error', e => resolve({ ok: false, error: e.message }));
+                            req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
+                            req.write(body);
+                            req.end();
+                        });
+                        this._post({ type: 'testApiKeyResult', which, ok: result.ok, latency: Date.now() - t0, error: result.error });
+                    } catch (e) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: e.message });
+                    }
+                } else if (which === 'tv') {
+                    const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.tavilyKey') || '');
+                    if (!testKey) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No Tavily key set' });
+                        break;
+                    }
+                    try {
+                        const https  = require('https');
+                        const body   = JSON.stringify({ api_key: testKey, query: 'test', max_results: 1 });
+                        const result = await new Promise((resolve) => {
+                            const req = https.request({
+                                hostname: 'api.tavily.com',
+                                port: 443,
+                                path: '/search',
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                timeout: 10000,
+                            }, (res) => {
+                                let raw = '';
+                                res.on('data', c => { raw += c; });
+                                res.on('end', () => {
+                                    if (res.statusCode === 200) { resolve({ ok: true }); return; }
+                                    try {
+                                        const d = JSON.parse(raw);
+                                        resolve({ ok: false, error: (d.detail || d.message || `HTTP ${res.statusCode}`) });
+                                    } catch { resolve({ ok: false, error: `HTTP ${res.statusCode}` }); }
+                                });
+                                res.on('error', e => resolve({ ok: false, error: e.message }));
+                            });
+                            req.on('error', e => resolve({ ok: false, error: e.message }));
+                            req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
+                            req.write(body);
+                            req.end();
+                        });
+                        this._post({ type: 'testApiKeyResult', which, ok: result.ok, latency: Date.now() - t0, error: result.error });
+                    } catch (e) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: e.message });
+                    }
+                }
+                break;
+            }
+            case 'saveApiSettings': {
+                const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+                if (msg.dsKey) {
+                    await this._context.secrets.store('deepseekAgent.apiKey', msg.dsKey);
+                }
+                if (msg.tvKey) {
+                    await this._context.secrets.store('deepseekAgent.tavilyKey', msg.tvKey);
+                }
+                if (typeof msg.baseUrl === 'string') {
+                    const normalized = msg.baseUrl.trim().replace(/\/$/, '') || 'https://api.deepseek.com';
+                    await cfg.update('apiBaseUrl', normalized, vscode.ConfigurationTarget.Global);
+                }
+                this._refreshBalance(true);
+                break;
+            }
+            case 'openExternal': {
+                const rawUrl = String(msg.url || '');
+                if (/^https?:\/\//.test(rawUrl)) {
+                    vscode.env.openExternal(vscode.Uri.parse(rawUrl));
+                }
+                break;
+            }
             case 'openFile':        openFile(msg.path, msg.line); break;
             case 'send': {
                 let skillContent = null;
