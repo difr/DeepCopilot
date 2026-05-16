@@ -14,7 +14,7 @@
 
 | Name | Value |
 | ---- | ----- |
-| `DEEPSEEK_API_KEY` | 你的 DeepSeek API Key（来自 https://platform.deepseek.com/api_keys） |
+| `OPENAI_API_KEY` | 你的 OpenAI API Key（来自 https://platform.openai.com/api-keys） |
 
 > 不要把 key 写进任何代码或 workflow 文件本身。
 

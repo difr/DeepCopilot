@@ -1,4 +1,4 @@
-name: AI Code Review (DeepSeek)
+name: AI Code Review (OpenAI)
 
 on:
   pull_request:
@@ -23,13 +23,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Run DeepSeek Code Review
+      - name: Run OpenAI Code Review
         uses: anc95/ChatGPT-CodeReview@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          OPENAI_API_ENDPOINT: https://api.deepseek.com/v1
-          MODEL: deepseek-chat
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_ENDPOINT: https://api.openai.com/v1
+          MODEL: gpt-4.5-preview
           LANGUAGE: Chinese
           PROMPT: |
             你是 DeepCopilot 项目的资深代码审核员，请对本次 PR 的 diff 进行严格审查，重点关注：
