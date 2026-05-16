@@ -103,7 +103,7 @@
   var todoBody = document.getElementById("todo-body");
   var todoCnt = document.getElementById("todo-cnt");
   var cxOn = false, busy = false;
-  var cur = null, curText = "", curThk = null, curBubble = null;
+  var cur = null, curText = "", curThk = null, curThkHead = null, curBubble = null;
   var toolMap = {};
   var _userMsgCount = 0; // tracks index of each .msgU for editUserMessage
   var _editPendingIdx = -1; // index of msgU being edited, set before postMessage
@@ -700,7 +700,8 @@
     cur = null;        /* no active text segment yet */
     curText = "";
     curThk = d.querySelector(".thinkblk");
-    var thh = d.querySelector(".thinkhead");
+    curThkHead = d.querySelector(".thinkhead");
+    var thh = curThkHead;
     thh.addEventListener("click", function(){
       var blk = thh.parentNode.querySelector(".thinkblk");
       if (!blk) return;
@@ -712,33 +713,82 @@
     return d;
   }
 
-  /* Group the trailing run of consecutive prose tool lines (.tl) into a
-     collapsible .tl-group. Called (a) when text starts flowing after tools
-     (streaming, GH Copilot look-ahead style) and (b) at replyEnd for
-     responses that end with tools and have no trailing text. */
+  /* Create an inline thinking chip in .flow for subsequent-iteration reasoning
+     (called from thinkingDelta when curThk is null after a newTurn). */
+  function makeThinkChip() {
+    ensureBubble();
+    var flow = curBubble.querySelector(".flow");
+    /* Seal any in-progress text segment before inserting the chip */
+    if (cur && cur.classList && cur.classList.contains("seg")) {
+      flushRender(); cur.setAttribute("data-raw", curText || ""); cur = null; curText = "";
+    }
+    var slot = document.createElement("div");
+    slot.className = "think-slot";
+    var head = document.createElement("div");
+    head.className = "thinkhead";
+    head.style.display = "inline-block";
+    head.dataset.start = String(Date.now());
+    head.innerHTML = "<span class=\"th-dot\"></span><span class=\"th-chev\">\u25b8</span><span class=\"th-lbl\">Thinking\u2026</span>";
+    var blk = document.createElement("div");
+    blk.className = "thinkblk";
+    blk.style.display = "none";
+    slot.appendChild(head);
+    slot.appendChild(blk);
+    flow.appendChild(slot);
+    (function(h, b){
+      h.addEventListener("click", function(){
+        var open = b.style.display === "block";
+        b.style.display = open ? "none" : "block";
+        var chev = h.querySelector(".th-chev");
+        if (chev) chev.textContent = open ? "\u25b8" : "\u25be";
+      });
+    })(head, blk);
+    curThk = blk;
+    curThkHead = head;
+  }
+
+  /* Group the trailing run of consecutive tool elements (.tl-wrap and .tool
+     cards) into a collapsible .tl-group. Called when text starts streaming
+     after tools (GH Copilot look-ahead fold). */
   function groupTrailingToolLines(){
     if (!curBubble) return;
     var flow = curBubble.querySelector(".flow");
     if (!flow) return;
     var children = Array.from(flow.children);
-    /* Collect trailing .tl-wrap elements (each wraps a .tl prose row + its detail) */
-    var toolWraps = [];
+    /* Collect trailing tool elements (.tl-wrap prose lines AND .tool cards) */
+    var trailing = [];
     for (var i = children.length - 1; i >= 0; i--){
-      if (children[i].classList.contains("tl-wrap")) toolWraps.unshift(children[i]);
-      else break;
+      var el = children[i];
+      if (el.classList.contains("tl-wrap") ||
+          (el.classList.contains("tool") && !el.classList.contains("tl-group"))) {
+        trailing.unshift(el);
+      } else { break; }
     }
-    if (toolWraps.length < 2) return;
-    /* Build "Read ×2 · Searched" style summary label */
+    if (trailing.length >= 2) makeToolGroup(flow, trailing);
+  }
+
+  /* Extract the short verb label from a tool element (prose line or card). */
+  function getToolVerb(el) {
+    if (el.classList.contains("tl-wrap")) {
+      var proseEl = el.querySelector(".tl-prose");
+      return proseEl ? proseEl.textContent.trim().split(/\s+/)[0] : "Tool";
+    }
+    var nmEl = el.querySelector(".nm");
+    return nmEl ? nmEl.textContent.trim() : "Tool";
+  }
+
+  /* Wrap a contiguous array of tool nodes into a single collapsible .tl-group. */
+  function makeToolGroup(flow, nodes) {
+    if (!nodes || nodes.length < 2) return;
     var verbCounts = {};
-    toolWraps.forEach(function(w){
-      var proseEl = w.querySelector(".tl-prose");
-      var verb = proseEl ? proseEl.textContent.trim().split(/\s+/)[0] : "Tool";
-      verbCounts[verb] = (verbCounts[verb] || 0) + 1;
+    nodes.forEach(function(el) {
+      var v = getToolVerb(el);
+      verbCounts[v] = (verbCounts[v] || 0) + 1;
     });
     var label = Object.keys(verbCounts).map(function(v){
       return verbCounts[v] > 1 ? v + " \xd7" + verbCounts[v] : v;
     }).join("  \xb7  ");
-    var firstIco = toolWraps[0].querySelector(".ico");
+    var firstIco = nodes[0].querySelector(".ico");
     var icoHtml = firstIco ? firstIco.outerHTML : "";
     var grp = document.createElement("div");
     grp.className = "tl-group";
@@ -747,11 +797,36 @@
     sumRow.innerHTML = icoHtml + "<span class=\"tl-prose\">" + escHtml(label) + "</span><span class=\"tl-chev\">\u2228</span>";
     var listEl = document.createElement("div");
     listEl.className = "tl-list";
-    toolWraps.forEach(function(w){ listEl.appendChild(w); });
+    /* Insert group in place of first node, then migrate all nodes into listEl */
+    flow.insertBefore(grp, nodes[0]);
+    nodes.forEach(function(n){ listEl.appendChild(n); });
     grp.appendChild(sumRow);
     grp.appendChild(listEl);
-    flow.appendChild(grp);
     (function(g){ sumRow.addEventListener("click", function(){ g.classList.toggle("open"); }); })(grp);
+  }
+
+  /* Scan the entire .flow and group ALL contiguous runs of tool elements.
+     Called at replyEnd so every tool sequence (mid-turn or trailing) is folded. */
+  function groupAllToolRuns() {
+    if (!curBubble) return;
+    var flow = curBubble.querySelector(".flow");
+    if (!flow) return;
+    /* Snapshot children before any DOM mutation */
+    var children = Array.from(flow.children);
+    var runs = [];
+    var current = [];
+    children.forEach(function(el) {
+      var isTool = (el.classList.contains("tl-wrap") ||
+                    (el.classList.contains("tool") && !el.classList.contains("tl-group")));
+      if (isTool) {
+        current.push(el);
+      } else {
+        if (current.length >= 2) runs.push(current.slice());
+        current = [];
+      }
+    });
+    if (current.length >= 2) runs.push(current);
+    runs.forEach(function(run){ makeToolGroup(flow, run); });
   }
 
   /* Ensure there is a current text segment to stream markdown into.
@@ -1458,13 +1533,24 @@
       inp.value = m.text || ""; autosize(); inp.focus();
       if (es && msgs.querySelectorAll(".msgU,.msgA").length === 0) es.style.display = "block";
     } else if (m.type === "replyStart"){
-      curBubble = null; cur = null; curThk = null; curText = ""; toolMap = {};
+      curBubble = null; cur = null; curThk = null; curThkHead = null; curText = ""; toolMap = {};
       ensureBubble(); ascroll();
       setBusy(true); showCursor();
     } else if (m.type === "newTurn"){
       /* Same bubble for the entire user→assistant turn (GH Copilot style).
-         Just close out the current text segment so the next replyDelta
-         starts a fresh one positioned after any tool cards. */
+         Seal any active thinking chip first, then reset text state so the
+         next replyDelta starts a fresh segment after any tool cards. */
+      if (curThkHead && !curThkHead.dataset.done) {
+        curThkHead.dataset.done = "1";
+        curThkHead.classList.add("done");
+        var secs_nt = curThkHead.dataset.start ? Math.round((Date.now() - parseInt(curThkHead.dataset.start,10))/1000) : 0;
+        var lbl_nt = "Thought" + (secs_nt ? " for " + secs_nt + "s" : "");
+        curThkHead.dataset.label = lbl_nt;
+        if (curThk) curThk.style.display = "none";
+        var lblEl_nt = curThkHead.querySelector(".th-lbl"); if (lblEl_nt) lblEl_nt.textContent = lbl_nt;
+        var chevEl_nt = curThkHead.querySelector(".th-chev"); if (chevEl_nt) chevEl_nt.textContent = "\u25b8";
+      }
+      curThk = null; curThkHead = null;
       if (cur && cur.classList && cur.classList.contains("seg")) { flushRender(); cur.setAttribute("data-raw", curText || ""); }
       cur = null; curText = "";
       showCursor();
@@ -1472,8 +1558,8 @@
       ensureTextSegment();
       curText += (m.text || "");
       scheduleRender();
-      var th2 = curBubble.querySelector(".thinkhead");
-      if (th2 && th2.style.display !== "none" && !th2.dataset.done) {
+      var th2 = curThkHead;
+      if (th2 && !th2.dataset.done) {
         th2.dataset.done = "1";
         th2.classList.add("done");
         var secs = th2.dataset.start ? Math.round((Date.now() - parseInt(th2.dataset.start,10))/1000) : 0;
@@ -1488,14 +1574,18 @@
       ascroll();
     } else if (m.type === "thinkingDelta"){
       ensureBubble();
-      var th = curBubble.querySelector(".thinkhead");
+      if (curThk === null) {
+        /* After a newTurn the previous thinking was sealed; create a new
+           inline chip in .flow for this iteration's reasoning. */
+        makeThinkChip();
+      }
+      var th = curThkHead;
       if (th && th.style.display === "none") {
         th.style.display = "inline-block";
-        th.dataset.start = String(Date.now());
-        /* default-expand so user sees streaming reasoning */
-        if (curThk) curThk.style.display = "block";
+        th.dataset.start = th.dataset.start || String(Date.now());
+        /* default-collapsed — user can click to expand */
       }
-      curThk.textContent += (m.text || "");
+      if (curThk) curThk.textContent += (m.text || "");
       if (th && !th.dataset.done) {
         var es2 = th.dataset.start ? Math.round((Date.now() - parseInt(th.dataset.start,10))/1000) : 0;
         var lbl3 = "Thinking… " + es2 + "s";
@@ -1705,9 +1795,8 @@
         var prev = msgs.querySelectorAll(".msgA .msgActs");
         for (var pi=0; pi<prev.length; pi++) prev[pi].parentNode.removeChild(prev[pi]);
         curBubble.insertAdjacentHTML("beforeend", actionBarHtml());
-        /* Group any trailing consecutive prose tool lines (handles tool-only
-           responses or responses that end with tool calls and no trailing text). */
-        groupTrailingToolLines();
+        /* Group all contiguous tool runs (mid-turn and trailing). */
+        groupAllToolRuns();
       }
       curBubble = null; cur = null; curThk = null; curText = "";
     } else if (m.type === "reply"){
