@@ -142,6 +142,31 @@ class ToolExecutor {
 
     // ─── Approval ────────────────────────────────────────────────────────────
 
+    /**
+     * Race a tool promise against the abort signal so the agent-loop never
+     * waits on a tool that ignores `ctx.abortSignal`.  The underlying tool may
+     * keep running internally (best effort to also pass `abortSignal` in),
+     * but its result will be discarded.  Issue #58 P0-3.
+     */
+    _raceWithAbort(promise, abortSignal) {
+        if (!abortSignal) return promise;
+        if (abortSignal.aborted) return Promise.reject(new Error('aborted'));
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const onAbort = () => {
+                if (settled) return;
+                settled = true;
+                try { abortSignal.removeEventListener('abort', onAbort); } catch {}
+                reject(new Error('aborted'));
+            };
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+            promise.then(
+                (v) => { if (settled) return; settled = true; try { abortSignal.removeEventListener('abort', onAbort); } catch {} resolve(v); },
+                (e) => { if (settled) return; settled = true; try { abortSignal.removeEventListener('abort', onAbort); } catch {} reject(e); },
+            );
+        });
+    }
+
     async requestApproval(description, abortSignal) {
         const dialog = vscode.window.showInformationMessage(
             `${t('approvalRequest')}${description}`,
@@ -295,8 +320,12 @@ class ToolExecutor {
             this.snapshotForEdit(run, name, args);
         }
 
-        // Dispatch to registry or special handlers
-        const result = await this.dispatch(name, args, run, abortSignal, tcId);
+        // Dispatch to registry or special handlers — wrapped in a signal-race so
+        // tools that don't honour `ctx.abortSignal` internally (sync I/O, third-
+        // party libraries, etc.) still let the agent-loop unblock immediately
+        // when the user presses Stop.  Issue #58 (P0-3).
+        const dispatchPromise = this.dispatch(name, args, run, abortSignal, tcId);
+        const result = await this._raceWithAbort(dispatchPromise, abortSignal);
 
         // Cache store (read-only)
         if (cache && ToolExecutor.CACHEABLE.has(name) && typeof result === 'string' && !result.startsWith('Error:')) {

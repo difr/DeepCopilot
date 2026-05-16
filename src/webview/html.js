@@ -136,6 +136,64 @@ function buildWebviewHtml(webview, extensionUri) {
     <span class="pill" id="ft-balance" title="${ui.balanceTitle}" style="display:none">${ui.balanceInit}</span>
   </div>
 </div>
+<!-- ── Settings Modal ── -->
+<div id="settings-overlay" class="settings-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="settings-modal">
+    <div class="settings-header">
+      <span class="settings-title" id="settings-title">⚙ API &amp; Keys</span>
+      <button class="settings-close" id="settingsCloseBtn" title="Close" aria-label="Close">✕</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <div class="settings-section-label">DeepSeek AI</div>
+        <div class="settings-field">
+          <label class="settings-label" for="s-ds-key">API Key <span class="settings-required">*</span></label>
+          <div class="settings-input-row">
+            <input type="password" id="s-ds-key" class="settings-input" placeholder="sk-..." autocomplete="off" spellcheck="false"/>
+            <button class="settings-eye-btn" id="s-ds-key-eye" title="Show / hide" aria-label="Toggle key visibility">👁</button>
+          </div>
+          <div class="settings-test-row">
+            <button class="settings-test-btn" id="s-ds-test">▶ Test connection</button>
+            <span class="settings-test-result" id="s-ds-result"></span>
+          </div>
+          <a class="settings-link" id="s-ds-link" href="#">↗ platform.deepseek.com/api_keys</a>
+        </div>
+        <div class="settings-field">
+          <label class="settings-label" for="s-base-url">Base URL</label>
+          <div class="settings-input-row">
+            <input type="text" id="s-base-url" class="settings-input" placeholder="https://api.deepseek.com" autocomplete="off" spellcheck="false"/>
+            <button class="settings-reset-btn" id="s-base-url-reset" title="Reset to default">↺</button>
+          </div>
+          <span class="settings-hint">Works with any OpenAI-compatible endpoint</span>
+        </div>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-section">
+        <div class="settings-section-label">Web Search <span class="settings-section-badge">Tavily</span></div>
+        <div class="settings-field">
+          <label class="settings-label" for="s-tv-key">API Key <span class="settings-optional">(optional)</span></label>
+          <div class="settings-input-row">
+            <input type="password" id="s-tv-key" class="settings-input" placeholder="tvly-..." autocomplete="off" spellcheck="false"/>
+            <button class="settings-eye-btn" id="s-tv-key-eye" title="Show / hide" aria-label="Toggle key visibility">👁</button>
+          </div>
+          <div class="settings-test-row">
+            <button class="settings-test-btn" id="s-tv-test">▶ Test connection</button>
+            <span class="settings-test-result" id="s-tv-result"></span>
+          </div>
+          <a class="settings-link" id="s-tv-link" href="#">↗ app.tavily.com · 1000 free searches/month</a>
+        </div>
+      </div>
+    </div>
+    <div class="settings-dirty-bar" id="s-dirty-bar" style="display:none">
+      <span class="settings-dirty-msg">⚠ Unsaved changes</span>
+      <button class="settings-discard-btn" id="s-discard">Discard</button>
+    </div>
+    <div class="settings-footer">
+      <button class="settings-cancel-btn" id="settingsCancelBtn">Cancel</button>
+      <button class="settings-save-btn" id="settingsSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
 <script nonce="${nonce}" src="${katexJsUri}"></script>
 <script nonce="${nonce}" src="${dompurifyUri}"></script>
 <script nonce="${nonce}" src="${jsUri}"></script>

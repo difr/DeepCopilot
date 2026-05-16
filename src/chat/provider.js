@@ -16,7 +16,7 @@ const path   = require('path');
 const fs     = require('fs');
 
 const { Logger }           = require('../logger');
-const { wsRoot, resolvePath } = require('../utils/paths');
+const { wsRoot, resolvePath, isInsideWorkspace } = require('../utils/paths');
 const { isZh }             = require('../utils/i18n');
 const { openFile }         = require('./openFile');
 const { buildWebviewHtml } = require('../webview/html');
@@ -182,7 +182,134 @@ class ChatViewProvider {
                     .then(() => this._post({ type: 'modelInfo', model: msg.model }));
                 break;
             }
-            case 'openApiSettings': vscode.commands.executeCommand('deepseekAgent.showApiStatus'); break;
+            case 'openApiSettings': {
+                const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
+                const dsKey     = await this._context.secrets.get('deepseekAgent.apiKey') || '';
+                const tvKey     = await this._context.secrets.get('deepseekAgent.tavilyKey') || '';
+                const baseUrl   = cfg.get('apiBaseUrl') || 'https://api.deepseek.com';
+                const maskKey   = (k) => k ? (k.slice(0, 6) + '...' + k.slice(-4)) : '';
+                this._post({
+                    type:       'settingsLoaded',
+                    dsKeySet:   !!dsKey,
+                    dsKeyHint:  maskKey(dsKey),
+                    tvKeySet:   !!tvKey,
+                    tvKeyHint:  maskKey(tvKey),
+                    baseUrl:    baseUrl,
+                });
+                break;
+            }
+            case 'testApiKey': {
+                const which = msg.which; // 'ds' | 'tv'
+                const t0    = Date.now();
+                if (which === 'ds') {
+                    const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.apiKey') || '');
+                    const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
+                    const baseUrl = (msg.baseUrl !== null && msg.baseUrl !== undefined && msg.baseUrl !== '')
+                        ? msg.baseUrl
+                        : (cfg.get('apiBaseUrl') || 'https://api.deepseek.com');
+                    if (!testKey) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No API key set' });
+                        break;
+                    }
+                    try {
+                        const https = require('https');
+                        const http  = require('http');
+                        const base  = (baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
+                        const urlObj = new URL('/chat/completions', base);
+                        const body   = JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
+                        const isHttps = urlObj.protocol === 'https:';
+                        const result = await new Promise((resolve) => {
+                            const req = (isHttps ? https : http).request({
+                                hostname: urlObj.hostname,
+                                port:     urlObj.port || (isHttps ? 443 : 80),
+                                path:     urlObj.pathname,
+                                method:   'POST',
+                                headers:  { 'Authorization': `Bearer ${testKey}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                timeout:  10000,
+                            }, (res) => {
+                                let raw = '';
+                                res.on('data', c => { raw += c; });
+                                res.on('end', () => {
+                                    if (res.statusCode === 200 || res.statusCode === 201) { resolve({ ok: true }); return; }
+                                    try {
+                                        const d = JSON.parse(raw);
+                                        resolve({ ok: false, error: (d.error && d.error.message) || `HTTP ${res.statusCode}` });
+                                    } catch { resolve({ ok: false, error: `HTTP ${res.statusCode}` }); }
+                                });
+                                res.on('error', e => resolve({ ok: false, error: e.message }));
+                            });
+                            req.on('error', e => resolve({ ok: false, error: e.message }));
+                            req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
+                            req.write(body);
+                            req.end();
+                        });
+                        this._post({ type: 'testApiKeyResult', which, ok: result.ok, latency: Date.now() - t0, error: result.error });
+                    } catch (e) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: e.message });
+                    }
+                } else if (which === 'tv') {
+                    const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.tavilyKey') || '');
+                    if (!testKey) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No Tavily key set' });
+                        break;
+                    }
+                    try {
+                        const https  = require('https');
+                        const body   = JSON.stringify({ api_key: testKey, query: 'test', max_results: 1 });
+                        const result = await new Promise((resolve) => {
+                            const req = https.request({
+                                hostname: 'api.tavily.com',
+                                port: 443,
+                                path: '/search',
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                timeout: 10000,
+                            }, (res) => {
+                                let raw = '';
+                                res.on('data', c => { raw += c; });
+                                res.on('end', () => {
+                                    if (res.statusCode === 200) { resolve({ ok: true }); return; }
+                                    try {
+                                        const d = JSON.parse(raw);
+                                        resolve({ ok: false, error: (d.detail || d.message || `HTTP ${res.statusCode}`) });
+                                    } catch { resolve({ ok: false, error: `HTTP ${res.statusCode}` }); }
+                                });
+                                res.on('error', e => resolve({ ok: false, error: e.message }));
+                            });
+                            req.on('error', e => resolve({ ok: false, error: e.message }));
+                            req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
+                            req.write(body);
+                            req.end();
+                        });
+                        this._post({ type: 'testApiKeyResult', which, ok: result.ok, latency: Date.now() - t0, error: result.error });
+                    } catch (e) {
+                        this._post({ type: 'testApiKeyResult', which, ok: false, error: e.message });
+                    }
+                }
+                break;
+            }
+            case 'saveApiSettings': {
+                const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+                if (msg.dsKey) {
+                    await this._context.secrets.store('deepseekAgent.apiKey', msg.dsKey);
+                }
+                if (msg.tvKey) {
+                    await this._context.secrets.store('deepseekAgent.tavilyKey', msg.tvKey);
+                }
+                if (typeof msg.baseUrl === 'string') {
+                    const normalized = msg.baseUrl.trim().replace(/\/$/, '') || 'https://api.deepseek.com';
+                    await cfg.update('apiBaseUrl', normalized, vscode.ConfigurationTarget.Global);
+                }
+                this._refreshBalance(true);
+                break;
+            }
+            case 'openExternal': {
+                const rawUrl = String(msg.url || '');
+                if (/^https?:\/\//.test(rawUrl)) {
+                    vscode.env.openExternal(vscode.Uri.parse(rawUrl));
+                }
+                break;
+            }
             case 'openFile':        openFile(msg.path, msg.line); break;
             case 'send': {
                 let skillContent = null;
@@ -383,6 +510,87 @@ class ChatViewProvider {
             }
         }
         this._loop.handleSend(newText);
+    }
+
+    // ─── Public API for extension commands ──────────────────────────────────
+
+    /**
+     * Read the active editor selection (or entire file if nothing selected)
+     * and push an addAttachment message to the webview.
+     * Called by the deepseekAgent.attachSelection command.
+     */
+    attachSelection() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage(
+                isZh() ? 'Deep Copilot: 请先在编辑器中打开一个文件' : 'Deep Copilot: Open a file in the editor first'
+            );
+            return;
+        }
+        const doc = editor.document;
+        if (doc.uri.scheme !== 'file' && doc.uri.scheme !== 'untitled') return;
+
+        const abs  = doc.fileName;
+        const root = wsRoot();
+        // Security: reject paths outside the workspace
+        if (doc.uri.scheme === 'file' && root && !isInsideWorkspace(abs)) {
+            vscode.window.showWarningMessage(
+                isZh() ? 'Deep Copilot: 只能附加工作区内的文件' : 'Deep Copilot: Only files inside the workspace can be attached'
+            );
+            return;
+        }
+
+        const rel  = root && abs.startsWith(root)
+            ? path.relative(root, abs).replace(/\\/g, '/')
+            : path.basename(abs);
+        const lang = doc.languageId;
+        const sel  = editor.selection;
+
+        let content, startLine, endLine;
+        if (!sel.isEmpty) {
+            content   = doc.getText(sel);
+            startLine = sel.start.line + 1;  // convert to 1-based
+            endLine   = sel.end.line + 1;
+            if (content.length > 12000) content = content.slice(0, 12000) + '\n... [截断]';
+        } else {
+            content = doc.getText();
+            if (content.length > 65536) content = content.slice(0, 65536) + '\n... [截断]';
+        }
+
+        this._post({ type: 'addAttachment', payload: { path: rel, content, startLine, endLine, lang } });
+        // Focus the chat panel so the user can see the chip was added
+        vscode.commands.executeCommand('deepseek.chatView.focus').then(() => {}, () => {});
+    }
+
+    /**
+     * Called by the selection-change listener (auto, ~300ms debounce).
+     * Replaces any previous live selection chip in the webview.
+     * @param {import('vscode').TextEditor} [editor]
+     */
+    attachLiveSelection(editor) {
+        if (!editor) editor = vscode.window.activeTextEditor;
+        if (!editor) return;
+        const doc = editor.document;
+        if (doc.uri.scheme !== 'file' && doc.uri.scheme !== 'untitled') return;
+        const abs  = doc.fileName;
+        const root = wsRoot();
+        if (doc.uri.scheme === 'file' && root && !isInsideWorkspace(abs)) return;
+        const rel  = root && abs.startsWith(root)
+            ? path.relative(root, abs).replace(/\\/g, '/')
+            : path.basename(abs);
+        const lang = doc.languageId;
+        const sel  = editor.selection;
+        if (sel.isEmpty) { this.clearLiveSelection(); return; }
+        let content = doc.getText(sel);
+        const startLine = sel.start.line + 1;
+        const endLine   = sel.end.line + 1;
+        if (content.length > 12000) content = content.slice(0, 12000) + '\n... [截断]';
+        this._post({ type: 'setLiveSelection', payload: { path: rel, content, startLine, endLine, lang } });
+    }
+
+    /** Remove the live selection chip from the webview. */
+    clearLiveSelection() {
+        this._post({ type: 'clearLiveSelection' });
     }
 
     _buildAttachmentBlock(heavy) {

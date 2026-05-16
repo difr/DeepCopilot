@@ -52,10 +52,12 @@ const MAX_CONTENT_BYTES = 2 * 1024 * 1024; // 2MB
 const FETCH_TIMEOUT_MS  = 30_000;
 const MAX_REDIRECTS     = 5;
 
-function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS) {
+function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS, abortSignal = null) {
     return new Promise((resolve, reject) => {
         const check = validateUrl(rawUrl);
         if (!check.ok) return reject(new Error(check.reason));
+
+        if (abortSignal && abortSignal.aborted) return reject(new Error('aborted'));
 
         const { parsed } = check;
         // 强制升级到 HTTPS
@@ -64,6 +66,8 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS) {
             : rawUrl;
 
         const lib = finalUrl.startsWith('https:') ? https : http;
+
+        let onAbort = null;
 
         const req = lib.get(finalUrl, {
             timeout: FETCH_TIMEOUT_MS,
@@ -96,7 +100,7 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS) {
                 }
 
                 res.destroy();
-                return fetchUrl(redirectUrl, redirectsLeft - 1).then(resolve, reject);
+                return fetchUrl(redirectUrl, redirectsLeft - 1, abortSignal).then(resolve, reject);
             }
 
             if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -133,6 +137,15 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS) {
         req.on('timeout', () => {
             req.destroy(new Error(`请求超时 (${FETCH_TIMEOUT_MS}ms): ${finalUrl}`));
         });
+
+        if (abortSignal) {
+            onAbort = () => { try { req.destroy(new Error('aborted')); } catch {} reject(new Error('aborted')); };
+            if (abortSignal.aborted) { onAbort(); return; }
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+            // Best-effort: clear listener when promise settles
+            const cleanup = () => { try { abortSignal.removeEventListener('abort', onAbort); } catch {} };
+            req.once('close', cleanup);
+        }
     });
 }
 
@@ -167,7 +180,10 @@ async function toolWebFetch(args, _ctx = {}) {
         const { ok, reason } = validateUrl(url);
         if (!ok) return `Error: ${reason}`;
 
-        const { body, truncated, url: finalUrl, status, contentType } = await fetchUrl(url);
+        const abortSignal = _ctx && _ctx.abortSignal;
+        if (abortSignal && abortSignal.aborted) return 'Error: aborted';
+
+        const { body, truncated, url: finalUrl, status, contentType } = await fetchUrl(url, MAX_REDIRECTS, abortSignal);
 
         const isHtml = contentType.includes('text/html') || contentType.includes('application/xhtml');
         const text   = isHtml ? htmlToText(body) : body;
