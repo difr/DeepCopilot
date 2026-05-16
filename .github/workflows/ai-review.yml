@@ -1,0 +1,72 @@
+name: AI Code Review (DeepSeek)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ai-review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run DeepSeek Code Review
+        uses: anc95/ChatGPT-CodeReview@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_ENDPOINT: https://api.deepseek.com/v1
+          MODEL: deepseek-chat
+          LANGUAGE: Chinese
+          PROMPT: |
+            你是 DeepCopilot 项目的资深代码审核员，请对本次 PR 的 diff 进行严格审查，重点关注：
+              1. 安全漏洞（OWASP Top 10、命令注入、路径穿越、密钥泄露等）
+              2. 明显 bug、空指针、未处理异常、竞态条件
+              3. 与现有代码风格不一致或破坏架构的改动
+              4. 对 DeepSeek API、MCP、工具调用、Webview 安全性的影响
+              5. 性能与可维护性
+            请用中文逐文件给出意见，最后给出一行总结：
+              结论：通过 / 需修改 / 拒绝
+          top_p: 1
+          temperature: 0.2
+          max_tokens: 4096
+          MAX_PATCH_LENGTH: 20000
+          # 跳过这些路径，避免无意义审核
+          IGNORE_PATTERNS: |
+            **/*.md
+            **/*.lock
+            **/package-lock.json
+            **/node_modules/**
+            out/**
+            release/**
+            refine-logs/**
+            media/**
+            imgs/**
+            claude-code-main/**
+
+  ai-review-gate:
+    # 给分支保护当作 required check 使用：上一步失败则这一步失败
+    needs: ai-review
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Verify AI review status
+        run: |
+          if [ "${{ needs.ai-review.result }}" != "success" ]; then
+            echo "AI review job did not succeed: ${{ needs.ai-review.result }}"
+            exit 1
+          fi
+          echo "AI review completed."

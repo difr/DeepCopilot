@@ -1,0 +1,37 @@
+name: Request Copilot Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  request-copilot-review:
+    # 草稿 PR 不触发，避免浪费配额
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add Copilot as reviewer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 通过 GraphQL 把官方 Copilot reviewer bot 加入 PR
+          # 如果当前仓库/账号未启用 Copilot code review，这一步会失败但不会阻塞 PR
+          set +e
+          gh api graphql -f query='
+            mutation($pullRequestId: ID!) {
+              requestReviews(input: {
+                pullRequestId: $pullRequestId,
+                userIds: [],
+                copilotReview: true
+              }) {
+                pullRequest { id }
+              }
+            }' -F pullRequestId="$(gh pr view $PR_NUMBER --repo $REPO --json id -q .id)"
+          echo "Copilot review request dispatched (ignore errors if Copilot review is not enabled for this repo)."
+          exit 0

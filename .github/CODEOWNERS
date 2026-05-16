@@ -1,0 +1,26 @@
+# CODEOWNERS for DeepCopilot
+# 每条规则的最后一个匹配优先生效
+# 格式: <pattern>  <owner1> <owner2> ...
+
+# 默认：仓库维护者负责一切
+*                               @ZhouChaunge
+
+# 扩展入口与激活逻辑，改动需要更仔细审核
+/src/extension.js               @ZhouChaunge
+/src/hooks.js                   @ZhouChaunge
+/package.json                   @ZhouChaunge
+
+# 与 DeepSeek API、对话核心相关的关键路径
+/src/api/**                     @ZhouChaunge
+/src/chat/**                    @ZhouChaunge
+/src/prompts/**                 @ZhouChaunge
+
+# 工具调用 / 可执行操作，安全敏感
+/src/tools/**                   @ZhouChaunge
+
+# Webview & 前端资源
+/src/webview/**                 @ZhouChaunge
+/media/**                       @ZhouChaunge
+
+# CI / 仓库治理
+/.github/**                     @ZhouChaunge
