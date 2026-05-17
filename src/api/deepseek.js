@@ -213,4 +213,81 @@ function fetchBalance({ apiKey, baseUrl }) {
     });
 }
 
-module.exports = { streamDeepSeek, fetchBalance };
+// ─── FIM completion (Issue #60) ────────────────────────────────────────────
+// Non-streaming fill-in-the-middle completion against DeepSeek's beta endpoint.
+// Powers the InlineCompletionItemProvider (src/completion/provider.js).
+//
+// API:    POST {baseUrl}/beta/completions
+// Schema: OpenAI legacy /v1/completions with `prompt` (prefix) + `suffix`.
+//
+// Returns the completion text, or null on any failure (silent — inline
+// completion must never throw user-visible errors).
+function fimComplete({ apiKey, baseUrl, model, prefix, suffix, maxTokens, temperature }, abortSignal) {
+    return new Promise((resolve) => {
+        const base = (baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
+        // FIM is only documented for the official DeepSeek API; third-party
+        // proxies may not implement /beta/completions.
+        if (!base.includes('deepseek.com')) { resolve(null); return; }
+
+        let urlObj;
+        try { urlObj = new URL('/beta/completions', base); } catch { resolve(null); return; }
+        const isHttps = urlObj.protocol === 'https:';
+
+        const body = JSON.stringify({
+            model:       model || 'deepseek-chat',
+            prompt:      prefix || '',
+            suffix:      suffix || '',
+            max_tokens:  maxTokens  || 64,
+            temperature: temperature == null ? 0.2 : temperature,
+            stream:      false,
+        });
+
+        const reqOpts = {
+            hostname: urlObj.hostname,
+            port:     urlObj.port || (isHttps ? 443 : 80),
+            path:     urlObj.pathname,
+            method:   'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type':  'application/json',
+                'Accept':        'application/json',
+                'Content-Length': Buffer.byteLength(body),
+            },
+            timeout: 15000,
+        };
+
+        const mod = isHttps ? https : http;
+        const req = mod.request(reqOpts, (res) => {
+            if (res.statusCode !== 200) {
+                let errBody = '';
+                res.on('data', c => { errBody += c; });
+                res.on('end', () => {
+                    Logger.info('FIM_HTTP_ERROR', { status: res.statusCode, body: errBody.slice(0, 300) });
+                    resolve(null);
+                });
+                return;
+            }
+            let raw = '';
+            res.on('data', c => { raw += c; });
+            res.on('end', () => {
+                try {
+                    const data = JSON.parse(raw);
+                    const text = (data && data.choices && data.choices[0] && data.choices[0].text) || '';
+                    resolve(text);
+                } catch { resolve(null); }
+            });
+            res.on('error', () => resolve(null));
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { try { req.destroy(); } catch {}; resolve(null); });
+        if (abortSignal) {
+            const onAbort = () => { try { req.destroy(); } catch {}; resolve(null); };
+            if (abortSignal.aborted) { onAbort(); return; }
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+        }
+        req.write(body);
+        req.end();
+    });
+}
+
+module.exports = { streamDeepSeek, fetchBalance, fimComplete };

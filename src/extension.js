@@ -7,6 +7,7 @@ const { Logger } = require('./logger');
 const { ChatViewProvider } = require('./chat/provider');
 const { t, isZh } = require('./utils/i18n');
 const { getDiscountWarning } = require('./pricing');
+const { registerInlineCompletionProvider } = require('./completion/provider');
 
 function activate(context) {
     Logger.init(context);
@@ -326,6 +327,10 @@ function activate(context) {
     );
 
     // Status bar button (already registered at top of activate; nothing to do here).
+
+    // Inline FIM completion (Issue #60) — registered last so a failure here cannot
+    // block chat activation. Off by default; controlled by `deepCopilot.inlineCompletion.enable`.
+    try { registerInlineCompletionProvider(context); } catch (e) { Logger.info('INLINE_COMPLETION_REGISTER_FAILED', { message: e && e.message }); }
 
     // First-run: prompt for API key
     context.secrets.get('deepseekAgent.apiKey').then(key => {
