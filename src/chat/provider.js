@@ -26,6 +26,7 @@ const { SessionStore } = require('./session-store');
 const { ToolExecutor } = require('./tool-executor');
 const { AgentLoop }    = require('./agent-loop');
 const { fetchBalance } = require('../api/deepseek');
+const { resolveContextRef } = require('./context-refs');
 
 class ChatViewProvider {
     static viewType = 'deepseek.chatView';
@@ -35,7 +36,6 @@ class ChatViewProvider {
         this._view       = null;       // most-recently-active WebviewView
         this._views      = new Set();  // all live WebviewView instances
         this._panel      = null;
-        this._includeCtx = false;
         this._runs       = new Map();
 
         this._store = new SessionStore(context.globalState, {
@@ -65,8 +65,7 @@ class ChatViewProvider {
             postToRun:       (run, msg) => this._runPost(run, msg),
             post:            (msg) => this._post(msg),
             postSessionList: () => this._store.postList(),
-            buildAttachment: (heavy) => this._buildAttachmentBlock(heavy),
-            getIncludeCtx:   () => this._includeCtx,
+            buildAttachment: () => this._buildAttachmentBlock(),
         });
 
         const wsR = wsRoot();
@@ -334,7 +333,33 @@ class ChatViewProvider {
                         this._post({ type: 'error', text: `Skill load failed: ${e.message}` });
                     }
                 }
-                this._loop.handleSend(msg.text, msg.attachments || [], skillContent);
+                // Resolve any inline #<ref>:<arg> tokens (e.g. #symbol:Foo) the
+                // user did not commit as chips. Race-free: we resolve here
+                // *before* handing off to the agent loop, then merge results
+                // into msg.attachments so they ride along with the user turn.
+                let attachments = Array.isArray(msg.attachments) ? msg.attachments.slice() : [];
+                if (Array.isArray(msg.pendingRefs) && msg.pendingRefs.length) {
+                    for (const r of msg.pendingRefs) {
+                        try {
+                            const result = await resolveContextRef(r.refType, r.value);
+                            if (result && !result.error) {
+                                attachments.push(result);
+                                // Echo a chip into the CURRENT user bubble.
+                                // Posting `addPendingAttachment` BEFORE the loop
+                                // fires `userEcho` ensures the webview merges
+                                // these into `_pendingAttachments`, which is
+                                // flushed by the next userEcho handler
+                                // (see media/chat.js).
+                                this._post({ type: 'addPendingAttachment', payload: result });
+                            } else if (result && result.error) {
+                                this._post({ type: 'error', text: `#${r.refType}:${r.value} — ${result.error}` });
+                            }
+                        } catch (e) {
+                            this._post({ type: 'error', text: `#${r.refType} failed: ${e.message}` });
+                        }
+                    }
+                }
+                this._loop.handleSend(msg.text, attachments, skillContent);
                 break;
             }
             case 'stop': {
@@ -352,7 +377,6 @@ class ChatViewProvider {
             case 'codeBlockApply':  await this._applyCodeBlock(msg.code, msg.lang); break;
             case 'codeBlockCreate': await this._createFileFromCodeBlock(msg.code, msg.lang); break;
             case 'clear':           this._store.sessionId = null; break;
-            case 'contextToggle':   this._includeCtx = !!msg.active; break;
             case 'regenerate':      await this._handleRegenerate(); break;
             case 'editUserMessage': this._handleEditUserMessage(msg); break;
             case 'editUserSubmit':  await this._handleEditUserSubmit(msg); break;
@@ -393,6 +417,21 @@ class ChatViewProvider {
                     }
                 } catch (e) { error = e.message; }
                 this._post({ type: 'fileContentResult', path: rel, content, error, imageData });
+                break;
+            }
+            case 'resolveContextRef': {
+                const refType = String(msg.refType || '');
+                const value   = msg.value != null ? String(msg.value) : '';
+                try {
+                    const result = await resolveContextRef(refType, value);
+                    if (!result || result.error) {
+                        this._post({ type: 'error', text: `#${refType}${value ? ':' + value : ''} — ${result?.error || 'failed'}` });
+                    } else {
+                        this._post({ type: 'addAttachment', payload: result });
+                    }
+                } catch (e) {
+                    this._post({ type: 'error', text: `#${refType} failed: ${e.message}` });
+                }
                 break;
             }
         }
@@ -563,29 +602,40 @@ class ChatViewProvider {
     }
 
     /**
-     * Called by the selection-change listener (auto, ~300ms debounce).
-     * Replaces any previous live selection chip in the webview.
+     * Called by the selection-change listener (auto, ~300ms debounce) AND
+     * by the active-editor-change listener. Always shows a chip for the
+     * currently active file. If a non-empty selection exists, the chip also
+     * carries the selected text + line range; otherwise it's just a name tag.
      * @param {import('vscode').TextEditor} [editor]
      */
     attachLiveSelection(editor) {
         if (!editor) editor = vscode.window.activeTextEditor;
-        if (!editor) return;
+        if (!editor) { this.clearLiveSelection(); return; }
         const doc = editor.document;
-        if (doc.uri.scheme !== 'file' && doc.uri.scheme !== 'untitled') return;
+        if (doc.uri.scheme !== 'file' && doc.uri.scheme !== 'untitled') { this.clearLiveSelection(); return; }
         const abs  = doc.fileName;
         const root = wsRoot();
-        if (doc.uri.scheme === 'file' && root && !isInsideWorkspace(abs)) return;
+        if (doc.uri.scheme === 'file' && root && !isInsideWorkspace(abs)) { this.clearLiveSelection(); return; }
         const rel  = root && abs.startsWith(root)
             ? path.relative(root, abs).replace(/\\/g, '/')
             : path.basename(abs);
         const lang = doc.languageId;
         const sel  = editor.selection;
-        if (sel.isEmpty) { this.clearLiveSelection(); return; }
-        let content = doc.getText(sel);
-        const startLine = sel.start.line + 1;
-        const endLine   = sel.end.line + 1;
-        if (content.length > 12000) content = content.slice(0, 12000) + '\n... [截断]';
-        this._post({ type: 'setLiveSelection', payload: { path: rel, content, startLine, endLine, lang } });
+        if (sel && !sel.isEmpty) {
+            let content = doc.getText(sel);
+            const startLine = sel.start.line + 1;
+            const endLine   = sel.end.line + 1;
+            if (content.length > 12000) content = content.slice(0, 12000) + (isZh() ? '\n... [截断]' : '\n... [truncated]');
+            this._post({ type: 'setLiveSelection', payload: { path: rel, content, startLine, endLine, lang } });
+        } else {
+            // File is open but no selection: include the full document content
+            // (truncated) so that sending the chip attaches the whole file.
+            const FILE_CAP = 60 * 1024; // 60KB cap to keep payload reasonable
+            let content = doc.getText();
+            const truncated = content.length > FILE_CAP;
+            if (truncated) content = content.slice(0, FILE_CAP) + (isZh() ? '\n... [文件超出 60KB 已截断]' : '\n... [file exceeded 60KB and was truncated]');
+            this._post({ type: 'setLiveSelection', payload: { path: rel, content, lang } });
+        }
     }
 
     /** Remove the live selection chip from the webview. */
@@ -593,7 +643,7 @@ class ChatViewProvider {
         this._post({ type: 'clearLiveSelection' });
     }
 
-    _buildAttachmentBlock(heavy) {
+    _buildAttachmentBlock() {
         const editor = vscode.window.activeTextEditor;
         if (!editor) return null;
         const doc  = editor.document;
@@ -612,11 +662,6 @@ class ChatViewProvider {
             const capped   = selected.length > 4000 ? selected.slice(0, 4000) + '\n... [selection truncated]' : selected;
             lines.push(`Selection (${rel}:${sel.start.line + 1}-${sel.end.line + 1}):`);
             lines.push('`' + '`' + '`' + lang, capped, '`' + '`' + '`');
-        } else if (heavy) {
-            const range   = editor.visibleRanges[0];
-            const visible = doc.getText(range).substring(0, 3000);
-            lines.push(`Visible viewport (${rel}:${range.start.line + 1}-${range.end.line + 1}):`);
-            lines.push('`' + '`' + '`' + lang, visible, '`' + '`' + '`');
         }
         lines.push('Prefer this attachment over scanning the workspace if it answers the question.');
         lines.push('</attachments>');

@@ -172,27 +172,35 @@ function htmlToText(html) {
 }
 
 // ─── 工具主函数 ────────────────────────────────────────────────────────────────
-async function toolWebFetch(args, _ctx = {}) {
+
+// 结构化版本：不依赖 "Error:" 前缀字符串嗅探，供 context-refs 等需要
+// 判别成功/失败的调用方使用。返回 { ok, body?, error? }。
+async function fetchAndExtractText(args, _ctx = {}) {
+    const url = String((args && args.url) || '').trim();
+    if (!url) return { ok: false, error: 'url 不能为空' };
+
+    const { ok, reason } = validateUrl(url);
+    if (!ok) return { ok: false, error: reason };
+
+    const abortSignal = _ctx && _ctx.abortSignal;
+    if (abortSignal && abortSignal.aborted) return { ok: false, error: 'aborted' };
+
     try {
-        const url = String(args.url || '').trim();
-        if (!url) return 'Error: url 不能为空';
-
-        const { ok, reason } = validateUrl(url);
-        if (!ok) return `Error: ${reason}`;
-
-        const abortSignal = _ctx && _ctx.abortSignal;
-        if (abortSignal && abortSignal.aborted) return 'Error: aborted';
-
         const { body, truncated, url: finalUrl, status, contentType } = await fetchUrl(url, MAX_REDIRECTS, abortSignal);
-
         const isHtml = contentType.includes('text/html') || contentType.includes('application/xhtml');
         const text   = isHtml ? htmlToText(body) : body;
-
         const header = `URL: ${finalUrl}\nHTTP 状态: ${status}\n内容类型: ${contentType}${truncated ? '\n⚠️ 内容已截断（超过 2MB）' : ''}\n\n`;
-        return truncate(header + text);
+        return { ok: true, body: truncate(header + text), finalUrl, status, contentType };
     } catch (e) {
-        return `Error: ${e.message || String(e)}`;
+        return { ok: false, error: e && e.message ? e.message : String(e) };
     }
 }
 
-module.exports = { toolWebFetch };
+// 字符串版本：保持工具调用契约不变（agent loop 期望字符串）。
+async function toolWebFetch(args, _ctx = {}) {
+    const res = await fetchAndExtractText(args, _ctx);
+    if (!res.ok) return `Error: ${res.error}`;
+    return res.body;
+}
+
+module.exports = { toolWebFetch, fetchAndExtractText };

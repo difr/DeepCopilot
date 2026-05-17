@@ -2,7 +2,7 @@
   "name": "deep-copilot",
   "displayName": "Deep Copilot",
   "description": "Deep Copilot — AI coding agent embedded in VS Code. Powered by DeepSeek V4, with file editing, terminal, search, and plan/todos. Standalone, no backend required.",
-  "version": "0.33.0",
+  "version": "0.33.5",
   "publisher": "ZhouChaunge",
   "icon": "imgs/logo.png",
   "repository": {
@@ -218,6 +218,11 @@
           "type": "boolean",
           "default": true,
           "description": "记录每次请求的思维链 / 工具调用 / API 事件到 .deep-copilot/logs/ 与 Output 面板，便于排查卡住的问题。"
+        },
+        "deepseekAgent.contextRefs.terminalUseClipboard": {
+          "type": "boolean",
+          "default": false,
+          "description": "允许 #terminal 通过系统剪贴板捕获终端选区（会临时覆盖剪贴板内容；非文本剪贴板可能丢失）。默认关闭。"
         },
         "deepseekAgent.maxIterations": {
           "type": "number",

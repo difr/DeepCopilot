@@ -25,9 +25,7 @@ function buildWebviewHtml(webview, extensionUri) {
         newSession:      t('wvNewSession'),
         noSessions:      t('wvNoSessions'),
         thinking:        t('wvThinking'),
-        attachBadge:     t('wvAttachBadge'),
         inputPh:         t('wvInputPlaceholder'),
-        attachTitle:     t('wvAttachTitle'),
         send:            t('wvSend'),
         apiTitle:        t('wvApiTitle'),
         cacheTitle:      t('wvCacheTitle'),
@@ -99,7 +97,6 @@ function buildWebviewHtml(webview, extensionUri) {
   <div class="rlist" id="dlist"><div class="empty">${ui.noSessions}</div></div>
 </aside>
 <div id="ia">
-  <div id="cxb">${ui.attachBadge}</div>
   <div id="pop" class="pop" style="display:none"></div>
   <div id="composer-card">
     <div id="at-chips"></div>
@@ -109,7 +106,6 @@ function buildWebviewHtml(webview, extensionUri) {
     </div>
     <div id="composer-bar">
       <div class="cb-left">
-        <button id="cxbt" class="cbtn" title="${ui.attachTitle}">📎</button>
         <div id="modelPicker" class="mode-picker" data-model="deepseek-v4-pro">
           <button id="modelBtn" class="cbtn mode-trigger" title="${ui.switchModel}">⚡ v4-pro <span class="mode-chev">▾</span></button>
           <div id="modelDrop" class="mode-drop" style="display:none"></div>

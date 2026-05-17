@@ -31,8 +31,7 @@ class AgentLoop {
      *   postToRun        : (run, msg) => void,
      *   post             : (msg) => void,
      *   postSessionList  : () => void,
-     *   buildAttachment  : (heavy: boolean) => string|null,
-     *   getIncludeCtx    : () => boolean,
+     *   buildAttachment  : () => string|null,
      * }} opts
      */
     constructor(opts) {
@@ -46,13 +45,17 @@ class AgentLoop {
         this._post           = opts.post;
         this._postSessionList = opts.postSessionList;
         this._buildAttachment = opts.buildAttachment;
-        this._getIncludeCtx  = opts.getIncludeCtx;
     }
 
     // ─── Main entry ──────────────────────────────────────────────────────────
 
     async handleSend(text, attachments = [], skillContent = null) {
-        if (!text?.trim()) return;
+        // Allow attachment-only turns (e.g. user sent just `#symbol:Foo` with
+        // no other text). Only reject when there is neither prose nor any
+        // attachment payload to ground the model on.
+        const hasText = !!(text && text.trim());
+        const hasAtt  = Array.isArray(attachments) && attachments.length > 0;
+        if (!hasText && !hasAtt) return;
 
         const existingActive = this._getRun(this._store.sessionId);
         if (existingActive && existingActive.busy) return;
@@ -77,7 +80,7 @@ class AgentLoop {
         const mode    = cfg.get('approvalMode') || 'manual';
 
         // Build attachment block (active editor context)
-        const attachment = this._buildAttachment(this._getIncludeCtx());
+        const attachment = this._buildAttachment();
         let attachmentBlocks = attachment ? attachment + '\n\n' : '';
         // Separate text attachments from image attachments (imageData = base64 data URI).
         const imageAttachments = (attachments || []).filter(a => a && a.imageData);
