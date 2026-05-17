@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   csp-guard:
-    name: Guard: Webview CSP
+    name: "Guard: Webview CSP"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -51,7 +51,7 @@ jobs:
           echo "CSP guard passed."
 
   dangerous-api-guard:
-    name: Guard: Dangerous APIs
+    name: "Guard: Dangerous APIs"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -95,7 +95,7 @@ jobs:
           echo "Dangerous API guard passed."
 
   path-traversal-guard:
-    name: Guard: Path Traversal
+    name: "Guard: Path Traversal"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -122,7 +122,7 @@ jobs:
           echo "Path-traversal guard passed."
 
   hardcoded-secret-guard:
-    name: Guard: Hardcoded Secrets
+    name: "Guard: Hardcoded Secrets"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
