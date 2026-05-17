@@ -191,14 +191,15 @@ class AgentLoop {
             });
         };
 
-        const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true });
+        const interactionMode = cfg.get('interactionMode') || 'agent';
+        const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true, mode: interactionMode });
         const _itersRaw = Number(cfg.get('maxIterations'));
         // 0 (or unset) means "run until task is complete" — stagnation detection
         // (repeat-tool hints + ABAB cycle guard) is the real runaway guard.
         const MAX_ITERS = (_itersRaw > 0) ? Math.min(200, _itersRaw) : 9999;
         const COMPACT_BUDGET = Math.max(8000, Number(cfg.get('compactBudgetTokens')) || 600000);
-        const askMode = (cfg.get('interactionMode') || 'agent') === 'ask';
-        Logger.info('INTERACTION_MODE', { mode: cfg.get('interactionMode') || 'agent' });
+        const askMode = interactionMode === 'ask';
+        Logger.info('INTERACTION_MODE', { mode: interactionMode });
 
         // spawn_agent is included here so multiple sub-agent calls issued in the
         // same turn are dispatched concurrently (Phase 1), matching the behaviour of
