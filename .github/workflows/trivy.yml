@@ -6,7 +6,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   schedule:
-    # 每天一次，捕获新披露的 CVE
+    # Run Trivy once per day to catch newly disclosed CVEs
     - cron: '23 4 * * *'
 
 permissions:
@@ -27,23 +27,17 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
-          # HIGH/CRITICAL 漏洞直接 fail 构建
+          # Fail build on HIGH/CRITICAL vulnerabilities
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
-          skip-dirs: |
-            out
-            release
-            refine-logs
-            sema-code-vscode-extension-main
-            media/fonts
-            imgs
+          skip-dirs: out,release,refine-logs,sema-code-vscode-extension-main,media/fonts,imgs
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
@@ -61,10 +55,10 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Scan workflows & Dockerfiles for misconfig
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: .
           severity: HIGH,CRITICAL
-          exit-code: '0'   # 配置类问题先告警不阻断
+          exit-code: '0'   # Config issues are advisory, not blocking
           format: table
