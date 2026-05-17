@@ -7,6 +7,14 @@ const vscode = require('vscode');
 const { wsRoot } = require('../utils/paths');
 const { t, tf }      = require('../utils/i18n');
 const { truncate } = require('./utils');
+const { Logger }   = require('../logger');
+
+// Issue #89: Cache normalized danger-command approvals for the current
+// extension session. Once the user grants "Allow once" (or `auto-edit`
+// implicitly approves via this cache), the same command will not re-prompt
+// inside the same session. Survives reloads but not a full VS Code restart.
+const _dangerCmdApprovals = new Set();
+function _normCmd(cmd) { return String(cmd || '').replace(/\s+/g, ' ').trim(); }
 
 // ─── Dangerous-command detection ─────────────────────────────────────────────
 
@@ -68,8 +76,28 @@ async function confirmDangerous(cmd, abortSignal) {
 async function toolRunShell(args, ctx = {}) {
     const command = args.command || '';
     if (isDangerous(command)) {
-        const allowed = await confirmDangerous(command, ctx.abortSignal);
-        if (!allowed) return `${t('dangerBlocked')}\n\nCommand: ${command}`;
+        // Issue #89: align dangerous-command gate with `approvalMode` /
+        // `autoApproveTools`, matching `ensurePathAllowed()` semantics.
+        // - autopilot           → silently allow + audit log (user granted blanket approval by choosing the mode)
+        // - autoApproveTools ⊇ run_shell → silently allow (explicit opt-in)
+        // - session cache hit   → silently allow (don't re-prompt for the same command in the same session)
+        // - otherwise           → modal confirm (existing manual / auto-edit behavior)
+        const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+        const approvalMode    = cfg.get('approvalMode') || 'manual';
+        const autoApproveTools = cfg.get('autoApproveTools') || [];
+        const cacheKey = _normCmd(command);
+
+        if (approvalMode === 'autopilot') {
+            try { Logger.info('SHELL_DANGER_AUTO_APPROVE', { reason: 'autopilot', command }); } catch {}
+            _dangerCmdApprovals.add(cacheKey);
+        } else if (Array.isArray(autoApproveTools) && autoApproveTools.includes('run_shell')) {
+            try { Logger.info('SHELL_DANGER_AUTO_APPROVE', { reason: 'autoApproveTools', command }); } catch {}
+            _dangerCmdApprovals.add(cacheKey);
+        } else if (!_dangerCmdApprovals.has(cacheKey)) {
+            const allowed = await confirmDangerous(command, ctx.abortSignal);
+            if (!allowed) return `${t('dangerBlocked')}\n\nCommand: ${command}`;
+            _dangerCmdApprovals.add(cacheKey);
+        }
     }
 
     const MAX_BUF       = 10 * 1024 * 1024;
@@ -203,4 +231,4 @@ async function toolRunShell(args, ctx = {}) {
     });
 }
 
-module.exports = { toolRunShell, isDangerous };
+module.exports = { toolRunShell, isDangerous, _dangerCmdApprovals };
