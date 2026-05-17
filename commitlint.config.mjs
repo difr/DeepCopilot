@@ -1,6 +1,6 @@
-// commitlint.config.js — Conventional Commits 规范配置
+// commitlint.config.mjs — Conventional Commits 规范配置
 // 文档: https://commitlint.js.org
-module.exports = {
+export default {
   extends: ['@commitlint/config-conventional'],
   rules: {
     // 允许的提交类型

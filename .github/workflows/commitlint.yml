@@ -20,5 +20,5 @@ jobs:
       - name: Lint commit messages
         uses: wagoid/commitlint-github-action@v6
         with:
-          configFile: commitlint.config.js
+          configFile: commitlint.config.mjs
           # 检查 PR 中所有 commit，任一不符合规范则失败
