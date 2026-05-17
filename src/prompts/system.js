@@ -261,29 +261,58 @@ Never call \`skill_create\` for one-off fixes, trivial tasks, or before the user
 }
 
 // ---------- workspace instructions (lazy, opt-in) ----------
+//
+// Issue #64: discover project-level rule files using the conventions popularised
+// by other AI coding assistants, so users do not have to maintain a separate
+// `DEEPCOPILOT.md` if they already keep a `CLAUDE.md` / `AGENTS.md` /
+// `.github/copilot-instructions.md` / `.cursorrules`. All matching files are
+// merged in priority order, each prefixed with its source so the model knows
+// the provenance and can resolve conflicts (earlier sources win semantically).
 
 const INSTRUCTION_FILE_CANDIDATES = [
+    // DeepCopilot-native (highest priority — user authored explicitly for us)
     'DEEPCOPILOT.md',
+    '.deepcopilot.md',
     '.deepcopilot/instructions.md',
     '.copilot/instructions.md',
+    // Ecosystem conventions (Issue #64)
+    'CLAUDE.md',
+    'AGENTS.md',
+    '.github/copilot-instructions.md',
+    '.cursorrules',
 ];
+
+const PER_FILE_CAP    = 4000;   // bytes per single instruction file
+const TOTAL_CAP       = 16000;  // bytes total across all merged files
 
 function readWorkspaceInstructions() {
     const root = wsRoot();
     if (!root) return null;
+    const sections = [];
+    let used = 0;
     for (const rel of INSTRUCTION_FILE_CANDIDATES) {
+        if (used >= TOTAL_CAP) break;
         try {
             const p = path.join(root, rel);
             if (!fs.existsSync(p)) continue;
             const text = fs.readFileSync(p, 'utf8').trim();
             if (!text) continue;
-            const capped = text.length > 8000
-                ? text.slice(0, 8000) + '\n... [workspace instructions truncated at 8 KB]'
+            const remaining = TOTAL_CAP - used;
+            const cap = Math.min(PER_FILE_CAP, remaining);
+            const capped = text.length > cap
+                ? text.slice(0, cap) + `\n... [${rel} truncated at ${cap} bytes]`
                 : text;
-            return `# Workspace instructions (from ${rel})\n${capped}`;
-        } catch { /* ignore */ }
+            sections.push(`## ${rel}\n${capped}`);
+            used += capped.length;
+        } catch { /* ignore unreadable file */ }
     }
-    return null;
+    if (!sections.length) return null;
+    return (
+        '# Project-level rules (must be followed strictly)\n' +
+        'The following files describe the conventions and constraints of this workspace. ' +
+        'Earlier files have higher priority when guidance conflicts.\n\n' +
+        sections.join('\n\n')
+    );
 }
 
 // ---------- assembly ----------
