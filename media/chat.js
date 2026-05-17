@@ -1511,8 +1511,10 @@
     }
     _verbTick++;
     if (textEl) {
-      var mod = _verbTick % 10;
-      if (mod === 9) {
+      // Cycle verbs every ~3s (PR description's contract). With a 1Hz tick,
+      // mod-3 lets us fade out at tick 2 and swap at tick 3.
+      var mod = _verbTick % 3;
+      if (mod === 2) {
         textEl.classList.add('fade-out');
       } else if (mod === 0) {
         textEl.textContent = DC_VERBS[Math.floor(Math.random() * DC_VERBS.length)];
@@ -1556,9 +1558,12 @@
       var trail = val.slice(clean.length);
       return (lead || "") + trail;
     }).trim();
-    if (!t) return;
-    /* Push to history (dedupe consecutive duplicates) */
-    if (histStack.length === 0 || histStack[histStack.length - 1] !== t) histStack.push(t);
+    // Allow ref-only sends: when the user typed nothing but a #symbol:/#fetch:
+    // token, dispatching the ref alone is the obvious intent. Only abort the
+    // send when there is neither text nor any pending ref to forward.
+    if (!t && !(_pendingRefs && _pendingRefs.length)) return;
+    /* Push to history (dedupe consecutive duplicates); skip when text is empty. */
+    if (t && (histStack.length === 0 || histStack[histStack.length - 1] !== t)) histStack.push(t);
     if (histStack.length > 50) histStack.shift();
     histIdx = histStack.length;
     hidePop();
@@ -1599,18 +1604,16 @@
     curBubble = null; cur = null; curText = ""; curThk = null; toolMap = {}; _userMsgCount = 0; _editPendingIdx = -1;
   }
   // Detect "#<ref>:<arg>" tokens that have been explicitly committed by the
-  // user. To avoid mangling legitimate text like "#symbol:Foo bar baz" (where
-  // a single space is part of the argument), we ONLY commit when:
-  //   • the token is followed by two consecutive spaces, OR
-  //   • the token is followed by a newline, OR
+  // user. We commit when:
+  //   • the token is followed by whitespace (space, tab, or newline), AND
   //   • the caret is NOT inside the token (i.e. user moved past it / pasted).
   // Otherwise leave the token alone — `doSend()` still has a fallback that
   // strips uncommitted tokens at send time, so nothing is lost.
   function commitHashRefArgs(){
     var v = inp.value;
     var caret = inp.selectionStart || 0;
-    // Match each token plus what immediately follows it.
-    var re = /(^|\s)#(symbol|fetch):(\S+?)(  |\n)/g;
+    // Match each token plus the single whitespace char that follows.
+    var re = /(^|\s)#(symbol|fetch):(\S+?)(\s)/g;
     var m, replaced = false;
     var ranges = []; // {start,end} of segments to drop
     while ((m = re.exec(v)) !== null) {

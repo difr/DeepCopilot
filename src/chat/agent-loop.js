@@ -50,7 +50,12 @@ class AgentLoop {
     // ─── Main entry ──────────────────────────────────────────────────────────
 
     async handleSend(text, attachments = [], skillContent = null) {
-        if (!text?.trim()) return;
+        // Allow attachment-only turns (e.g. user sent just `#symbol:Foo` with
+        // no other text). Only reject when there is neither prose nor any
+        // attachment payload to ground the model on.
+        const hasText = !!(text && text.trim());
+        const hasAtt  = Array.isArray(attachments) && attachments.length > 0;
+        if (!hasText && !hasAtt) return;
 
         const existingActive = this._getRun(this._store.sessionId);
         if (existingActive && existingActive.busy) return;

@@ -65,6 +65,8 @@ function resolveSelection() {
             return { error: 'Selected file is outside the workspace' };
         }
         label = wsRelLabel(doc.fileName);
+    } else if (doc.uri.scheme === 'untitled') {
+        label = '<untitled>';
     } else {
         label = `<untitled:${doc.uri.scheme}>`;
     }
@@ -84,8 +86,11 @@ function resolveEditor() {
     // Untitled / virtual documents: never expose fileName as a path; use a
     // synthetic label so the model sees "<untitled>" rather than a host path.
     if (doc.uri.scheme !== 'file') {
+        const label = doc.uri.scheme === 'untitled'
+            ? '<untitled>'
+            : `<untitled:${doc.uri.scheme}>`;
         return {
-            path:    `<untitled:${doc.uri.scheme}>`,
+            path:    label,
             content: truncate(doc.getText()),
             lang:    doc.languageId,
         };
@@ -110,9 +115,11 @@ function resolveProblems() {
     let count = 0;
     for (const [uri, diags] of all) {
         if (!diags.length) continue;
+        // For out-of-workspace files use only the basename so we don't leak
+        // host directory structure / user names to the model.
         const rel = isInsideWorkspace(uri.fsPath)
             ? wsRelLabel(uri.fsPath)
-            : uri.fsPath;
+            : path.basename(uri.fsPath);
         for (const d of diags) {
             const ln = d.range.start.line + 1;
             const col = d.range.start.character + 1;
@@ -219,7 +226,7 @@ async function resolveSymbol(query) {
         const uri = s.location && s.location.uri;
         const ln  = (s.location && s.location.range && s.location.range.start.line + 1) || 1;
         const rel = uri
-            ? (isInsideWorkspace(uri.fsPath) ? wsRelLabel(uri.fsPath) : uri.fsPath)
+            ? (isInsideWorkspace(uri.fsPath) ? wsRelLabel(uri.fsPath) : path.basename(uri.fsPath))
             : '?';
         return `${rel}:${ln}  ${s.kind != null ? '[' + vscode.SymbolKind[s.kind] + ']' : ''} ${s.name}${s.containerName ? '  (' + s.containerName + ')' : ''}`;
     });
