@@ -29,8 +29,17 @@ const {
 //
 // Each call uses a unique tool_call_id (`synthetic_skill_read_<rand>`) so
 // nested or repeated skill loads in the same turn do not collide.
-function injectSyntheticSkillRead(messages, skillName, body) {
+//
+// @param {string[]} messages  - run.messages array to push into
+// @param {string}   skillName - human-readable skill name for the path
+// @param {string}   body      - skill body (SKILL.md contents)
+// @param {string}   [skillPath] - real on-disk SKILL.md path; if omitted,
+//                                 falls back to the default deepcopilot dir.
+//                                 Pass the real path so the model sees the
+//                                 correct origin (e.g. ~/.claude/skills/...).
+function injectSyntheticSkillRead(messages, skillName, body, skillPath) {
     const safeName = String(skillName || 'skill').replace(/[^a-z0-9-]/gi, '-');
+    const filePath = skillPath || `~/.deepcopilot/skills/${safeName}/SKILL.md`;
     const callId = `synthetic_skill_read_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     messages.push({
         role: 'assistant',
@@ -40,7 +49,7 @@ function injectSyntheticSkillRead(messages, skillName, body) {
             type:     'function',
             function: {
                 name:      'read_file',
-                arguments: JSON.stringify({ path: `~/.deepcopilot/skills/${safeName}/SKILL.md` }),
+                arguments: JSON.stringify({ path: filePath }),
             },
         }],
     });

@@ -38,11 +38,36 @@ const SKILL_DIRS = [
  * @param {string} text
  * @returns {Record<string, any>}
  */
+/**
+ * Parse a YAML-style inline flow array like [foo, "bar", 'baz'].
+ * JSON.parse fails on unquoted strings, so we use a hand-written splitter.
+ * @param {string} val - string starting with '[' and ending with ']'
+ * @returns {string[]}
+ */
+function parseYamlArray(val) {
+    const inner = val.slice(1, -1).trim();
+    if (!inner) return [];
+    // Split on commas not inside quotes.
+    const items = [];
+    let current = '';
+    let inQuote = null;
+    for (let i = 0; i < inner.length; i++) {
+        const ch = inner[i];
+        if (!inQuote && (ch === '"' || ch === "'")) { inQuote = ch; continue; }
+        if (inQuote && ch === inQuote) { inQuote = null; continue; }
+        if (!inQuote && ch === ',') { items.push(current.trim()); current = ''; continue; }
+        current += ch;
+    }
+    if (current.trim()) items.push(current.trim());
+    return items.filter(Boolean);
+}
+
 function parseFrontmatter(text) {
     const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!m) return {};
     const out = {};
-    for (const line of m[1].split('\n')) {
+    // Fix: split on \r?\n so Windows CRLF files parse correctly.
+    for (const line of m[1].split(/\r?\n/)) {
         // Match:  key: value   or   key: "value"   or   key: ["a", "b"]
         const kv = line.match(/^([\w-]+):\s*(.*?)\s*$/);
         if (!kv) continue;
@@ -50,29 +75,32 @@ function parseFrontmatter(text) {
         let val = kv[2];
         if (/^".*"$/.test(val) || /^'.*'$/.test(val)) val = val.slice(1, -1);
         if (val.startsWith('[') && val.endsWith(']')) {
-            try { out[key] = JSON.parse(val); continue; } catch { /* fall through */ }
+            out[key] = parseYamlArray(val);
+            continue;
         }
         out[key] = val;
     }
     return out;
 }
 
-// Shallow scan: do any top-level files in wsRoot (or src/) have this extension?
-function hasFileWithExt(wsRoot, ext) {
+/**
+ * Recursively scan `dir` up to `maxDepth` levels deep for any file whose
+ * name ends with `ext`. Bounded to avoid blocking on large workspaces.
+ * @param {string} dir
+ * @param {string} ext  — e.g. '.vue'
+ * @param {number} [maxDepth=4]
+ * @returns {boolean}
+ */
+function hasFileWithExt(dir, ext, maxDepth = 4) {
     const want = ext.toLowerCase();
-    try {
-        const entries = fs.readdirSync(wsRoot, { withFileTypes: true });
-        for (const e of entries) {
-            if (e.isFile() && e.name.toLowerCase().endsWith(want)) return true;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+    for (const e of entries) {
+        if (e.isFile() && e.name.toLowerCase().endsWith(want)) return true;
+        if (e.isDirectory() && maxDepth > 0) {
+            if (hasFileWithExt(path.join(dir, e.name), ext, maxDepth - 1)) return true;
         }
-        const src = path.join(wsRoot, 'src');
-        if (fs.existsSync(src)) {
-            const sub = fs.readdirSync(src, { withFileTypes: true });
-            for (const e of sub) {
-                if (e.isFile() && e.name.toLowerCase().endsWith(want)) return true;
-            }
-        }
-    } catch { /* ignore */ }
+    }
     return false;
 }
 
@@ -102,9 +130,15 @@ function matchesWorkspace(fm, wsRoot) {
             const needle = rule.slice(idx + 1);
             try {
                 const p = path.join(wsRoot, file);
-                if (fs.existsSync(p)) {
-                    const txt = fs.readFileSync(p, 'utf8');
-                    if (txt.includes(needle)) return true;
+                // Verify it exists AND is a regular file (not a directory).
+                const stat = fs.statSync(p);
+                if (stat.isFile()) {
+                    // Guard against reading huge files (e.g. lockfiles): cap at 256 KB.
+                    const MAX_READ = 256 * 1024;
+                    const buf = Buffer.alloc(Math.min(MAX_READ, stat.size));
+                    const fd = fs.openSync(p, 'r');
+                    try { fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
+                    if (buf.toString('utf8').includes(needle)) return true;
                 }
             } catch { /* skip */ }
             continue;
