@@ -5,7 +5,7 @@ const cp     = require('child_process');
 const vscode = require('vscode');
 
 const { wsRoot } = require('../utils/paths');
-const { t }      = require('../utils/i18n');
+const { t, tf }      = require('../utils/i18n');
 const { truncate } = require('./utils');
 
 // ─── Dangerous-command detection ─────────────────────────────────────────────
@@ -98,12 +98,16 @@ async function toolRunShell(args, ctx = {}) {
         let killedByAbort   = false;
         let settled         = false;
         let lastOutputAt    = Date.now();                                   // for stall heartbeat — issue #69
+        // Declared up-front so settle() can safely reference it even if
+        // settle() is invoked before the interval is assigned. Stays null
+        // when onStreamDelta is absent (no consumer → no point waking up).
+        let stallTimer      = null;
 
         const settle = (val) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
-            clearInterval(stallTimer);
+            if (stallTimer) clearInterval(stallTimer);
             if (abortSignal && onAbort) {
                 try { abortSignal.removeEventListener('abort', onAbort); } catch {}
             }
@@ -118,13 +122,17 @@ async function toolRunShell(args, ctx = {}) {
         // Stall heartbeat: when the process produces no output for STALL_PROBE_MS,
         // push a synthetic notice through onStreamDelta so the webview tail shows
         // "still alive but silent" and the user knows where things are stuck.
-        const stallTimer = setInterval(() => {
-            if (settled) return;
-            const silentMs = Date.now() - lastOutputAt;
-            if (silentMs >= STALL_PROBE_MS && onStreamDelta) {
-                try { onStreamDelta(`\n[Note: no output for last ${Math.round(silentMs / 1000)}s]\n`); } catch {}
-            }
-        }, STALL_PROBE_MS);
+        // Only create the interval when there is a stream consumer; otherwise
+        // we'd be waking the event loop with no observer.
+        if (onStreamDelta) {
+            stallTimer = setInterval(() => {
+                if (settled) return;
+                const silentMs = Date.now() - lastOutputAt;
+                if (silentMs >= STALL_PROBE_MS) {
+                    try { onStreamDelta('\n' + tf('shellNoOutput', { sec: Math.round(silentMs / 1000) }) + '\n'); } catch {}
+                }
+            }, STALL_PROBE_MS);
+        }
 
         const onAbort = () => {
             killedByAbort = true;
@@ -165,7 +173,7 @@ async function toolRunShell(args, ctx = {}) {
             if (killedByTimeout) {
                 const silentMs = Date.now() - lastOutputAt;
                 const stallNote = silentMs >= STALL_PROBE_MS
-                    ? `\n[Note: process was silent for last ${Math.round(silentMs / 1000)}s before timeout — likely hung (e.g. port in use, waiting for input, blocked on external resource). Do NOT retry blindly; report the situation to the user.]`
+                    ? '\n' + tf('shellSilentTimeout', { sec: Math.round(silentMs / 1000) })
                     : '';
                 return settle(truncate(`Error: command timed out after ${timeoutMs}ms${stallNote}\n${stdout}${stderr ? '\n--- stderr ---\n' + stderr : ''}`));
             }

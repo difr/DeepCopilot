@@ -65,7 +65,7 @@ const TOOL_DEFS = [
         type: 'function',
         function: {
             name: 'run_shell',
-            description: 'Execute a shell command in the workspace root. Use ONLY for things that genuinely need a shell: package managers (npm/pip/cargo), build tools, git, test runners, system info. Do NOT use to read, write, list, or search files — use the dedicated read_file / write_file / list_dir / grep_search tools instead. If the result contains "[Note: no output for last …s]" or "[Note: process was silent for last …s before timeout]", the process is hung (port in use, waiting for input, blocked on external resource) — stop and report the situation to the user instead of retrying.',
+            description: 'Execute a shell command in the workspace root. Use ONLY for things that genuinely need a shell: package managers (npm/pip/cargo), build tools, git, test runners, system info. Do NOT use to read, write, list, or search files — use the dedicated read_file / write_file / list_dir / grep_search tools instead. If the result contains "[Note: no output for last …s]" or "[Note: process was silent for last …s before timeout]", the process may be hung or stalled (e.g. port in use, waiting for input, blocked on external resource) — do NOT retry blindly; verify the cause (check port usage, add verbose flags, etc.) or report the situation to the user.',
             parameters: {
                 type: 'object',
                 properties: {
