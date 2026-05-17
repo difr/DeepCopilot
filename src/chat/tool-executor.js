@@ -281,6 +281,14 @@ class ToolExecutor {
         const isMutating = ToolExecutor.MUTATING.has(name);
         if (approvalMode === 'readonly' && isMutating) return t('deniedReadonly');
 
+        // Issue #66: Plan mode is a soft "readonly" enforced at the executor.
+        // The system prompt also instructs the model to stay read-only, but
+        // we still guard the executor in case the model ignores the prompt.
+        const interactionMode = cfg.get('interactionMode') || 'agent';
+        if (interactionMode === 'plan' && isMutating) {
+            return `PLAN_MODE_FORBIDDEN: ${name} is a write/exec tool and is disabled in Plan mode. Stay read-only (read_file, grep_search, list_dir, find_files, web_search, web_fetch, update_plan) and produce a plan for the user to review. The user can switch to Agent mode to execute it.`;
+        }
+
         const skipApproval = autoApprove.includes(name);
 
         // Approval dialogs for write + shell

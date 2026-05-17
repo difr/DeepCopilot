@@ -320,6 +320,22 @@ function buildSystemPrompt(opts = {}) {
         if (ws) dynamicParts.push(ws);
     }
 
+    // Issue #66: Plan mode — instruct the model to stay read-only and produce a
+    // plan for the user to approve. The executor (tool-executor.js) also blocks
+    // mutating tools as a safety net.
+    if (opts.mode === 'plan') {
+        dynamicParts.push(
+            '# Plan mode (do NOT edit, do NOT execute)\n' +
+            'You are in Plan mode. You MAY use read-only tools (read_file, grep_search, list_dir, find_files, web_search, web_fetch) to investigate the task. ' +
+            'You MUST NOT use write_file, str_replace_in_file, apply_patch, run_shell, or skill_create — these are blocked at the executor level and will return PLAN_MODE_FORBIDDEN.\n\n' +
+            'Your single goal this turn is to produce a clear, actionable plan for the user to review:\n' +
+            '1. Call `update_plan` early with the high-level steps so the user can follow along.\n' +
+            '2. Investigate (read code, grep, list dirs) only as much as is needed to write a correct plan.\n' +
+            '3. End with a final assistant message that summarises: the goal, the proposed approach, the affected files, the risks, and explicit next steps.\n' +
+            "Do NOT start implementing. The user will switch to Agent mode to execute the plan if they approve it."
+        );
+    }
+
     return `${staticPart}\n\n${DYNAMIC_BOUNDARY}\n\n${dynamicParts.join('\n\n')}`;
 }
 
