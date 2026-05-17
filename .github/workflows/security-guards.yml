@@ -1,0 +1,152 @@
+name: Security Guards (Project Red-line Checks)
+
+# Automated enforcement of red-lines from .github/copilot-instructions.md:
+#   1. Webview CSP must not use unsafe-eval / unsafe-inline in script-src
+#   2. Dangerous APIs (exec, shell:true, eval, new Function) must not appear in new code
+#   3. File read/write tools must go through src/utils/paths.js, no raw path.join with user input
+#   4. API keys / tokens must not be hardcoded in any file
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-guards-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  csp-guard:
+    name: Guard: Webview CSP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Check CSP in webview HTML
+        shell: bash
+        run: |
+          set -e
+          target="src/webview/html.js"
+          if [ ! -f "$target" ]; then
+            echo "::warning::$target not found, skipping CSP guard"
+            exit 0
+          fi
+          # Only check script-src lines; style-src unsafe-inline is a known exception
+          script_src_lines="$(grep -nE "script-src" "$target" || true)"
+          echo "$script_src_lines"
+          if echo "$script_src_lines" | grep -qE "unsafe-eval|unsafe-inline"; then
+            echo "::error file=$target::CSP script-src must not contain unsafe-eval / unsafe-inline. Use nonce-based CSP."
+            exit 1
+          fi
+          # nonce pattern must be present
+          if ! grep -q "nonce-" "$target"; then
+            echo "::error file=$target::CSP must use a nonce-based script-src."
+            exit 1
+          fi
+          echo "CSP guard passed."
+
+  dangerous-api-guard:
+    name: Guard: Dangerous APIs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Grep for dangerous patterns
+        shell: bash
+        run: |
+          set -e
+          # These APIs must not appear under src/ (except in exec.js / shell.js
+          # which are the intentional command-execution implementations).
+          patterns=(
+            "child_process\.exec\("
+            "shell\s*:\s*true"
+            "(^|[^a-zA-Z_])eval\s*\("
+            "new\s+Function\s*\("
+            "require\(['\"]vm['\"]\)"
+          )
+
+          allowlist='^src/(tools/exec\.js|tools/shell\.js|hooks\.js)$'
+          fail=0
+
+          for pat in "${patterns[@]}"; do
+            echo "--- pattern: $pat ---"
+            # collect all matching files
+            matches="$(grep -rEln --include='*.js' "$pat" src/ || true)"
+            if [ -z "$matches" ]; then continue; fi
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              if echo "$f" | grep -qE "$allowlist"; then
+                echo "  (allowlisted) $f"
+                continue
+              fi
+              echo "::error file=$f::Dangerous API matched pattern: $pat"
+              fail=1
+            done <<< "$matches"
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "Dangerous API guard passed."
+
+  path-traversal-guard:
+    name: Guard: Path Traversal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Ensure file-write uses path sanitizer
+        shell: bash
+        run: |
+          set -e
+          target="src/tools/file-write.js"
+          if [ ! -f "$target" ]; then
+            echo "::warning::$target not found, skipping path-traversal guard"
+            exit 0
+          fi
+          # file-write.js 必须 import 自己的路径安全工具
+          if ! grep -qE "require\(['\"]\.\./utils/paths['\"]\)|from\s+['\"]\.\./utils/paths['\"]" "$target"; then
+            echo "::error file=$target::file-write.js must require('../utils/paths') and resolve paths through it to prevent traversal."
+            exit 1
+          fi
+          # 在 file-write.js 中粗筛是否对未经规范化的 path.join 结果直接写入
+          if grep -nE "fs\.(writeFile|writeFileSync|appendFile|appendFileSync)\(\s*path\.join\(" "$target"; then
+            echo "::error file=$target::Do not pass raw path.join() to fs.write*; resolve through utils/paths.js first."
+            exit 1
+          fi
+          echo "Path-traversal guard passed."
+
+  hardcoded-secret-guard:
+    name: Guard: Hardcoded Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Grep for inline secrets in source
+        shell: bash
+        run: |
+          set -e
+          # 常见 key 前缀：DeepSeek (sk-)、OpenAI (sk-proj-/sk-)、GitHub (ghp_/gho_/ghs_/ghr_)
+          # 排除 README、release notes、第三方资源
+          patterns='(sk-[A-Za-z0-9]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,})'
+
+          hits="$(grep -rEn --include='*.js' --include='*.ts' --include='*.json' \
+            --exclude-dir=node_modules \
+            --exclude-dir=out \
+            --exclude-dir=release \
+            --exclude-dir=refine-logs \
+            --exclude-dir=imgs \
+            --exclude-dir=media \
+            --exclude-dir=sema-code-vscode-extension-main \
+            -E "$patterns" . || true)"
+
+          if [ -n "$hits" ]; then
+            echo "::error::Possible hardcoded secret detected:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "Hardcoded-secret guard passed."
