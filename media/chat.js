@@ -23,14 +23,14 @@
   var modelDrop  = document.getElementById("modelDrop");
   var _modelOpen = false;
   var MODELS = [
-    { value: "deepseek-v4-pro",   icon: "⚡", name: "v4-pro",    desc: "DeepSeek V4 Pro — 旗舰推理模型" },
-    { value: "deepseek-v4-flash", icon: "🔥", name: "v4-flash",  desc: "DeepSeek V4 Flash — 快速轻量模型" },
-    { value: "deepseek-reasoner", icon: "🧠", name: "reasoner",  desc: "DeepSeek Reasoner — 深度思维链模型" },
+    { value: "deepseek-v4-pro",   name: "deepseek-v4-pro",   desc: "DeepSeek V4 Pro — 旗舰推理模型" },
+    { value: "deepseek-v4-flash", name: "deepseek-v4-flash",  desc: "DeepSeek V4 Flash — 快速轻量模型" },
+    { value: "deepseek-reasoner", name: "deepseek-reasoner",  desc: "DeepSeek Reasoner — 深度思维链模型" },
   ];
   function setModelUI(model){
     var md = MODELS.find(function(x){ return x.value === model; }) || MODELS[0];
     if (modelPicker) modelPicker.dataset.model = md.value;
-    if (modelBtn) modelBtn.innerHTML = md.icon + " " + md.name + " <span class='mode-chev'>\u25BE</span>";
+    if (modelBtn) modelBtn.innerHTML = md.name + " <span class='mode-chev'>\u25BE</span>";
     if (modelDrop){ var opts = modelDrop.querySelectorAll(".mo"); for (var i=0;i<opts.length;i++) opts[i].classList.toggle("sel", opts[i].dataset.model === md.value); }
   }
   function getSelectedModel(){
@@ -43,7 +43,6 @@
     for (var i=0;i<MODELS.length;i++){
       var md = MODELS[i];
       h += "<div class='mo" + (md.value === cur ? " sel" : "") + "' data-model='" + md.value + "'>" +
-           "<span class='mo-icon'>" + md.icon + "</span>" +
            "<span class='mo-body'><span class='mo-name'>" + md.name + "</span><span class='mo-desc'>" + md.desc + "</span></span>" +
            "<span class='mo-chk'>✓</span></div>";
     }
@@ -61,15 +60,15 @@
   var modeDrop   = document.getElementById("modeDrop");
   var _modeOpen  = false;
   var MODES = [
-    { value: "manual",    icon: "🛡", name: "Manual",    desc: "每次操作前逐一确认，完全掌控执行过程" },
-    { value: "auto-edit", icon: "✏️", name: "Auto-Edit", desc: "文件编辑自动执行，Shell 命令仍需手动确认" },
-    { value: "autopilot", icon: "🚀", name: "Autopilot", desc: "完全自动运行，无需任何手动确认（高风险）" },
-    { value: "readonly",  icon: "👁",  name: "Read-Only", desc: "仅读取与分析，不执行任何写操作" },
+    { value: "manual",    icon: "shield",  name: "Manual",    desc: "每次操作前逐一确认，完全掌控执行过程" },
+    { value: "auto-edit", icon: "edit",    name: "Auto-Edit", desc: "文件编辑自动执行，Shell 命令仍需手动确认" },
+    { value: "autopilot", icon: "rocket",  name: "Autopilot", desc: "完全自动运行，无需任何手动确认（高风险）" },
+    { value: "readonly",  icon: "eye",     name: "Read-Only", desc: "仅读取与分析，不执行任何写操作" },
   ];
   function setModeUI(mode){
     var md = MODES.find(function(x){ return x.value === mode; }) || MODES[0];
     if (modePicker) modePicker.dataset.m = mode;
-    if (modeBtn) modeBtn.innerHTML = md.icon + " " + md.name + " <span class='mode-chev'>\u25BE</span>";
+    if (modeBtn) modeBtn.innerHTML = "<i class='codicon codicon-" + md.icon + "'></i> " + md.name + " <span class='mode-chev'>\u25BE</span>";
     if (modeDrop){ var opts = modeDrop.querySelectorAll(".mo"); for (var i=0;i<opts.length;i++) opts[i].classList.toggle("sel", opts[i].dataset.mode === mode); }
   }
   function openModeDrop(){
@@ -79,7 +78,7 @@
     for (var i=0;i<MODES.length;i++){
       var md = MODES[i];
       h += "<div class='mo" + (md.value === cur ? " sel" : "") + "' data-mode='" + md.value + "'>" +
-           "<span class='mo-icon'>" + md.icon + "</span>" +
+           "<span class='mo-icon'><i class='codicon codicon-" + md.icon + "'></i></span>" +
            "<span class='mo-body'><span class='mo-name'>" + md.name + "</span><span class='mo-desc'>" + md.desc + "</span></span>" +
            "<span class='mo-chk'>✓</span></div>";
     }
@@ -1145,11 +1144,27 @@
     { name: "@selection", desc: "附带编辑器中选中的代码", action: "ctxOn" },
     { name: "@terminal",  desc: "附带终端最近输出(占位)", action: "noop" },
   ];
+  // ── # context references (GitHub Copilot–style) ────────────────────────
+  // Each entry is either:
+  //   { name:"#file",  desc, ref:"file" }              → opens file picker (reuses fileSearch)
+  //   { name:"#xxx",   desc, ref:"xxx" }               → resolveContextRef on extension side
+  //   { name:"#yyy:",  desc, ref:"yyy", needsArg:true } → ref with inline argument
+  var HASH_REFS = [
+    { name: "#file",      desc: "工作区内某个文件",            ref: "file"                       },
+    { name: "#selection", desc: "当前编辑器选中的代码",        ref: "selection"                  },
+    { name: "#editor",    desc: "当前编辑器整文件",            ref: "editor"                     },
+    { name: "#problems",  desc: "工作区诊断 / Problems",       ref: "problems"                   },
+    { name: "#changes",   desc: "Git 未提交改动 (git diff)",   ref: "changes"                    },
+    { name: "#terminal",  desc: "终端选中文本",                ref: "terminal"                   },
+    { name: "#symbol:",   desc: "工作区符号(函数/类) 跟符号名", ref: "symbol",  needsArg: true    },
+    { name: "#fetch:",    desc: "抓取 URL 内容 跟链接",         ref: "fetch",   needsArg: true    },
+  ];
 
   // ── @file chips (attached files) ──────────────────────────────────────
   var atChipsEl = document.getElementById("at-chips");
   var attachedFiles = []; // [{ path, content }]
   var liveSelection = null; // { path, content, startLine, endLine, lang } — auto-synced with editor selection
+  var _liveDismissedKey = null; // key of the selection the user explicitly dismissed via ×
   var _pendingAttachments = null; // snapshot of chips at send time, used to render in the sent bubble
   var pendingSkill  = null; // { name, content } — staged skill chip
 
@@ -1173,8 +1188,9 @@
         ? '<span class="chip-line">:' + liveSelection.startLine + (liveSelection.endLine !== liveSelection.startLine ? '-' + liveSelection.endLine : '') + '</span>'
         : '';
       liveHtml = '<span class="chip chip-live" title="'+escHtml(liveSelection.path)+'">' +
-        '✏️ ' + escHtml(lsName) + lsLine +
-        ' <button class="chip-x chip-x-live" title="取消选区">×</button></span>';
+        '<span class="codicon codicon-selection chip-ico"></span>' +
+        '<span class="chip-name">' + escHtml(lsName) + '</span>' + lsLine +
+        '<button class="chip-x chip-x-live" title="取消选区">×</button></span>';
     }
     var html = attachedFiles.map(function(f, i){
       var name = f.path.replace(/^.*[\\/]/, '');
@@ -1184,14 +1200,17 @@
         : '';
       if (f.imageData) {
         return '<span class="chip" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
-          '<img class="chip-img" src="'+f.imageData+'" alt=""/> ' +
-          escHtml(name) + lineLabel +
-          ' <button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
+          '<img class="chip-img" src="'+f.imageData+'" alt=""/>' +
+          '<span class="chip-name">' + escHtml(name) + '</span>' + lineLabel +
+          '<button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
       }
+      var icoHtml = isLoading
+        ? '<span class="chip-spin chip-ico">\u29d6</span>'
+        : '<span class="codicon codicon-file-text chip-ico"></span>';
       return '<span class="chip' + (isLoading ? ' loading' : '') + '" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
-        (isLoading ? '<span class="chip-spin">\u29d6</span>' : '\ud83d\udcc4') +
-        ' ' + escHtml(name) + lineLabel +
-        ' <button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
+        icoHtml +
+        '<span class="chip-name">' + escHtml(name) + '</span>' + lineLabel +
+        '<button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
     }).join('');
     var combined = liveHtml + html;
     if (!combined) { atChipsEl.innerHTML = ""; atChipsEl.style.display = "none"; }
@@ -1208,6 +1227,7 @@
     var btn = e.target.closest(".chip-x");
     if (!btn) return;
     if (btn.classList.contains("chip-x-live")) {
+      if (liveSelection) _liveDismissedKey = liveSelection.path + ':' + liveSelection.startLine + ':' + liveSelection.endLine;
       liveSelection = null; renderChips(); return;
     }
     removeChip(parseInt(btn.getAttribute("data-i"), 10));
@@ -1318,9 +1338,60 @@
           requestFileContent(fp);
         }
       } else if (it.action === "ctxOn" && !cxOn) {
-        cxbt.click();
+        cxbt && cxbt.click();
       }
       setTimeout(function(){ inp.focus(); inp.setSelectionRange(b2.length, b2.length); }, 0);
+    } else if (popKind === "hash"){
+      // # context refs. The full token (e.g. "#symbol:Foo") starts at popTrigStart.
+      var fullToken = inp.value.slice(popTrigStart).match(/^\S*/);
+      fullToken = fullToken ? fullToken[0] : "";
+      var bh = inp.value.slice(0, popTrigStart);
+      var ah = inp.value.slice(popTrigStart + fullToken.length).replace(/^\s?/, "");
+      // File picker branch: if user picked a concrete file suggestion (it.filePath is set)
+      if (it.filePath) {
+        inp.value = bh + ah; autosize();
+        var fph = it.filePath;
+        if (!attachedFiles.some(function(f){ return f.path === fph; })) {
+          attachedFiles.push({ path: fph, content: null });
+          renderChips();
+          requestFileContent(fph);
+        }
+        setTimeout(function(){ inp.focus(); inp.setSelectionRange(bh.length, bh.length); }, 0);
+        hidePop();
+        return;
+      }
+      var ref = it.ref;
+      // #file with no specific file picked yet → leave token, hint user to keep typing for file search
+      if (ref === "file") {
+        // Convert "#file" → "#" so the file-search popup is triggered on next keystroke;
+        // also pre-trigger a wildcard search so the popup populates immediately.
+        inp.value = bh + "#" + ah;
+        autosize();
+        setTimeout(function(){
+          inp.focus();
+          var caret = bh.length + 1;
+          inp.setSelectionRange(caret, caret);
+          requestFileSuggest("");
+        }, 0);
+        hidePop();
+        return;
+      }
+      // Refs that need an inline argument: leave the prefix in the input so user can type it
+      if (it.needsArg) {
+        var prefix = "#" + ref + ":";
+        // Preserve whatever the user already typed after the colon, if any
+        var existing = fullToken.startsWith(prefix) ? fullToken.slice(prefix.length) : "";
+        inp.value = bh + prefix + existing + (ah ? (ah.startsWith(" ") ? ah : " " + ah) : "");
+        var pos = bh.length + prefix.length + existing.length;
+        autosize();
+        setTimeout(function(){ inp.focus(); inp.setSelectionRange(pos, pos); }, 0);
+        hidePop();
+        return;
+      }
+      // Argument-less refs: resolve immediately on the extension side.
+      inp.value = bh + ah; autosize();
+      vscode.postMessage({ type: "resolveContextRef", refType: ref });
+      setTimeout(function(){ inp.focus(); inp.setSelectionRange(bh.length, bh.length); }, 0);
     }
     hidePop();
   }
@@ -1355,6 +1426,21 @@
         var m3 = AT_CMDS.slice();
         showPop(m3, "at", start);
       }
+    } else if (token[0] === "#"){
+      // GitHub Copilot–style context-reference picker.
+      var rest = token.slice(1);
+      // If the user is in the middle of an argumented ref like "#symbol:Foo",
+      // do not re-open the picker — they're typing the argument.
+      if (rest.indexOf(":") !== -1) { hidePop(); return; }
+      var q4 = rest.toLowerCase();
+      var matches = HASH_REFS.filter(function(c){
+        var n = c.name.slice(1).replace(/:$/, "");
+        return n.startsWith(q4);
+      });
+      // When the user types "#somepath", also fall back to file-suggest
+      // (mirrors @ behaviour so "#" can quickly attach files too).
+      if (q4.length > 0) requestFileSuggest(q4);
+      showPop(matches, "hash", start);
     } else { hidePop(); }
   }
 
@@ -1382,8 +1468,7 @@
       _sp.innerHTML =
         "<span class=\"dc-spinner-dot\"></span>" +
         "<span class=\"dc-spinner-text\">" + DC_VERBS[Math.floor(Math.random() * DC_VERBS.length)] + "</span>" +
-        "<span class=\"dc-spinner-time\">0s</span>" +
-        "<span class=\"dc-spinner-esc\">&middot; Esc</span>";
+        "<span class=\"dc-spinner-time\">0s</span>";
       msgs.appendChild(_sp);
       _dcSpinner = _sp;
     }
@@ -1423,11 +1508,14 @@
       timeEl.textContent = m > 0 ? m + 'm' + s + 's' : s + 's';
     }
     _verbTick++;
-    if (_verbTick % 3 === 0 && textEl) {
-      textEl.classList.remove('flash');
-      void textEl.offsetWidth;
-      textEl.textContent = DC_VERBS[Math.floor(Math.random() * DC_VERBS.length)];
-      textEl.classList.add('flash');
+    if (textEl) {
+      var mod = _verbTick % 10;
+      if (mod === 9) {
+        textEl.classList.add('fade-out');
+      } else if (mod === 0) {
+        textEl.textContent = DC_VERBS[Math.floor(Math.random() * DC_VERBS.length)];
+        textEl.classList.remove('fade-out');
+      }
     }
     ascroll();
   }
@@ -1449,6 +1537,16 @@
     if (busy){ vscode.postMessage({type:"stop"}); return; }
     var t = inp.value.trim();
     if (!t) return;
+    // Pre-resolve any inline #<ref>:<arg> tokens (e.g. #symbol:Foo, #fetch:URL)
+    // that the user did NOT commit with a trailing space. We strip them from
+    // the visible text and forward them via `pendingRefs` so the extension
+    // can resolve them BEFORE invoking the agent loop (race-free).
+    var _pendingRefs = [];
+    t = t.replace(/(^|\s)#(symbol|fetch):(\S+)/g, function(_, lead, ref, val){
+      _pendingRefs.push({ refType: ref, value: val });
+      return lead || "";
+    }).trim();
+    if (!t) return;
     /* Push to history (dedupe consecutive duplicates) */
     if (histStack.length === 0 || histStack[histStack.length - 1] !== t) histStack.push(t);
     if (histStack.length > 50) histStack.shift();
@@ -1459,9 +1557,14 @@
     inp.value = ""; autosize();
     var toSend = { type:"send", text:t };
     var _allAtt = [];
-    if (liveSelection) _allAtt.push(liveSelection);
+    // Only forward the live selection as an attachment when it carries actual
+    // selected content. Bare "file-open" chips are visual markers only; the
+    // active editor's context is provided by the backend via the standard
+    // attachment-block path so we avoid sending an "(empty)" placeholder.
+    if (liveSelection && liveSelection.content) _allAtt.push(liveSelection);
     _allAtt = _allAtt.concat(attachedFiles.filter(function(f){ return f.content !== null || !!f.imageData; }));
     if (_allAtt.length) { toSend.attachments = _allAtt; }
+    if (_pendingRefs && _pendingRefs.length) { toSend.pendingRefs = _pendingRefs; }
     // Snapshot visible chips so we can render them in the sent message bubble
     var _snapAtt = [];
     if (liveSelection) _snapAtt.push(liveSelection);
@@ -1472,7 +1575,7 @@
       toSend.skillName = pendingSkill.name;
       pendingSkill = null;
     }
-    liveSelection = null; attachedFiles = []; renderChips();
+    _liveDismissedKey = null; liveSelection = null; attachedFiles = []; renderChips();
     vscode.postMessage(toSend);
   }
   function resetChat(){
@@ -1485,7 +1588,28 @@
     renderPlan([]);
     curBubble = null; cur = null; curText = ""; curThk = null; toolMap = {}; _userMsgCount = 0; _editPendingIdx = -1;
   }
-  inp.addEventListener("input", function(){ autosize(); detectTrigger(); });
+  // Detect "#<ref>:<arg> " (trailing space) and convert it to a resolved chip
+  // via the extension side. The token is stripped from the input box.
+  function commitHashRefArgs(){
+    var v = inp.value;
+    var re = /(^|\s)#(symbol|fetch):(\S+)(\s)/g;
+    var m, replaced = false, out = v;
+    while ((m = re.exec(v)) !== null) {
+      vscode.postMessage({ type: "resolveContextRef", refType: m[2], value: m[3] });
+      replaced = true;
+    }
+    if (replaced) {
+      // Strip every matched token (keep one separating space).
+      out = v.replace(/(^|\s)#(?:symbol|fetch):(\S+)\s/g, function(_, lead){ return lead || ""; });
+      var pos = inp.selectionStart || 0;
+      inp.value = out;
+      // Best-effort caret keep
+      var newPos = Math.min(out.length, pos);
+      try { inp.setSelectionRange(newPos, newPos); } catch (_e) {}
+      autosize();
+    }
+  }
+  inp.addEventListener("input", function(){ autosize(); detectTrigger(); commitHashRefArgs(); });
   inp.addEventListener("blur", function(){ setTimeout(hidePop, 150); });
   inp.addEventListener("keydown", function(e){
     /* ── #7 Phase 5: popover navigation ── */
@@ -1522,7 +1646,7 @@
     else if (e.key === "Escape" && busy){ e.preventDefault(); _stopping = true; if (_dcSpinner) _dcSpinner.classList.add("stopping"); vscode.postMessage({type:"stop"}); }
   });
   sbtn.addEventListener("click", doSend);
-  cxbt.addEventListener("click", function(){
+  cxbt && cxbt.addEventListener("click", function(){
     cxOn = !cxOn;
     cxbt.classList.toggle("active", cxOn);
     cxb.style.display = cxOn ? "block" : "none";
@@ -2089,12 +2213,30 @@
         var builtIn = AT_CMDS.filter(function(c){ return c.name.slice(1).startsWith(q3); });
         var merged = builtIn.concat(fileItems).slice(0, 30);
         if (merged.length) showPop(merged, "at", popTrigStart);
+      } else if (popVisible && popKind === "hash") {
+        // Same merge logic for the # picker — keep built-in refs first.
+        var q3h = (m.query || "").toLowerCase();
+        var fileItemsH = (m.files || []).map(function(fp){
+          return { name: "#" + fp, desc: "附带文件", filePath: fp, ref: "file" };
+        });
+        var builtH = HASH_REFS.filter(function(c){
+          var n = c.name.slice(1).replace(/:$/, "");
+          return n.startsWith(q3h);
+        });
+        var mergedH = builtH.concat(fileItemsH).slice(0, 30);
+        if (mergedH.length) showPop(mergedH, "hash", popTrigStart);
       }
     } else if (m.type === "setLiveSelection") {
-      liveSelection = m.payload || null;
-      renderChips();
+      var _inc = m.payload || null;
+      if (_inc && _liveDismissedKey) {
+        var _incKey = _inc.path + ':' + _inc.startLine + ':' + _inc.endLine;
+        if (_incKey === _liveDismissedKey) { /* same selection, user dismissed it — skip */ }
+        else { _liveDismissedKey = null; liveSelection = _inc; renderChips(); }
+      } else {
+        _liveDismissedKey = null; liveSelection = _inc; renderChips();
+      }
     } else if (m.type === "clearLiveSelection") {
-      liveSelection = null;
+      _liveDismissedKey = null; liveSelection = null;
       renderChips();
     } else if (m.type === "addAttachment") {
       // Extension posted a file/selection attachment via the editor context menu command.
