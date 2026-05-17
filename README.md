@@ -216,6 +216,8 @@ All settings live under the `deepseekAgent.*` namespace in `settings.json`.
 | **autopilot** | Auto-approve everything (trusted workspaces only)             | 全部自动通过（仅适合受信任工作区） |
 | **readonly**  | Deny all writes & shell                                       | 仅允许只读，禁止任何修改           |
 
+> Issue #89 · Autopilot 与危险命令：`autopilot` 模式下，命中危险命令正则（`rm -rf`、`git reset --hard`、`git push --force` …）的 shell 调用会**静默放行**，并写入 `SHELL_DANGER_AUTO_APPROVE` 审计日志，不再弹模态确认框；其他模式中，同一条命令在一次会话内被批准过一次后也会缓存，不会重复弹框。若把 `run_shell` 加入 `autoApproveTools`，效果等同于显式承担 shell 风险，请仅在受信任工作区开启。
+
 ---
 
 ## ⌨️ Keybindings · 快捷键
