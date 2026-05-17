@@ -18,18 +18,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # 第三方 Action 必须 pin 到 commit SHA（供应链安全）
+      # 1e3df15 = anc95/ChatGPT-CodeReview v1.0.23
       - name: Run OpenAI Code Review
-        uses: anc95/ChatGPT-CodeReview@main
+        uses: anc95/ChatGPT-CodeReview@1e3df152c1b85c12da580b206c91ad343460c584 # v1.0.23
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_ENDPOINT: https://api.openai.com/v1
-          MODEL: gpt-5.4
+          # 真实可用模型；如要换模型在仓库 Variables 里覆盖即可
+          MODEL: gpt-4o-mini
           LANGUAGE: Chinese
           PROMPT: |
             你是 DeepCopilot 项目的资深代码审核员，请对本次 PR 的 diff 进行严格审查，重点关注：

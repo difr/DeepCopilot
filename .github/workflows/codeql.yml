@@ -1,0 +1,59 @@
+name: CodeQL (Static Security Analysis)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  schedule:
+    # 每周一 03:17 UTC 跑一次全量扫描，避免 main 长期不动漏掉新规则
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+          # 跳过打包后的产物、第三方库、release 资源
+          config: |
+            paths-ignore:
+              - 'out/**'
+              - 'media/katex.min.js'
+              - 'media/purify.min.js'
+              - 'media/codicon.css'
+              - 'release/**'
+              - 'refine-logs/**'
+              - 'sema-code-vscode-extension-main/**'
+              - 'imgs/**'
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'

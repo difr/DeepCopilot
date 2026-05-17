@@ -1,0 +1,44 @@
+name: VSIX Package Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vsix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vsix:
+    name: Build & Package Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension (esbuild)
+        run: npm run build
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --no-dependencies --out dist/
+        # --no-dependencies: 依赖已通过 esbuild bundle，无需打包 node_modules
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-copilot-${{ github.sha }}
+          path: dist/*.vsix
+          retention-days: 7
+          # 每次 PR 都可以下载安装 .vsix 进行人工验证
