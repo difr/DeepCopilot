@@ -5,7 +5,7 @@ const cp     = require('child_process');
 const vscode = require('vscode');
 
 const { wsRoot } = require('../utils/paths');
-const { t }      = require('../utils/i18n');
+const { t, tf }      = require('../utils/i18n');
 const { truncate } = require('./utils');
 
 // ─── Dangerous-command detection ─────────────────────────────────────────────
@@ -73,7 +73,16 @@ async function toolRunShell(args, ctx = {}) {
     }
 
     const MAX_BUF       = 10 * 1024 * 1024;
-    const timeoutMs     = args.timeout_ms || 30000;
+    const MAX_TIMEOUT_MS = 300_000;                                         // 5 min hard cap — issue #69
+    const STALL_PROBE_MS = 15_000;                                          // heartbeat every 15s when no output
+    const KILL_GRACE_MS  = 5_000;                                           // SIGTERM → SIGKILL grace period — issue #69 follow-up
+    // Normalize args.timeout_ms: tolerate strings, NaN, negatives, etc.
+    // Falls back to 30000ms default, clamps to (0, MAX_TIMEOUT_MS].
+    const requestedRaw = Number(args.timeout_ms);
+    const requestedTimeout = (Number.isFinite(requestedRaw) && requestedRaw > 0)
+        ? requestedRaw
+        : 30000;
+    const timeoutMs     = Math.min(requestedTimeout, MAX_TIMEOUT_MS);
     const onStreamDelta = typeof ctx.onStreamDelta === 'function' ? ctx.onStreamDelta : null;
     const abortSignal   = ctx.abortSignal;
 
@@ -94,11 +103,17 @@ async function toolRunShell(args, ctx = {}) {
         let killedByTimeout = false;
         let killedByAbort   = false;
         let settled         = false;
+        let lastOutputAt    = Date.now();                                   // for stall heartbeat — issue #69
+        // Declared up-front so settle() can safely reference it even if
+        // settle() is invoked before the interval is assigned. Stays null
+        // when onStreamDelta is absent (no consumer → no point waking up).
+        let stallTimer      = null;
 
         const settle = (val) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
+            if (stallTimer) clearInterval(stallTimer);
             if (abortSignal && onAbort) {
                 try { abortSignal.removeEventListener('abort', onAbort); } catch {}
             }
@@ -108,7 +123,33 @@ async function toolRunShell(args, ctx = {}) {
         const timer = setTimeout(() => {
             killedByTimeout = true;
             try { proc.kill('SIGTERM'); } catch {}
+            // If the process ignores SIGTERM (or kill() failed), escalate
+            // to SIGKILL after a short grace period and force-settle so
+            // run_shell can never hang indefinitely.
+            setTimeout(() => {
+                if (settled) return;
+                try { proc.kill('SIGKILL'); } catch {}
+                // Last-resort settle in case 'close' never fires.
+                setTimeout(() => {
+                    if (!settled) settle(truncate(`Error: command timed out after ${timeoutMs}ms and did not terminate after SIGTERM+SIGKILL`));
+                }, 1000);
+            }, KILL_GRACE_MS);
         }, timeoutMs);
+
+        // Stall heartbeat: when the process produces no output for STALL_PROBE_MS,
+        // push a synthetic notice through onStreamDelta so the webview tail shows
+        // "still alive but silent" and the user knows where things are stuck.
+        // Only create the interval when there is a stream consumer; otherwise
+        // we'd be waking the event loop with no observer.
+        if (onStreamDelta) {
+            stallTimer = setInterval(() => {
+                if (settled) return;
+                const silentMs = Date.now() - lastOutputAt;
+                if (silentMs >= STALL_PROBE_MS) {
+                    try { onStreamDelta('\n' + tf('shellNoOutput', { sec: Math.round(silentMs / 1000) }) + '\n'); } catch {}
+                }
+            }, STALL_PROBE_MS);
+        }
 
         const onAbort = () => {
             killedByAbort = true;
@@ -131,6 +172,7 @@ async function toolRunShell(args, ctx = {}) {
                 else                  stderrBuf += txt;
                 combinedSize += txt.length;
             }
+            lastOutputAt = Date.now();
             if (onStreamDelta) {
                 try { onStreamDelta(txt); } catch {}
             }
@@ -145,7 +187,13 @@ async function toolRunShell(args, ctx = {}) {
             const stdout = stdoutBuf.replace(/\s+$/, '');
             const stderr = stderrBuf.replace(/\s+$/, '');
             if (killedByAbort)   return settle('Error: aborted by user');
-            if (killedByTimeout) return settle(truncate(`Error: command timed out after ${timeoutMs}ms\n${stdout}${stderr ? '\n--- stderr ---\n' + stderr : ''}`));
+            if (killedByTimeout) {
+                const silentMs = Date.now() - lastOutputAt;
+                const stallNote = silentMs >= STALL_PROBE_MS
+                    ? '\n' + tf('shellSilentTimeout', { sec: Math.round(silentMs / 1000) })
+                    : '';
+                return settle(truncate(`Error: command timed out after ${timeoutMs}ms${stallNote}\n${stdout}${stderr ? '\n--- stderr ---\n' + stderr : ''}`));
+            }
             const exitCode = (code == null && signal) ? `signal:${signal}` : code;
             if (exitCode !== 0) return settle(truncate(`Exit ${exitCode}: ${stderr || stdout || '(no output)'}`));
             if (!stdout && !stderr) return settle('(no output, exit 0)');

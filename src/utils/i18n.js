@@ -90,6 +90,13 @@ const EN = {
     wvApprovalMode:     'Approval Mode',
     wvBalanceTitle:     'Account balance (click to refresh)',
     wvBalanceInit:      '💰 Checking...',
+
+    // run_shell stall/timeout diagnostics — issue #69
+    // The bracketed `[Note: ...]` prefix is a stable marker token the LLM is
+    // instructed (via tools/schema.js) to detect; keep it identical across
+    // locales and only localize the trailing human-readable explanation.
+    shellNoOutput:      '[Note: no output for last {sec}s]',
+    shellSilentTimeout: '[Note: process was silent for last {sec}s before timeout — likely hung (e.g. port in use, waiting for input, blocked on external resource). Do NOT retry blindly; report the situation to the user.]',
 };
 
 const ZH = {
@@ -170,6 +177,12 @@ const ZH = {
     wvApprovalMode:     '批准策略 (Approval Mode)',
     wvBalanceTitle:     '账户余额（点击刷新）',
     wvBalanceInit:      '💰 查询中…',
+
+    // run_shell stall/timeout diagnostics — issue #69
+    // 方括号内的 `[Note: ...]` 是给模型识别的稳定标记，跨语言保持一致；
+    // 仅本地化后面的中文说明部分。
+    shellNoOutput:      '[Note: no output for last {sec}s]（进程仍在运行，已 {sec} 秒未输出）',
+    shellSilentTimeout: '[Note: process was silent for last {sec}s before timeout — likely hung]（超时前 {sec} 秒静默，疑似挂起：端口被占用 / 等待输入 / 外部资源阻塞。不要盲目重试，请向用户报告。）',
 };
 
 function t(key) {
@@ -177,4 +190,16 @@ function t(key) {
     return bundle[key] != null ? bundle[key] : (EN[key] != null ? EN[key] : key);
 }
 
-module.exports = { t, isZh };
+// Formatted variant of t() — substitutes {placeholder} tokens with values
+// from params. Use for messages that need runtime values interpolated.
+function tf(key, params) {
+    let s = t(key);
+    if (params) {
+        for (const k of Object.keys(params)) {
+            s = s.split('{' + k + '}').join(String(params[k]));
+        }
+    }
+    return s;
+}
+
+module.exports = { t, tf, isZh };
