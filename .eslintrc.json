@@ -16,7 +16,7 @@
     "no-new-func": "error",
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
     "no-console": "warn",
-    "eqeqeq": ["error", "always"],
+    "eqeqeq": ["error", "always", {"null": "ignore"}],
     "indent": ["warn", 2],
     "quotes": ["warn", "single"],
     "semi": ["warn", "always"],

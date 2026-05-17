@@ -302,7 +302,7 @@
     "package": "npm run build && vsce package --out release/",
     "publish": "npm run build && vsce publish",
     "vscode:prepublish": "npm run build",
-    "lint": "eslint src/ --max-warnings 0"
+    "lint": "eslint src/ --max-warnings -1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

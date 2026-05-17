@@ -132,15 +132,19 @@ function matchesWorkspace(fm, wsRoot) {
             const needle = rule.slice(idx + 1);
             try {
                 const p = path.join(wsRoot, file);
-                // Verify it exists AND is a regular file (not a directory).
-                const stat = fs.statSync(p);
-                if (stat.isFile()) {
-                    // Guard against reading huge files (e.g. lockfiles): cap at 256 KB.
-                    const MAX_READ = 256 * 1024;
-                    const buf = Buffer.alloc(Math.min(MAX_READ, stat.size));
-                    const fd = fs.openSync(p, 'r');
-                    try { fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
-                    if (buf.toString('utf8').includes(needle)) return true;
+                // Open first, then fstat the fd to avoid TOCTOU race condition.
+                const fd = fs.openSync(p, 'r');
+                try {
+                    const stat = fs.fstatSync(fd);
+                    if (stat.isFile()) {
+                        // Guard against reading huge files (e.g. lockfiles): cap at 256 KB.
+                        const MAX_READ = 256 * 1024;
+                        const buf = Buffer.alloc(Math.min(MAX_READ, stat.size));
+                        fs.readSync(fd, buf, 0, buf.length, 0);
+                        if (buf.toString('utf8').includes(needle)) return true;
+                    }
+                } finally {
+                    fs.closeSync(fd);
                 }
             } catch { /* skip */ }
             continue;
