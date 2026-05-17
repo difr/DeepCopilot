@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   vsix:
-    name: Build & Package Extension
+    name: VSIX Build & Package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

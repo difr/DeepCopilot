@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   trivy-fs:
-    name: Trivy filesystem scan (deps + config)
+    name: Trivy: Dependency Scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -53,7 +53,7 @@ jobs:
           category: trivy-fs
 
   trivy-config:
-    name: Trivy IaC / config misconfig scan
+    name: Trivy: IaC Config Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

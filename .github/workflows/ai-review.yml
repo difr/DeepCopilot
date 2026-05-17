@@ -61,6 +61,7 @@ jobs:
             claude-code-main/**
 
   ai-review-gate:
+    name: AI Review Gate
     # 给分支保护当作 required check 使用：上一步失败则这一步失败
     needs: ai-review
     runs-on: ubuntu-latest

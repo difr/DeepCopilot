@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   eslint:
-    name: ESLint (静态代码检查)
+    name: ESLint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
         # 零警告容忍模式，任何 error 均阻断 PR
 
   npm-audit:
-    name: npm audit (依赖安全扫描)
+    name: npm audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
