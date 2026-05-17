@@ -2202,6 +2202,17 @@
       updateBalance(m);
     } else if (m.type === "status"){
       if (m.text){ sb.textContent = m.text; sb.style.display = "block"; } else sb.style.display = "none";
+    } else if (m.type === "systemNotice"){
+      // Issue #82: render a persistent in-conversation card so the user knows
+      // a context-altering event happened (currently: AUTOCOMPACT). Distinct
+      // from `status` which is transient and shown only in the status bar.
+      var _sn = document.createElement("div");
+      _sn.className = "sys-notice" + (m.kind ? " sys-notice-" + m.kind : "");
+      var _snTitle = m.title ? '<div class="sys-notice-title">' + escHtml(m.title) + '</div>' : '';
+      var _snBody  = m.body  ? '<div class="sys-notice-body">'  + escHtml(m.body)  + '</div>' : '';
+      _sn.innerHTML = _snTitle + _snBody;
+      if (thk && thk.parentNode === msgs) msgs.insertBefore(_sn, thk); else msgs.appendChild(_sn);
+      ascroll();
     } else if (m.type === "sessions"){
       sessions = m.items || []; activeSessionId = m.activeId || null;
       if (typeof m.currentWs === "string") currentWs = m.currentWs;
