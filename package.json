@@ -254,6 +254,18 @@
             "Ask — pure conversational mode. Tools are NEVER exposed to the model. Use for Q&A or when you don't want any workspace exploration."
           ],
           "description": "Interaction mode (analogous to GitHub Copilot's Ask vs Agent). Agent mode also runs a per-turn intent classifier that auto-disables tools on greetings."
+        },
+        "deepCopilot.inlineCompletion.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable DeepSeek FIM-powered inline (ghost-text) completions in the editor. Off by default — turn on after configuring your API key."
+        },
+        "deepCopilot.inlineCompletion.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 2000,
+          "description": "Idle delay (ms) after the last keystroke before requesting an inline completion. Lower = snappier but more API calls."
         }
       }
     },
