@@ -10,10 +10,28 @@ function wsRoot() {
     return (f && f[0] && f[0].uri.fsPath) || os.homedir();
 }
 
+/**
+ * Expand a leading "~" (or "~/", "~\") to the user's home directory.
+ * Returns the original string when no expansion applies. We intentionally
+ * do NOT support "~user" since Node has no portable accessor for it.
+ * Issue #94: paths from skill discovery / synthetic injections may carry
+ * a literal "~" prefix, and `path.isAbsolute` returns false for those on
+ * Windows, causing them to be joined with the workspace root incorrectly.
+ */
+function expandHome(p) {
+    if (typeof p !== 'string' || !p) return p;
+    if (p === '~') return os.homedir();
+    if (p.startsWith('~/') || p.startsWith('~\\')) {
+        return path.join(os.homedir(), p.slice(2));
+    }
+    return p;
+}
+
 function resolvePath(p) {
     if (!p) return wsRoot();
-    if (path.isAbsolute(p)) return p;
-    return path.join(wsRoot(), p);
+    const expanded = expandHome(p);
+    if (path.isAbsolute(expanded)) return expanded;
+    return path.join(wsRoot(), expanded);
 }
 
 /**
@@ -32,4 +50,4 @@ function isInsideWorkspace(absPath) {
     return true;
 }
 
-module.exports = { wsRoot, resolvePath, isInsideWorkspace };
+module.exports = { wsRoot, resolvePath, isInsideWorkspace, expandHome };
