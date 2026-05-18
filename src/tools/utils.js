@@ -32,6 +32,21 @@ async function ensurePathAllowed(absPath, intent /* 'read' | 'write' */) {
     if (isInsideWorkspace(absPath)) return true;
     if (_outsideWsApprovals.has(absPath)) return true;
 
+    // Issue #94: the extension's own skill directories live outside the
+    // workspace by design (~/.deepcopilot/skills, ~/.claude/skills,
+    // ~/.copilot/skills). Reads from them are part of normal operation and
+    // must not trigger an approval dialog. Writes are still gated below.
+    if (intent === 'read') {
+        try {
+            const path = require('path');
+            const { SKILL_DIRS } = require('../skills');
+            for (const dir of SKILL_DIRS) {
+                const base = path.resolve(dir) + path.sep;
+                if ((absPath + path.sep).startsWith(base)) return true;
+            }
+        } catch { /* skills module unavailable — fall through to normal flow */ }
+    }
+
     // In autopilot mode silently allow all out-of-workspace access —
     // the user has already granted blanket approval by choosing that mode.
     const mode = vscode.workspace.getConfiguration('deepseekAgent').get('approvalMode') || 'manual';

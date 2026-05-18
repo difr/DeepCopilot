@@ -7,6 +7,8 @@
 
 const vscode = require('vscode');
 
+const os                   = require('os');
+const path                 = require('path');
 const { Logger }           = require('../logger');
 const { friendlyError }    = require('../errors');
 const { computeCost }      = require('../pricing');
@@ -39,7 +41,11 @@ const {
 //                                 correct origin (e.g. ~/.claude/skills/...).
 function injectSyntheticSkillRead(messages, skillName, body, skillPath) {
     const safeName = String(skillName || 'skill').replace(/[^a-z0-9-]/gi, '-');
-    const filePath = skillPath || `~/.deepcopilot/skills/${safeName}/SKILL.md`;
+    // Issue #94: never emit a literal "~/..." path — it cannot be re-resolved
+    // by the model's real read_file call on Windows. Always use an absolute
+    // path under the user's home directory.
+    const filePath = skillPath
+        || path.join(os.homedir(), '.deepcopilot', 'skills', safeName, 'SKILL.md');
     const callId = `synthetic_skill_read_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
     messages.push({
         role: 'assistant',

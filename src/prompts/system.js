@@ -218,6 +218,7 @@ function readSkillIndex() {
 
         const lines = ['# Available skills'];
         lines.push('Locally-installed reusable workflows. Call `skill_invoke({ name })` ONLY when the user\'s task closely matches one of the entries. If nothing matches, proceed with normal tools — do NOT invoke a skill just because the index is non-empty.');
+        lines.push('When a skill is invoked (either by the user typing `/<name>` or by your own `skill_invoke` call), its SKILL.md body is delivered to you as a synthetic `read_file` tool result. The body is already in your context — do NOT call `read_file` again on the same SKILL.md path, and never attempt to relocate it inside the workspace; the canonical location is under the user\'s home directory.');
         let anyUntrusted = false;
         for (const s of skills) {
             const trustTag = s.trust === 'untrusted' ? ' [untrusted]' : '';
