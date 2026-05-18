@@ -13,6 +13,7 @@
   <a href="https://code.visualstudio.com/"><img src="https://img.shields.io/badge/VS%20Code-%E2%89%A51.95.0-blue" alt="VS Code"/></a>
   <a href="https://github.com/ZhouChaunge/DeepCopilot/releases"><img src="https://img.shields.io/github/v/release/ZhouChaunge/DeepCopilot?label=version&color=success" alt="Version"/></a>
   <a href="https://github.com/ZhouChaunge/DeepCopilot/stargazers"><img src="https://img.shields.io/github/stars/ZhouChaunge/DeepCopilot?style=flat&color=yellow" alt="GitHub stars"/></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=ZhouChaunge.deep-copilot"><img src="https://img.shields.io/visual-studio-marketplace/i/ZhouChaunge.deep-copilot?label=installs&color=brightgreen" alt="VS Marketplace Installs"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
 </p>
 
