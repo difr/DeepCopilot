@@ -65,7 +65,7 @@ const TOOL_DEFS = [
         type: 'function',
         function: {
             name: 'run_shell',
-            description: 'Execute a shell command in the workspace root. Use ONLY for things that genuinely need a shell: package managers (npm/pip/cargo), build tools, git, test runners, system info. Do NOT use to read, write, list, or search files — use the dedicated read_file / write_file / list_dir / grep_search tools instead. If the result contains "[Note: no output for last …s]" or "[Note: process was silent for last …s before timeout]", the process may be hung or stalled (e.g. port in use, waiting for input, blocked on external resource) — do NOT retry blindly; verify the cause (check port usage, add verbose flags, etc.) or report the situation to the user.',
+            description: 'Execute a shell command in a NEW child process at the workspace root. Use ONLY for things that genuinely need a shell: package managers (npm/pip/cargo), build tools, git, test runners, system info. Do NOT use to read, write, list, or search files — use the dedicated read_file / write_file / list_dir / grep_search tools instead. IMPORTANT: `run_shell` only sees the output of the process IT starts; it CANNOT see what is happening in the user\'s VS Code integrated terminal. When the user mentions "my terminal", an error/port/process already running there, or asks you to "look at the terminal", call `read_terminal` instead — never try to reproduce by re-running their command in `run_shell`. If the result contains "[Note: no output for last …s]" or "[Note: process was silent for last …s before timeout]", the process may be hung or stalled (e.g. port in use, waiting for input, blocked on external resource) — do NOT retry blindly; verify the cause (check port usage, add verbose flags, etc.) or report the situation to the user.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -73,6 +73,23 @@ const TOOL_DEFS = [
                     timeout_ms: { type: 'integer', description: 'Timeout in milliseconds (default 30000, hard capped at 300000 = 5 min).' },
                 },
                 required: ['command'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'read_terminal',
+            description: 'Read the recent output of the user\'s VS Code integrated terminal (commands they ran themselves, including processes still running). Use ONLY when the user references their terminal — phrases like "look at my terminal", "see the error", "check the log above", "port already in use", "the test failed", etc. — or when you need to inspect the result of a command the user just typed. Do NOT use this to re-run commands (use run_shell) and do NOT use it speculatively when the user has not pointed at a terminal. Returns the last N executions of the chosen terminal (default: active terminal) with command line, cwd, exit code, and captured stdout/stderr. If the shell does not have integration enabled, returns a structured error you should surface to the user ONCE — do not repeat the same hint every turn.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    terminal: { type: 'string', description: 'Optional terminal display name (as shown in the terminal-picker dropdown). Defaults to the currently active terminal.' },
+                    lastN:    { type: 'integer', description: 'How many of the most-recent executions to return (1–20, default 3).' },
+                    maxBytes: { type: 'integer', description: 'Output byte cap across all included executions (1024–65536, default 16384).' },
+                    includeRunning: { type: 'boolean', description: 'Include the currently-running execution if any (default true). Set false to read only completed commands.' },
+                },
+                required: [],
             },
         },
     },

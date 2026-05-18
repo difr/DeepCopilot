@@ -22,6 +22,18 @@ function activate(context) {
         }
     } catch { /* non-fatal */ }
 
+    // ─── Terminal shell-execution monitor (Issue #99) ─────────────────────
+    // Start as early as possible so the read_terminal tool has a buffer of
+    // recent commands by the time the model asks for it. Honours the
+    // `deepseekAgent.terminal.captureHistory` setting internally.
+    try {
+        const terminalMonitor = require('./tools/terminal-monitor');
+        terminalMonitor.start(context);
+        context.subscriptions.push({ dispose: () => { try { terminalMonitor.stop(); } catch {} } });
+    } catch (e) {
+        Logger.info('TERMINAL_MONITOR_START_FAILED', { err: String(e && e.message || e) });
+    }
+
     // ─── Status bar button (registered FIRST so it shows even if anything below throws) ──
     // VS Code persists per-user "hide" state for status bar items keyed by `id`.
     // We use a stable id + explicit `name` so users can find & re-enable it via

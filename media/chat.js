@@ -825,6 +825,7 @@
     list_dir:     { verb:"Listed",       icon:"codicon-folder-opened", kind:"read"   },
     grep_search:  { verb:"Searched",     icon:"codicon-search",        kind:"search" },
     run_shell:    { verb:"Ran",          icon:"codicon-terminal",      kind:"shell"  },
+    read_terminal:{ verb:"Read terminal", icon:"codicon-terminal-view-icon", kind:"shell"  },
     update_plan:  { verb:"Updated plan", icon:"codicon-checklist",     kind:"plan"   },
     spawn_agent:  { verb:"Sub-agent",    icon:"codicon-robot",         kind:"agent"  }
   };
@@ -866,6 +867,11 @@
     if (name === "list_dir") return o.path || o.dir || ".";
     if (name === "grep_search") return (o.pattern || o.query || "") + (o.path ? "  in " + o.path : "");
     if (name === "run_shell") return o.command || o.cmd || "";
+    if (name === "read_terminal"){
+      var tn = o.terminal ? String(o.terminal) : "active terminal";
+      var ln = o.lastN ? ", last " + o.lastN : "";
+      return tn + ln;
+    }
     if (name === "update_plan"){
       var p = (o.steps && o.steps.length) ? o.steps : ((o.plan && o.plan.length) ? o.plan : []);
       return p.length ? (p.length + " step" + (p.length>1?"s":"")) : "";
@@ -2008,7 +2014,7 @@
       /* Shell, web-search and sub-agent calls get an expandable card so the
          user can click to see the full output. Everything else stays as a
          lightweight prose line (GH Copilot convention). */
-      var _cardTools = { run_shell:1, web_search:1, spawn_agent:1 };
+      var _cardTools = { run_shell:1, web_search:1, spawn_agent:1, read_terminal:1 };
       if (_cardTools[m.name]) {
         addToolCard(m.id, m.name, m.args);
       } else {

@@ -224,6 +224,11 @@
           "default": false,
           "description": "允许 #terminal 通过系统剪贴板捕获终端选区（会临时覆盖剪贴板内容；非文本剪贴板可能丢失）。默认关闭。"
         },
+        "deepseekAgent.terminal.captureHistory": {
+          "type": "boolean",
+          "default": true,
+          "description": "允许 read_terminal 工具读取你的集成终端最近输出。开启后，扩展会在内存中保留每个终端最近 20 条命令的输出（每条上限 64KB，不落盘，VS Code 关闭后即清空）。需要 Shell Integration（bash/zsh/fish/pwsh 默认启用；cmd.exe 不支持）。"
+        },
         "deepseekAgent.maxIterations": {
           "type": "number",
           "default": 0,
