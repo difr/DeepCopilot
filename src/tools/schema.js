@@ -276,6 +276,59 @@ const TOOL_DEFS = [
     {
         type: 'function',
         function: {
+            name: 'save_plan',
+            description: 'Persist the current Plan-mode plan as a structured markdown file under `.deep-copilot/plans/` so the user has a reviewable artifact after the session ends. Call this ONCE, at the very end of Plan mode, after all investigation is finished and right before your final summary message. Do NOT call it from normal Agent/Ask runs — it is reserved for closing out a Plan-mode turn. Pass the full plan body via the structured arguments; do not duplicate it as freeform prose.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    title:      { type: 'string', description: 'Short, descriptive plan title (e.g. "Add save_plan tool to DeepCopilot"). Used in the filename and H1.' },
+                    goal:       { type: 'string', description: 'One-paragraph statement of what the user wants achieved and why.' },
+                    approach:   { type: 'string', description: 'High-level strategy / design summary explaining how the goal will be met.' },
+                    steps: {
+                        type: 'array',
+                        description: 'Ordered, concrete execution steps (3–12 items). Each item may be a string or an object with {title, note}.',
+                        items: {
+                            anyOf: [
+                                { type: 'string' },
+                                {
+                                    type: 'object',
+                                    properties: {
+                                        title: { type: 'string', description: 'Short imperative step description.' },
+                                        note:  { type: 'string', description: 'Optional detail / acceptance criteria for this step.' },
+                                    },
+                                    required: ['title'],
+                                },
+                            ],
+                        },
+                    },
+                    files: {
+                        type: 'array',
+                        description: 'Files/modules that will be created, edited, or referenced. Each item may be a string path or {path, reason}.',
+                        items: {
+                            anyOf: [
+                                { type: 'string' },
+                                {
+                                    type: 'object',
+                                    properties: {
+                                        path:   { type: 'string', description: 'Workspace-relative path.' },
+                                        reason: { type: 'string', description: 'Why this file is touched (created / edited / reviewed).' },
+                                    },
+                                    required: ['path'],
+                                },
+                            ],
+                        },
+                    },
+                    risks:      { type: 'array', items: { type: 'string' }, description: 'Risks, edge cases, or things that could go wrong, with mitigations.' },
+                    next_steps: { type: 'array', items: { type: 'string' }, description: 'Follow-up work to do AFTER the user approves the plan (e.g. handing it to Agent mode).' },
+                    notes:      { type: 'string', description: 'Optional free-form notes appended at the end of the document.' },
+                },
+                required: ['title', 'goal', 'approach', 'steps'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: 'spawn_agent',
             description:
                 'Launch a focused sub-agent in a fresh, isolated context to handle a complex ' +

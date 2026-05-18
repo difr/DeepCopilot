@@ -17,6 +17,7 @@ const { toolRunShell, isDangerous }                               = require('./s
 const { toolReadTerminal }                                        = require('./read-terminal');
 const { toolWebSearch }                                           = require('./web-search');
 const { toolWebFetch }                                            = require('./web-fetch');
+const { toolSavePlan }                                            = require('./save-plan');
 const { truncate }                                                = require('./utils');
 
 module.exports = {
@@ -31,6 +32,7 @@ module.exports = {
     toolReadTerminal,
     toolWebSearch,
     toolWebFetch,
+    toolSavePlan,
     truncate,
     isDangerous,
 };

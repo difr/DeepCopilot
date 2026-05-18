@@ -252,6 +252,16 @@ function activate(context) {
         })
     );
 
+    // Attach a file or folder from the Explorer tree (context menu).
+    // VS Code passes the clicked URI as the first argument when the command
+    // is triggered from explorer/context; when called from the command
+    // palette `uri` will be undefined and we fall back to the active editor.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('deepseekAgent.attachFolder', (uri) => {
+            chatProvider.attachExplorerResource(uri);
+        })
+    );
+
     // Auto-attach live selection chip when the user selects text in any editor
     // Issue #97: previously the empty-selection branch called clearLiveSelection,
     // which hid the chip the moment the user clicked into a file without dragging
@@ -272,10 +282,20 @@ function activate(context) {
     // closing the last tab, etc.). onDidChangeTextEditorSelection does NOT
     // fire when only the active editor changes, so without this listener the
     // chip was stuck on whichever editor last had a selection event.
+    //
+    // Fix: when `editor` is undefined it may simply mean focus moved to the
+    // webview sidebar (the chat input), NOT that all editors were closed.
+    // Only clear the live-selection chip when there are genuinely no visible
+    // text editors left; otherwise keep the chip so clicking into the chat
+    // input does not accidentally erase the context chip the user just added.
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(editor => {
-            if (editor) chatProvider.attachLiveSelection(editor);
-            else chatProvider.clearLiveSelection();
+            if (editor) {
+                chatProvider.attachLiveSelection(editor);
+            } else if (vscode.window.visibleTextEditors.length === 0) {
+                chatProvider.clearLiveSelection();
+            }
+            // else: focus moved to webview/panel — keep existing chip intact
         })
     );
 

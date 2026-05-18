@@ -374,7 +374,8 @@ function buildSystemPrompt(opts = {}) {
             'Your single goal this turn is to produce a clear, actionable plan for the user to review:\n' +
             '1. Call `update_plan` early with the high-level steps so the user can follow along.\n' +
             '2. Investigate (read code, grep, list dirs) only as much as is needed to write a correct plan.\n' +
-            '3. End with a final assistant message that summarises: the goal, the proposed approach, the affected files, the risks, and explicit next steps.\n' +
+            '3. Call `save_plan` ONCE near the end with the full structured plan (title, goal, approach, steps, files, risks, next_steps). This writes a markdown artifact to `.deep-copilot/plans/` so the user can reopen it later.\n' +
+            '4. End with a final assistant message that summarises: the goal, the proposed approach, the affected files, the risks, and explicit next steps. Reference the saved plan path returned by `save_plan` so the user knows where to find it.\n' +
             "Do NOT start implementing. The user will switch to Agent mode to execute the plan if they approve it."
         );
     }

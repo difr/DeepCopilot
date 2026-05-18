@@ -22,6 +22,7 @@ const { mcpManager }   = require('../mcp');
 const {
     toolReadFile, toolListDir, toolGrepSearch, toolFindFiles,
     toolWriteFile, toolStrReplaceInFile, toolApplyPatch, toolRunShell, toolReadTerminal, toolWebSearch, toolWebFetch,
+    toolSavePlan,
 } = require('../tools/exec');
 const { skillInvoke, skillCreate } = require('../tools/skill-tools');
 
@@ -62,6 +63,7 @@ class ToolExecutor {
             ['read_terminal',       (args, ctx) => toolReadTerminal(args, ctx)],
             ['web_search',          (args, ctx) => toolWebSearch(args, ctx)],
             ['web_fetch',           (args, ctx) => toolWebFetch(args, ctx)],
+            ['save_plan',           (args)      => toolSavePlan(args)],
         ]);
     }
 

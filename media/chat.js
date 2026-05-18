@@ -1244,10 +1244,13 @@
       }
       var icoHtml = isLoading
         ? '<span class="chip-spin chip-ico">\u29d6</span>'
-        : '<span class="codicon codicon-file-text chip-ico"></span>';
-      return '<span class="chip' + (isLoading ? ' loading' : '') + '" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
+        : f.isFolder
+          ? '<span class="codicon codicon-folder-opened chip-ico"></span>'
+          : '<span class="codicon codicon-file-text chip-ico"></span>';
+      var trailLabel = f.isFolder ? '<span class="chip-line"> /</span>' : lineLabel;
+      return '<span class="chip' + (isLoading ? ' loading' : '') + (f.isFolder ? ' chip-folder' : '') + '" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
         icoHtml +
-        '<span class="chip-name">' + escHtml(name) + '</span>' + lineLabel +
+        '<span class="chip-name">' + escHtml(name) + '</span>' + trailLabel +
         '<button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
     }).join('');
     var combined = liveHtml + html;
@@ -2375,7 +2378,8 @@
             content:   p.content || '',
             startLine: p.startLine,
             endLine:   p.endLine,
-            lang:      p.lang
+            lang:      p.lang,
+            isFolder:  !!p.isFolder
           });
           renderChips();
         }

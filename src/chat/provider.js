@@ -25,6 +25,15 @@ const { mcpManager }       = require('../mcp');
 const { SessionStore } = require('./session-store');
 const { ToolExecutor } = require('./tool-executor');
 const { AgentLoop }    = require('./agent-loop');
+
+// ─── Module-level constants ───────────────────────────────────────────────────
+/** Maximum bytes of file content attached via the Explorer context menu. */
+const MAX_FILE_ATTACH_BYTES = 65536;
+/** Directory / file names skipped when building a folder file-tree chip. */
+const FOLDER_TREE_SKIP = new Set([
+    'node_modules', '.git', 'dist', 'out', 'build',
+    '__pycache__', '.venv', 'venv', '.next', 'coverage', '.turbo',
+]);
 const { fetchBalance } = require('../api/deepseek');
 const { resolveContextRef } = require('./context-refs');
 
@@ -590,6 +599,107 @@ class ChatViewProvider {
         // External: not inside any workspace folder. Use absolute path as the
         // display key; the UI marks it with a distinct style.
         return { abs, rel: abs.replace(/\\/g, '/'), external: true, untitled: false };
+    }
+
+    /**
+     * Called by the deepseekAgent.attachFolder command when the user
+     * right-clicks a file or folder in the Explorer tree.
+     * @param {import('vscode').Uri} [uri]  URI passed by VS Code from explorer/context.
+     *   Falls back to the active editor when undefined (command palette invocation).
+     */
+    async attachExplorerResource(uri) {
+        if (!uri || !uri.fsPath) {
+            this.attachSelection();
+            return;
+        }
+        let stat;
+        try { stat = await vscode.workspace.fs.stat(uri); }
+        catch { return; }
+
+        if (stat.type & vscode.FileType.Directory) {
+            await this._attachFolderUri(uri);
+        } else {
+            // File from Explorer — read content and attach as a normal file chip
+            let doc;
+            try { doc = await vscode.workspace.openTextDocument(uri); }
+            catch { return; }
+            const loc = this._resolveDocLocation(doc);
+            if (!loc) return;
+            let content = doc.getText();
+            if (content.length > MAX_FILE_ATTACH_BYTES) content = content.slice(0, MAX_FILE_ATTACH_BYTES) + '\n... [截断]';
+            this._post({
+                type: 'addAttachment',
+                payload: { path: loc.rel, content, lang: doc.languageId, external: loc.external },
+            });
+            vscode.commands.executeCommand('deepseek.chatView.focus').then(() => {}, () => {});
+        }
+    }
+
+    /** Attach a folder URI as a folder chip (file-tree listing as content). */
+    async _attachFolderUri(uri) {
+        const fsPath = uri.fsPath;
+        const hit = findContainingFolder(fsPath);
+        const relPath = hit
+            ? hit.rel || path.basename(fsPath)
+            : fsPath.replace(/\\/g, '/');
+        const external = !hit;
+
+        const treeLines = await this._collectFolderTree(uri, '', 0);
+        // Content is the file-tree text; AI can use it to understand the folder structure
+        const content = treeLines.join('\n');
+
+        this._post({
+            type: 'addAttachment',
+            payload: { path: relPath, content, isFolder: true, external },
+        });
+        vscode.commands.executeCommand('deepseek.chatView.focus').then(() => {}, () => {});
+    }
+
+    /**
+     * Recursively collect a folder's file tree as an array of indented strings.
+     * Skips hidden files, node_modules, common build artifacts, etc.
+     * Stops after 200 entries or depth > 3 to keep the payload reasonable.
+     * @param {import('vscode').Uri} uri
+     * @param {string} prefix  Indentation string for the current level.
+     * @param {number} depth
+     * @returns {Promise<string[]>}
+     */
+    async _collectFolderTree(uri, prefix, depth) {
+        const MAX_DEPTH = 3;
+        const MAX_ENTRIES = 200;
+        if (depth > MAX_DEPTH) return [];
+        let entries;
+        try { entries = await vscode.workspace.fs.readDirectory(uri); }
+        catch { return []; }
+
+        // Directories first, then files, both alphabetical
+        entries.sort(([a, ta], [b, tb]) => {
+            const aDir = (ta & vscode.FileType.Directory) ? 0 : 1;
+            const bDir = (tb & vscode.FileType.Directory) ? 0 : 1;
+            if (aDir !== bDir) return aDir - bDir;
+            return a.localeCompare(b);
+        });
+
+        const lines = [];
+        for (const [name, type] of entries) {
+            if (name.startsWith('.') || FOLDER_TREE_SKIP.has(name)) continue;
+            if (type & vscode.FileType.Directory) {
+                lines.push(prefix + name + '/');
+                if (depth < MAX_DEPTH) {
+                    const sub = await this._collectFolderTree(
+                        vscode.Uri.joinPath(uri, name), prefix + '  ', depth + 1
+                    );
+                    lines.push(...sub);
+                }
+            } else {
+                lines.push(prefix + name);
+            }
+            if (lines.length >= MAX_ENTRIES) {
+                lines.push(prefix + '... (truncated)');
+                break;
+            }
+        }
+        return lines;
     }
 
     /**
