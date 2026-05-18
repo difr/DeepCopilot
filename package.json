@@ -155,7 +155,14 @@
         "deepseekAgent.provider": {
           "type": "string",
           "default": "deepseek",
-          "enum": ["deepseek", "openai", "groq", "ollama", "gemini", "custom"],
+          "enum": [
+            "deepseek",
+            "openai",
+            "groq",
+            "ollama",
+            "gemini",
+            "custom"
+          ],
           "enumDescriptions": [
             "DeepSeek — api.deepseek.com",
             "OpenAI — api.openai.com/v1",

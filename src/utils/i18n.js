@@ -69,7 +69,7 @@ const EN = {
     errTip400: 'The context may be too long or the message format may be invalid. Try clearing the session (Ctrl+K) and retrying.',
     errTitle5xx: 'Service error',
     errNetwork: 'Network connection failed',
-    errTipNetwork: 'Cannot reach the API. Check your network, proxy, or firewall settings.',,
+    errTipNetwork: 'Cannot reach the API. Check your network, proxy, or firewall settings.',
     errAborted: 'Generation stopped',
     errTipAborted: 'Generation was interrupted by the user.',
     wvWelcomeSub:       'Open, fair, and accessible AI productivity for all',
