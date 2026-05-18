@@ -145,7 +145,18 @@ function buildWebviewHtml(webview, extensionUri) {
     </div>
     <div class="settings-body">
       <div class="settings-section">
-        <div class="settings-section-label">DeepSeek AI</div>
+        <div class="settings-section-label">AI Provider</div>
+        <div class="settings-field">
+          <label class="settings-label" for="s-provider">Provider</label>
+          <select id="s-provider" class="settings-input settings-select">
+            <option value="deepseek">DeepSeek</option>
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq (Llama/Mixtral)</option>
+            <option value="ollama">Ollama (local)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
         <div class="settings-field">
           <label class="settings-label" for="s-ds-key">API Key <span class="settings-required">*</span></label>
           <div class="settings-input-row">

@@ -20,35 +20,121 @@
   var modelBtn   = document.getElementById("modelBtn");
   var modelDrop  = document.getElementById("modelDrop");
   var _modelOpen = false;
-  var MODELS = [
-    { value: "deepseek-v4-pro",   name: "deepseek-v4-pro",   desc: "DeepSeek V4 Pro — 旗舰推理模型" },
-    { value: "deepseek-v4-flash", name: "deepseek-v4-flash",  desc: "DeepSeek V4 Flash — 快速轻量模型" },
-    { value: "deepseek-reasoner", name: "deepseek-reasoner",  desc: "DeepSeek Reasoner — 深度思维链模型" },
-  ];
-  function setModelUI(model){
-    var md = MODELS.find(function(x){ return x.value === model; }) || MODELS[0];
-    if (modelPicker) modelPicker.dataset.model = md.value;
-    if (modelBtn) modelBtn.innerHTML = md.name + " <span class='mode-chev'>\u25BE</span>";
-    if (modelDrop){ var opts = modelDrop.querySelectorAll(".mo"); for (var i=0;i<opts.length;i++) opts[i].classList.toggle("sel", opts[i].dataset.model === md.value); }
+  var PROVIDER_MODELS = {
+    deepseek: [
+      { value: "deepseek-v4-pro",   name: "deepseek-v4-pro",   desc: "DeepSeek V4 Pro — 旗舰推理模型" },
+      { value: "deepseek-v4-flash", name: "deepseek-v4-flash",  desc: "DeepSeek V4 Flash — 快速轻量模型" },
+      { value: "deepseek-reasoner", name: "deepseek-reasoner",  desc: "DeepSeek Reasoner — 深度思维链模型" },
+    ],
+    openai: [
+      { value: "gpt-4o",       name: "gpt-4o",       desc: "GPT-4o — 最强通用模型" },
+      { value: "gpt-4o-mini",  name: "gpt-4o-mini",  desc: "GPT-4o Mini — 快速经济" },
+      { value: "o3-mini",      name: "o3-mini",       desc: "o3 Mini — 推理模型" },
+    ],
+    groq: [
+      { value: "llama-3.3-70b-versatile", name: "llama-3.3-70b-versatile", desc: "Llama 3.3 70B — 旗舰" },
+      { value: "llama-3.1-8b-instant",    name: "llama-3.1-8b-instant",    desc: "Llama 3.1 8B — 超快" },
+      { value: "mixtral-8x7b-32768",      name: "mixtral-8x7b-32768",      desc: "Mixtral 8x7B — 长上下文" },
+    ],
+    ollama: [],
+    gemini: [
+      { value: "gemini-2.0-flash", name: "gemini-2.0-flash", desc: "Gemini 2.0 Flash — 快速" },
+      { value: "gemini-1.5-pro",   name: "gemini-1.5-pro",   desc: "Gemini 1.5 Pro — 强大" },
+    ],
+    custom: [],
+  };
+  var PROVIDER_URLS = {
+    deepseek: 'https://api.deepseek.com',
+    openai:   'https://api.openai.com/v1',
+    groq:     'https://api.groq.com/openai/v1',
+    ollama:   'http://localhost:11434/v1',
+    gemini:   'https://generativelanguage.googleapis.com/v1beta/openai/',
+    custom:   '',
+  };
+  var PROVIDER_KEY_LINKS = {
+    deepseek: 'https://platform.deepseek.com/api_keys',
+    openai:   'https://platform.openai.com/api-keys',
+    groq:     'https://console.groq.com/keys',
+    ollama:   null,
+    gemini:   'https://aistudio.google.com/app/apikey',
+    custom:   null,
+  };
+  var MODELS = PROVIDER_MODELS.deepseek;
+  var _currentProvider = 'deepseek';
+
+  function switchToProvider(provider) {
+    _currentProvider = provider || 'deepseek';
+    MODELS = PROVIDER_MODELS[_currentProvider] || [];
+    var curModel = getSelectedModel();
+    var modelBelongs = MODELS.some(function(m) { return m.value === curModel; });
+    if (!modelBelongs) {
+      var firstModel = MODELS.length ? MODELS[0].value : curModel;
+      setModelUI(firstModel);
+      if (MODELS.length) vscode.postMessage({ type: 'setModel', model: firstModel });
+    }
   }
-  function getSelectedModel(){
-    return modelPicker ? (modelPicker.dataset.model || "deepseek-v4-pro") : "deepseek-v4-pro";
+
+  function setModelUI(model) {
+    var md = MODELS.find(function(x) { return x.value === model; });
+    var displayName = md ? md.name : (model || (MODELS[0] && MODELS[0].name) || 'model');
+    var effectiveVal = md ? md.value : (model || (MODELS[0] && MODELS[0].value) || '');
+    if (modelPicker) modelPicker.dataset.model = effectiveVal;
+    if (modelBtn) {
+      modelBtn.textContent = '';
+      var tn = document.createTextNode(displayName + '\u00a0');
+      var chev = document.createElement('span');
+      chev.className = 'mode-chev';
+      chev.textContent = '\u25BE';
+      modelBtn.appendChild(tn);
+      modelBtn.appendChild(chev);
+    }
+    if (modelDrop) {
+      var opts = modelDrop.querySelectorAll('.mo');
+      for (var i = 0; i < opts.length; i++) opts[i].classList.toggle('sel', opts[i].dataset.model === effectiveVal);
+    }
   }
-  function openModelDrop(){
+  function getSelectedModel() {
+    return modelPicker ? (modelPicker.dataset.model || (MODELS[0] && MODELS[0].value) || 'deepseek-v4-pro') : 'deepseek-v4-pro';
+  }
+  function openModelDrop() {
     if (!modelDrop || _modelOpen) return;
     var cur = getSelectedModel();
+    if (!MODELS.length) {
+      var placeholder = _currentProvider === 'ollama' ? 'llama3.2' : 'your-model-name';
+      var label = _currentProvider === 'ollama' ? 'Ollama 模型名' : '自定义模型名';
+      modelDrop.innerHTML = "<div class='mode-drop-hd'>" + label + "</div>" +
+        "<div class='mo-custom-wrap'>" +
+          "<input class='mo-custom-input' type='text' placeholder='" + placeholder + "' value='" + escHtml(cur) + "'/>" +
+          "<button class='mo-custom-ok'>确认</button>" +
+        "</div>";
+      modelDrop.style.display = 'block';
+      _modelOpen = true;
+      var inp2 = modelDrop.querySelector('.mo-custom-input');
+      var okBtn2 = modelDrop.querySelector('.mo-custom-ok');
+      if (inp2) setTimeout(function() { inp2.focus(); }, 0);
+      okBtn2 && okBtn2.addEventListener('click', function() {
+        var v = inp2 ? inp2.value.trim() : '';
+        if (v) { setModelUI(v); vscode.postMessage({ type: 'setModel', model: v }); }
+        closeModelDrop();
+      });
+      inp2 && inp2.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); okBtn2 && okBtn2.click(); }
+        if (e.key === 'Escape') { e.preventDefault(); closeModelDrop(); }
+      });
+      return;
+    }
     var h = "<div class='mode-drop-hd'>切换模型</div>";
-    for (var i=0;i<MODELS.length;i++){
+    for (var i = 0; i < MODELS.length; i++) {
       var md = MODELS[i];
-      h += "<div class='mo" + (md.value === cur ? " sel" : "") + "' data-model='" + md.value + "'>" +
+      h += "<div class='mo" + (md.value === cur ? ' sel' : '') + "' data-model='" + md.value + "'>" +
            "<span class='mo-body'><span class='mo-name'>" + md.name + "</span><span class='mo-desc'>" + md.desc + "</span></span>" +
            "<span class='mo-chk'>✓</span></div>";
     }
     modelDrop.innerHTML = h;
-    modelDrop.style.display = "block";
+    modelDrop.style.display = 'block';
     _modelOpen = true;
   }
-  function closeModelDrop(){
+  function closeModelDrop() {
     if (!modelDrop || !_modelOpen) return;
     modelDrop.style.display = "none";
     _modelOpen = false;
@@ -1764,9 +1850,11 @@
   var _stgOpen = false;
   var _stgDsKeySet = false, _stgTvKeySet = false;
   var _stgOrigBaseUrl = '';
+  var _stgOrigProvider = 'deepseek';
   var _stgTestTimers = {};
 
   var stgOverlay   = document.getElementById('settings-overlay');
+  var stgProvider  = document.getElementById('s-provider');
   var stgDsKey     = document.getElementById('s-ds-key');
   var stgDsEye     = document.getElementById('s-ds-key-eye');
   var stgDsTest    = document.getElementById('s-ds-test');
@@ -1788,7 +1876,8 @@
   function _stgIsDirty(){
     return (stgDsKey && stgDsKey.value !== '') ||
            (stgTvKey && stgTvKey.value !== '') ||
-           (stgBaseUrl && stgBaseUrl.value !== _stgOrigBaseUrl);
+           (stgBaseUrl && stgBaseUrl.value !== _stgOrigBaseUrl) ||
+           (stgProvider && stgProvider.value !== _stgOrigProvider);
   }
   function _stgUpdateDirtyBar(){
     if (stgDirtyBar) stgDirtyBar.style.display = _stgIsDirty() ? 'flex' : 'none';
@@ -1813,6 +1902,7 @@
     if (stgTvKey) stgTvKey.value = '';
     if (stgBaseUrl) stgBaseUrl.value = '';
     _stgOrigBaseUrl = '';
+    _stgOrigProvider = 'deepseek';
     _stgDsKeySet = false; _stgTvKeySet = false;
     if (stgDirtyBar) stgDirtyBar.style.display = 'none';
     _stgSetResult(stgDsResult, 'ds', '', '');
@@ -1844,11 +1934,27 @@
     if (stgDsKey) stgDsKey.value = '';
     if (stgTvKey) stgTvKey.value = '';
     if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
+    if (stgProvider) stgProvider.value = _stgOrigProvider;
     closeSettingsModal(true);
   });
   stgDsKey  && stgDsKey.addEventListener('input',  _stgUpdateDirtyBar);
   stgTvKey  && stgTvKey.addEventListener('input',  _stgUpdateDirtyBar);
   stgBaseUrl && stgBaseUrl.addEventListener('input', _stgUpdateDirtyBar);
+  stgProvider && stgProvider.addEventListener('change', function(){
+    var p = stgProvider.value;
+    var defaultUrl = PROVIDER_URLS[p] || '';
+    if (stgBaseUrl) stgBaseUrl.value = defaultUrl;
+    var link = PROVIDER_KEY_LINKS[p];
+    if (stgDsLink) {
+      if (link) {
+        stgDsLink.style.display = '';
+        stgDsLink.textContent = '\u2197 ' + link.replace(/^https?:\/\//, '');
+      } else {
+        stgDsLink.style.display = 'none';
+      }
+    }
+    _stgUpdateDirtyBar();
+  });
   stgDsEye && stgDsEye.addEventListener('click', function(){
     if (!stgDsKey) return;
     stgDsKey.type = stgDsKey.type === 'password' ? 'text' : 'password';
@@ -1858,11 +1964,17 @@
     stgTvKey.type = stgTvKey.type === 'password' ? 'text' : 'password';
   });
   stgBaseReset && stgBaseReset.addEventListener('click', function(){
-    if (stgBaseUrl) { stgBaseUrl.value = 'https://api.deepseek.com'; _stgUpdateDirtyBar(); }
+    if (stgBaseUrl) {
+      var p = stgProvider ? stgProvider.value : 'deepseek';
+      stgBaseUrl.value = PROVIDER_URLS[p] || 'https://api.deepseek.com';
+      _stgUpdateDirtyBar();
+    }
   });
   stgDsLink && stgDsLink.addEventListener('click', function(e){
     e.preventDefault();
-    vscode.postMessage({ type: 'openExternal', url: 'https://platform.deepseek.com/api_keys' });
+    var p = stgProvider ? stgProvider.value : 'deepseek';
+    var url = PROVIDER_KEY_LINKS[p] || 'https://platform.deepseek.com/api_keys';
+    vscode.postMessage({ type: 'openExternal', url: url });
   });
   stgTvLink && stgTvLink.addEventListener('click', function(e){
     e.preventDefault();
@@ -1871,9 +1983,10 @@
   stgDsTest && stgDsTest.addEventListener('click', function(){
     var key = stgDsKey ? stgDsKey.value.trim() : '';
     var url = stgBaseUrl ? stgBaseUrl.value.trim() : '';
+    var provider = stgProvider ? stgProvider.value : 'deepseek';
     _stgSetResult(stgDsResult, 'ds', 'pending', '⟳ Testing...');
     if (stgDsTest) stgDsTest.disabled = true;
-    vscode.postMessage({ type: 'testApiKey', which: 'ds', key: key || null, baseUrl: url || null });
+    vscode.postMessage({ type: 'testApiKey', which: 'ds', key: key || null, baseUrl: url || null, provider: provider });
   });
   stgTvTest && stgTvTest.addEventListener('click', function(){
     var key = stgTvKey ? stgTvKey.value.trim() : '';
@@ -1885,12 +1998,16 @@
     var dsKey    = stgDsKey   ? stgDsKey.value.trim()   : null;
     var tvKey    = stgTvKey   ? stgTvKey.value.trim()   : null;
     var baseUrl  = stgBaseUrl ? stgBaseUrl.value.trim() : null;
+    var provider = stgProvider ? stgProvider.value : 'deepseek';
     vscode.postMessage({
       type: 'saveApiSettings',
       dsKey:   dsKey   || null,
       tvKey:   tvKey   || null,
       baseUrl: baseUrl !== null ? baseUrl : _stgOrigBaseUrl,
+      provider: provider,
+      model: getSelectedModel(),
     });
+    switchToProvider(provider);
     closeSettingsModal(true);
   });
 
@@ -1906,10 +2023,24 @@
     if (m.type === "settingsLoaded"){
       _stgDsKeySet = !!m.dsKeySet;
       _stgTvKeySet = !!m.tvKeySet;
-      _stgOrigBaseUrl = m.baseUrl || 'https://api.deepseek.com';
+      _stgOrigBaseUrl = m.baseUrl || '';
+      _stgOrigProvider = m.provider || 'deepseek';
       if (stgDsKey) { stgDsKey.value = ''; stgDsKey.placeholder = _stgDsKeySet ? (m.dsKeyHint || '(configured)') : 'sk-...'; }
       if (stgTvKey) { stgTvKey.value = ''; stgTvKey.placeholder = _stgTvKeySet ? (m.tvKeyHint || '(configured)') : 'tvly-...'; }
       if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
+      if (stgProvider) {
+        stgProvider.value = _stgOrigProvider;
+        // Update the key link for the current provider
+        var keyLink = PROVIDER_KEY_LINKS[_stgOrigProvider];
+        if (stgDsLink) {
+          if (keyLink) {
+            stgDsLink.style.display = '';
+            stgDsLink.textContent = '\u2197 ' + keyLink.replace(/^https?:\/\//, '');
+          } else {
+            stgDsLink.style.display = 'none';
+          }
+        }
+      }
     } else if (m.type === "testApiKeyResult"){
       var which = m.which;
       var el = which === 'ds' ? stgDsResult : stgTvResult;
@@ -2262,6 +2393,7 @@
       if (!m.running) sb.textContent = "⚠ 后端服务器未启动 — 发送时将自动启动";
       dot.className = "dot" + (m.running ? "" : " err");
     } else if (m.type === "modelInfo"){
+      if (m.provider){ switchToProvider(m.provider); }
       if (m.model){
         setModelUI(m.model);
         ftMode.textContent = _curIMode + " · " + m.model;

@@ -150,7 +150,21 @@
         "deepseekAgent.apiBaseUrl": {
           "type": "string",
           "default": "",
-          "description": "DeepSeek API Base URL. Leave empty to use https://api.deepseek.com. China users: https://api.deepseeki.com"
+          "description": "AI provider Base URL. Leave empty to use the provider's default endpoint."
+        },
+        "deepseekAgent.provider": {
+          "type": "string",
+          "default": "deepseek",
+          "enum": ["deepseek", "openai", "groq", "ollama", "gemini", "custom"],
+          "enumDescriptions": [
+            "DeepSeek — api.deepseek.com",
+            "OpenAI — api.openai.com/v1",
+            "Groq — api.groq.com/openai/v1 (fast Llama/Mixtral, no streaming usage)",
+            "Ollama — localhost:11434/v1 (local, no API key required)",
+            "Google Gemini (OpenAI-compat endpoint)",
+            "Custom — use the Base URL configured above"
+          ],
+          "description": "AI provider. Selecting a preset auto-fills the Base URL in the settings UI."
         },
         "deepseekAgent.defaultModel": {
           "type": "string",
@@ -337,6 +351,9 @@
     "publish": "npm run build && vsce publish",
     "vscode:prepublish": "npm run build",
     "lint": "eslint src/"
+  },
+  "dependencies": {
+    "openai": "^6.38.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

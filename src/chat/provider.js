@@ -34,7 +34,7 @@ const FOLDER_TREE_SKIP = new Set([
     'node_modules', '.git', 'dist', 'out', 'build',
     '__pycache__', '.venv', 'venv', '.next', 'coverage', '.turbo',
 ]);
-const { fetchBalance } = require('../api/deepseek');
+const { fetchBalance, resolveProviderConfig } = require('../api/adapter');
 const { resolveContextRef } = require('./context-refs');
 
 class ChatViewProvider {
@@ -154,7 +154,13 @@ class ChatViewProvider {
         switch (msg.type) {
             case 'ready': {
                 const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-                this._post({ type: 'modelInfo', model: cfg.get('defaultModel') || 'deepseek-v4-pro', approvalMode: cfg.get('approvalMode') || 'manual', interactionMode: cfg.get('interactionMode') || 'agent' });
+                this._post({
+                    type: 'modelInfo',
+                    model: cfg.get('defaultModel') || 'deepseek-v4-pro',
+                    approvalMode: cfg.get('approvalMode') || 'manual',
+                    provider: cfg.get('provider') || 'deepseek',
+                    interactionMode: cfg.get('interactionMode') || 'agent',
+                });
                 this._store.postList();
                 if (!this._store.sessionId) this._post({ type: 'sessionLoaded', id: null, messages: [] });
                 this._refreshBalance(false);
@@ -204,7 +210,8 @@ class ChatViewProvider {
                 const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
                 const dsKey     = await this._context.secrets.get('deepseekAgent.apiKey') || '';
                 const tvKey     = await this._context.secrets.get('deepseekAgent.tavilyKey') || '';
-                const baseUrl   = cfg.get('apiBaseUrl') || 'https://api.deepseek.com';
+                const baseUrl   = cfg.get('apiBaseUrl') || '';
+                const provider  = cfg.get('provider') || 'deepseek';
                 const maskKey   = (k) => k ? (k.slice(0, 6) + '...' + k.slice(-4)) : '';
                 this._post({
                     type:       'settingsLoaded',
@@ -213,6 +220,7 @@ class ChatViewProvider {
                     tvKeySet:   !!tvKey,
                     tvKeyHint:  maskKey(tvKey),
                     baseUrl:    baseUrl,
+                    provider:   provider,
                 });
                 break;
             }
@@ -222,19 +230,18 @@ class ChatViewProvider {
                 if (which === 'ds') {
                     const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.apiKey') || '');
                     const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-                    const baseUrl = (msg.baseUrl !== null && msg.baseUrl !== undefined && msg.baseUrl !== '')
-                        ? msg.baseUrl
-                        : (cfg.get('apiBaseUrl') || 'https://api.deepseek.com');
-                    if (!testKey) {
+                    const provider = msg.provider || cfg.get('provider') || 'deepseek';
+                    const resolved = resolveProviderConfig(provider, msg.baseUrl || cfg.get('apiBaseUrl') || '', '');
+                    if (!testKey && !resolved.noApiKey) {
                         this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No API key set' });
                         break;
                     }
                     try {
                         const https = require('https');
                         const http  = require('http');
-                        const base  = (baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
+                        const base  = resolved.baseUrl.replace(/\/$/, '');
                         const urlObj = new URL('/chat/completions', base);
-                        const body   = JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
+                        const body   = JSON.stringify({ model: resolved.model, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 });
                         const isHttps = urlObj.protocol === 'https:';
                         const result = await new Promise((resolve) => {
                             const req = (isHttps ? https : http).request({
@@ -242,7 +249,11 @@ class ChatViewProvider {
                                 port:     urlObj.port || (isHttps ? 443 : 80),
                                 path:     urlObj.pathname,
                                 method:   'POST',
-                                headers:  { 'Authorization': `Bearer ${testKey}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                headers:  {
+                                    'Authorization': `Bearer ${testKey || 'ollama'}`,
+                                    'Content-Type': 'application/json',
+                                    'Content-Length': Buffer.byteLength(body),
+                                },
                                 timeout:  10000,
                             }, (res) => {
                                 let raw = '';
@@ -314,9 +325,18 @@ class ChatViewProvider {
                 if (msg.tvKey) {
                     await this._context.secrets.store('deepseekAgent.tavilyKey', msg.tvKey);
                 }
+                if (msg.provider) {
+                    await cfg.update('provider', msg.provider, vscode.ConfigurationTarget.Global);
+                }
+                // If the UI sent the currently selected model alongside the provider,
+                // persist it so deepseekAgent.defaultModel is always consistent.
+                if (msg.model) {
+                    await cfg.update('defaultModel', msg.model, vscode.ConfigurationTarget.Global);
+                }
                 if (typeof msg.baseUrl === 'string') {
-                    const normalized = msg.baseUrl.trim().replace(/\/$/, '') || 'https://api.deepseek.com';
-                    await cfg.update('apiBaseUrl', normalized, vscode.ConfigurationTarget.Global);
+                    // Save an empty string when the URL matches the provider's preset URL,
+                    // so that switching the provider later always resolves the correct default.
+                    await cfg.update('apiBaseUrl', msg.baseUrl.trim().replace(/\/$/, ''), vscode.ConfigurationTarget.Global);
                 }
                 this._refreshBalance(true);
                 break;
@@ -906,11 +926,12 @@ class ChatViewProvider {
     async _refreshBalance(force) {
         const now = Date.now();
         if (!force && now - this._balanceLastAt < 30_000) return;
-        const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-        const apiKey  = await this._context.secrets.get('deepseekAgent.apiKey') || '';
-        const baseUrl = cfg.get('baseUrl') || '';
+        const cfg      = vscode.workspace.getConfiguration('deepseekAgent');
+        const provider = cfg.get('provider') || 'deepseek';
+        const apiKey   = await this._context.secrets.get('deepseekAgent.apiKey') || '';
+        const resolved = resolveProviderConfig(provider, cfg.get('apiBaseUrl') || '', '');
         if (!apiKey) { this._post({ type: 'balanceUpdate', unsupported: true }); return; }
-        const result = await fetchBalance({ apiKey, baseUrl });
+        const result = await fetchBalance({ apiKey, baseUrl: resolved.baseUrl });
         if (result === null) { this._post({ type: 'balanceUpdate', unsupported: true }); return; }
         this._balanceLastAt = Date.now();
         this._post({ type: 'balanceUpdate', ...result });
