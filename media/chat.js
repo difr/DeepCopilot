@@ -2127,16 +2127,34 @@
         var itersMatch = out.match(/\((\d+) tool calls[^)]*\)/);
         resTxt = itersMatch ? itersMatch[0] : "done";
       } else if ((m.name === "run_shell" || tc.name === "run_shell")) {
-        /* Shell: build a GH-Copilot-style summary "exit N · L lines · Ts" */
+        /* Shell: build a GH-Copilot-style summary "exit N · L lines · Ts".
+           shell.js may return a structured JSON object; extract displayable text
+           and the numeric exitCode from it so the card shows the correct status. */
         var elapsed = tc._startedAt ? ((Date.now() - tc._startedAt) / 1000) : 0;
         var elapsedStr = elapsed >= 10 ? elapsed.toFixed(0) + "s"
                        : elapsed >=  1 ? elapsed.toFixed(1) + "s"
                        :                 Math.max(1, Math.round(elapsed * 1000)) + "ms";
+        /* Resolve display text: unwrap JSON text field when present */
+        var shellDisplayOut = out;
+        try {
+          var shellParsed = JSON.parse(out);
+          if (shellParsed && shellParsed.text !== undefined) shellDisplayOut = shellParsed.text;
+        } catch(e) {}
+        var shellLines = shellDisplayOut ? shellDisplayOut.split(/\r?\n/).length : 0;
+        var shellBytes = shellDisplayOut.length;
+        /* Prefer the exitCode field forwarded by tool-executor; fall back to text parsing */
+        var shellExitCode = (m.exitCode !== undefined) ? m.exitCode : null;
         if (m.ok){
-          resTxt = "exit 0 · " + (lines > 1 ? lines + " lines · " : (bytes ? bytes + "B · " : "")) + elapsedStr;
+          var exitLabel = shellExitCode !== null ? "exit " + shellExitCode : "exit 0";
+          resTxt = exitLabel + " · " + (shellLines > 1 ? shellLines + " lines · " : (shellBytes ? shellBytes + "B · " : "")) + elapsedStr;
         } else {
-          var em = out.match(/^Exit (\S+):/);
-          var exitTag = em ? ("exit " + em[1]) : "failed";
+          var exitTag;
+          if (shellExitCode !== null) {
+            exitTag = "exit " + shellExitCode;
+          } else {
+            var em = out.match(/^Exit (\S+):/) || shellDisplayOut.match(/^Exit (\S+):/);
+            exitTag = em ? ("exit " + em[1]) : "failed";
+          }
           resTxt = exitTag + " · " + elapsedStr;
         }
       } else {
@@ -2156,11 +2174,18 @@
           /* Replace the streaming live tail with the final, complete output.
              GH-Copilot behaviour: success → auto-collapse (header summary is
              enough); failure → keep expanded so the error is immediately
-             visible.  Respect any prior manual user toggle. */
+             visible.  Respect any prior manual user toggle.
+             When shell.js returns a structured JSON object, show the human-readable
+             `text` field rather than raw JSON. */
           if (tc._livePre){ tc._livePre.remove(); tc._livePre = null; }
+          var runShellBody = out;
+          try {
+            var rsParsed = JSON.parse(out);
+            if (rsParsed && rsParsed.text !== undefined) runShellBody = rsParsed.text;
+          } catch(e) {}
           var outPre = document.createElement("pre");
           outPre.className = "final-out";
-          outPre.textContent = out;
+          outPre.textContent = runShellBody;
           tc.body.appendChild(outPre);
           if (!tc._userToggled){
             if (m.ok) tc.root.classList.remove("open");

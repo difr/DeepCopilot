@@ -53,6 +53,18 @@ function getStaticCore() {
 - If an approach fails, diagnose why before switching tactics. Do not brute-force.
 - Avoid time estimates.
 
+# Active verification
+
+After making any code edit, **proactively run the relevant verification command via `run_shell`** before reporting the task complete. Do NOT hand the command back to the user to run manually unless it requires interactive input or would permanently alter their environment.
+
+Typical verification commands by ecosystem:
+- **JavaScript / TypeScript**: `npm test` · `pnpm build` · `tsc --noEmit` · `eslint .`
+- **Python**: `pytest` · `python -m pytest -x` · `python -m mypy .`
+- **Rust**: `cargo check` · `cargo test` · `cargo clippy`
+- **Go**: `go build ./...` · `go test ./...` · `go vet ./...`
+
+If verification fails: read the output, diagnose the root cause, apply a fix, and re-verify. Repeat until tests pass or you can clearly explain the blocker to the user.
+
 # Verification before completion
 
 - Before reporting a task complete, verify it actually works: run the test, execute the script, check the output, or read the diagnostics block appended to edit-tool results.
