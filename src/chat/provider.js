@@ -25,6 +25,15 @@ const { mcpManager }       = require('../mcp');
 const { SessionStore } = require('./session-store');
 const { ToolExecutor } = require('./tool-executor');
 const { AgentLoop }    = require('./agent-loop');
+
+// ─── Module-level constants ───────────────────────────────────────────────────
+/** Maximum bytes of file content attached via the Explorer context menu. */
+const MAX_FILE_ATTACH_BYTES = 65536;
+/** Directory / file names skipped when building a folder file-tree chip. */
+const FOLDER_TREE_SKIP = new Set([
+    'node_modules', '.git', 'dist', 'out', 'build',
+    '__pycache__', '.venv', 'venv', '.next', 'coverage', '.turbo',
+]);
 const { fetchBalance } = require('../api/deepseek');
 const { resolveContextRef } = require('./context-refs');
 
@@ -617,7 +626,7 @@ class ChatViewProvider {
             const loc = this._resolveDocLocation(doc);
             if (!loc) return;
             let content = doc.getText();
-            if (content.length > 65536) content = content.slice(0, 65536) + '\n... [截断]';
+            if (content.length > MAX_FILE_ATTACH_BYTES) content = content.slice(0, MAX_FILE_ATTACH_BYTES) + '\n... [截断]';
             this._post({
                 type: 'addAttachment',
                 payload: { path: loc.rel, content, lang: doc.languageId, external: loc.external },
@@ -658,8 +667,6 @@ class ChatViewProvider {
     async _collectFolderTree(uri, prefix, depth) {
         const MAX_DEPTH = 3;
         const MAX_ENTRIES = 200;
-        const SKIP = new Set(['node_modules', '.git', 'dist', 'out', 'build',
-            '__pycache__', '.venv', 'venv', '.next', 'coverage', '.turbo']);
         if (depth > MAX_DEPTH) return [];
         let entries;
         try { entries = await vscode.workspace.fs.readDirectory(uri); }
@@ -675,7 +682,7 @@ class ChatViewProvider {
 
         const lines = [];
         for (const [name, type] of entries) {
-            if (name.startsWith('.') || SKIP.has(name)) continue;
+            if (name.startsWith('.') || FOLDER_TREE_SKIP.has(name)) continue;
             if (type & vscode.FileType.Directory) {
                 lines.push(prefix + name + '/');
                 if (depth < MAX_DEPTH) {

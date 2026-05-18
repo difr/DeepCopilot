@@ -288,24 +288,34 @@ const TOOL_DEFS = [
                         type: 'array',
                         description: 'Ordered, concrete execution steps (3–12 items). Each item may be a string or an object with {title, note}.',
                         items: {
-                            type: 'object',
-                            properties: {
-                                title: { type: 'string', description: 'Short imperative step description.' },
-                                note:  { type: 'string', description: 'Optional detail / acceptance criteria for this step.' },
-                            },
-                            required: ['title'],
+                            anyOf: [
+                                { type: 'string' },
+                                {
+                                    type: 'object',
+                                    properties: {
+                                        title: { type: 'string', description: 'Short imperative step description.' },
+                                        note:  { type: 'string', description: 'Optional detail / acceptance criteria for this step.' },
+                                    },
+                                    required: ['title'],
+                                },
+                            ],
                         },
                     },
                     files: {
                         type: 'array',
                         description: 'Files/modules that will be created, edited, or referenced. Each item may be a string path or {path, reason}.',
                         items: {
-                            type: 'object',
-                            properties: {
-                                path:   { type: 'string', description: 'Workspace-relative path.' },
-                                reason: { type: 'string', description: 'Why this file is touched (created / edited / reviewed).' },
-                            },
-                            required: ['path'],
+                            anyOf: [
+                                { type: 'string' },
+                                {
+                                    type: 'object',
+                                    properties: {
+                                        path:   { type: 'string', description: 'Workspace-relative path.' },
+                                        reason: { type: 'string', description: 'Why this file is touched (created / edited / reviewed).' },
+                                    },
+                                    required: ['path'],
+                                },
+                            ],
                         },
                     },
                     risks:      { type: 'array', items: { type: 'string' }, description: 'Risks, edge cases, or things that could go wrong, with mitigations.' },

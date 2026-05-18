@@ -1247,10 +1247,10 @@
         : f.isFolder
           ? '<span class="codicon codicon-folder-opened chip-ico"></span>'
           : '<span class="codicon codicon-file-text chip-ico"></span>';
-      var folderSuffix = f.isFolder ? '<span class="chip-line"> /</span>' : '';
+      var trailLabel = f.isFolder ? '<span class="chip-line"> /</span>' : lineLabel;
       return '<span class="chip' + (isLoading ? ' loading' : '') + (f.isFolder ? ' chip-folder' : '') + '" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
         icoHtml +
-        '<span class="chip-name">' + escHtml(name) + '</span>' + folderSuffix +
+        '<span class="chip-name">' + escHtml(name) + '</span>' + trailLabel +
         '<button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
     }).join('');
     var combined = liveHtml + html;

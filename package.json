@@ -130,7 +130,7 @@
       },
       {
         "command": "deepseekAgent.attachFolder",
-        "title": "附加文件夹到 Deep Copilot",
+        "title": "附加到 Deep Copilot",
         "icon": "$(folder-opened)"
       }
     ],
