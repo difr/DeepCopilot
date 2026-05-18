@@ -16,7 +16,7 @@ const path   = require('path');
 const fs     = require('fs');
 
 const { Logger }           = require('../logger');
-const { wsRoot, resolvePath, isInsideWorkspace, findContainingFolder } = require('../utils/paths');
+const { wsRoot, resolvePath, findContainingFolder } = require('../utils/paths');
 const { isZh }             = require('../utils/i18n');
 const { openFile }         = require('./openFile');
 const { buildWebviewHtml } = require('../webview/html');
