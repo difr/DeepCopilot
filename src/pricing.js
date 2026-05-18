@@ -41,12 +41,6 @@ function computeCost(model, usage) {
             },
         };
     }
-    const prompt = usage.prompt_tokens || 0;
-    const completion = usage.completion_tokens || 0;
-    const cacheHit = usage.prompt_cache_hit_tokens || 0;
-    const cacheMiss = (usage.prompt_cache_miss_tokens != null)
-        ? usage.prompt_cache_miss_tokens
-        : Math.max(prompt - cacheHit, 0);
     const cost =
         (cacheHit  / 1e6) * p.cache_hit +
         (cacheMiss / 1e6) * p.input +
