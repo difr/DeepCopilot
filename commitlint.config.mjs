@@ -23,7 +23,9 @@ export default {
       ],
     ],
     // subject 最大长度（允许中文描述）
-    'subject-max-length': [2, 'always', 100],
+    'subject-max-length': [2, 'always', 300],
+    // header（type + scope + subject）整体最大长度同步放宽
+    'header-max-length': [2, 'always', 300],
     // 不强制 subject 大小写，兼容中文提交信息
     'subject-case': [0],
     // body 每行最大长度宽松设置

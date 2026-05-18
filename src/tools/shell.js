@@ -223,10 +223,23 @@ async function toolRunShell(args, ctx = {}) {
                 return settle(truncate(`Error: command timed out after ${timeoutMs}ms${stallNote}\n${stdout}${stderr ? '\n--- stderr ---\n' + stderr : ''}`));
             }
             const exitCode = (code == null && signal) ? `signal:${signal}` : code;
-            if (exitCode !== 0) return settle(truncate(`Exit ${exitCode}: ${stderr || stdout || '(no output)'}`));
-            if (!stdout && !stderr) return settle('(no output, exit 0)');
-            if (!stdout && stderr)  return settle(truncate(`(stdout empty, exit 0)\n--- stderr ---\n${stderr}`));
-            return settle(truncate(stderr ? `${stdout}\n--- stderr ---\n${stderr}` : stdout));
+            // Build backward-compatible text field (same as the old string return value).
+            let text;
+            if (exitCode !== 0) text = truncate(`Exit ${exitCode}: ${stderr || stdout || '(no output)'}`);
+            else if (!stdout && !stderr) text = '(no output, exit 0)';
+            else if (!stdout && stderr)  text = truncate(`(stdout empty, exit 0)\n--- stderr ---\n${stderr}`);
+            else text = truncate(stderr ? `${stdout}\n--- stderr ---\n${stderr}` : stdout);
+            // Return structured result so the model can clearly inspect exitCode,
+            // stdout, stderr independently.  `text` preserves the old merged string
+            // for backward-compat with compact / session-restore flows.
+            return settle({
+                command,
+                exitCode,
+                stdout,
+                stderr,
+                truncated: combinedSize >= MAX_BUF,
+                text,
+            });
         });
     });
 }
