@@ -1430,7 +1430,7 @@
     pop.style.display = "block";
     popVisible = true;
   }
-  function hidePop(){ if (popVisible){ pop.style.display = "none"; popVisible = false; popItems = []; } }
+  function hidePop(){ if (popVisible){ pop.style.display = "none"; popVisible = false; popItems = []; } popKind = ""; popTrigStart = 0; }
   function movePop(d){
     popSel = (popSel + d + popItems.length) % popItems.length;
     var nodes = pop.querySelectorAll(".popi");
@@ -1505,19 +1505,13 @@
         return;
       }
       var ref = it.ref;
-      // #file with no specific file picked yet → leave token, hint user to keep typing for file search
+      // #file → open VS Code native file picker via extension host.
+      // Result comes back as a 'filePickerResult' message.
       if (ref === "file") {
-        // Convert "#file" → "#" so the file-search popup is triggered on next keystroke;
-        // also pre-trigger a wildcard search so the popup populates immediately.
-        inp.value = bh + "#" + ah;
+        inp.value = bh + ah; // remove the #file token from input
         autosize();
-        setTimeout(function(){
-          inp.focus();
-          var caret = bh.length + 1;
-          inp.setSelectionRange(caret, caret);
-          requestFileSuggest("");
-        }, 0);
         hidePop();
+        vscode.postMessage({ type: 'openFilePicker' });
         return;
       }
       // Refs that need an inline argument: leave the prefix in the input so user can type it
@@ -1584,7 +1578,19 @@
       // When the user types "#somepath", also fall back to file-suggest
       // (mirrors @ behaviour so "#" can quickly attach files too).
       if (q4.length > 0) requestFileSuggest(q4);
-      showPop(matches, "hash", start);
+      if (matches.length) {
+        showPop(matches, "hash", start);
+      } else if (q4.length > 0) {
+        // No built-in matches but file search is in flight — preserve kind/start
+        // so fileSearchResults can populate the popup when it arrives.
+        // Explicitly clear stale items and hide the popup visually to avoid
+        // showing stale suggestions that no longer match the current token.
+        if (popVisible) { pop.style.display = "none"; popVisible = false; }
+        popItems = [];
+        popKind = "hash"; popTrigStart = start;
+      } else {
+        showPop(matches, "hash", start);
+      }
     } else { hidePop(); }
   }
 
@@ -2494,8 +2500,10 @@
         var builtIn = AT_CMDS.filter(function(c){ return c.name.slice(1).startsWith(q3); });
         var merged = builtIn.concat(fileItems).slice(0, 30);
         if (merged.length) showPop(merged, "at", popTrigStart);
-      } else if (popVisible && popKind === "hash") {
+      } else if (popKind === "hash") {
         // Same merge logic for the # picker — keep built-in refs first.
+        // Note: popKind is checked without requiring popVisible because when
+        // no built-in refs match, the popup is hidden while file results arrive.
         var q3h = (m.query || "").toLowerCase();
         var fileItemsH = (m.files || []).map(function(fp){
           return { name: "#" + fp, desc: "附带文件", filePath: fp, ref: "file" };
@@ -2551,6 +2559,16 @@
         });
         if (!dup) _pendingAttachments.push(pp);
       }
+    } else if (m.type === "filePickerResult") {
+      // Native VS Code file picker result — add as chip
+      if (m.path) {
+        if (!attachedFiles.some(function(f){ return f.path === m.path; })) {
+          attachedFiles.push({ path: m.path, content: null });
+          renderChips();
+          requestFileContent(m.path);
+        }
+      }
+      inp.focus();
     } else if (m.type === "fileContentResult"){
       // Update the chip's content or imageData
       for (var fi = 0; fi < attachedFiles.length; fi++) {

@@ -447,6 +447,44 @@ class ChatViewProvider {
                 this._post({ type: 'fileSearchResults', query: msg.query, files });
                 break;
             }
+            case 'openFilePicker': {
+                try {
+                    // Open tabs first — most relevant to the user's current context.
+                    // Use fsPath for deduplication to avoid multi-root ambiguity.
+                    const openItems = vscode.workspace.textDocuments
+                        .filter(d => d.uri.scheme === 'file')
+                        .map(d => ({
+                            label:       vscode.workspace.asRelativePath(d.uri, false),
+                            description: '● open',
+                            fsPath:      d.uri.fsPath,
+                        }));
+                    const openSet = new Set(openItems.map(p => p.fsPath));
+
+                    // All workspace files — exclude same dirs as FOLDER_TREE_SKIP for consistency.
+                    const found = await vscode.workspace.findFiles(
+                        '**/*',
+                        '{**/node_modules/**,**/.git/**,**/out/**,**/.vscode/**,**/dist/**,**/build/**,**/__pycache__/**,**/.venv/**,**/venv/**,**/.next/**,**/coverage/**,**/.turbo/**}',
+                        500,
+                    );
+                    const wsItems = found
+                        .map(u => ({
+                            label:   vscode.workspace.asRelativePath(u, false),
+                            description: '',
+                            fsPath:  u.fsPath,
+                        }))
+                        .filter(p => !openSet.has(p.fsPath));
+
+                    const picked = await vscode.window.showQuickPick([...openItems, ...wsItems], {
+                        placeHolder: isZh() ? '搜索并选择文件…' : 'Search and select a file…',
+                        matchOnDescription: false,
+                    });
+                    // Send fsPath — avoids multi-root ambiguity; resolvePath handles absolute paths.
+                    this._post({ type: 'filePickerResult', path: picked ? picked.fsPath : null });
+                } catch (e) {
+                    this._post({ type: 'filePickerResult', path: null });
+                }
+                break;
+            }
             case 'fileContent': {
                 const rel    = String(msg.path || '');
                 let content  = '', error = '', imageData = '';
