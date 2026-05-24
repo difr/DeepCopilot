@@ -20,6 +20,7 @@ const { isZh }             = require('../utils/i18n');
 const {
     estimateMessagesTokens, autoCompactIfNeeded, nuclearCompact, ToolArgsStreamer,
 } = require('./compact');
+const { _dropOrphanToolCallGroups } = require('./session-store');
 const {
     onBgJobEnded, offBgJobEnded,
     getActiveBgJobsForSession, waitForNextBgJobEvent,
@@ -324,7 +325,14 @@ class AgentLoop {
                     : COMPACT_BUDGET;
                 const compactRes = await autoCompactIfNeeded(run.messages, proactiveBudget, 12, compactApiConfig);
                 if (compactRes.compacted) {
-                    run.messages = compactRes.messages;
+                    // Issue #145: compaction may slice between an
+                    // assistant{tool_calls} and its tool block. Drop any
+                    // resulting orphan group before they reach the API.
+                    const _before = compactRes.messages.length;
+                    run.messages = _dropOrphanToolCallGroups(compactRes.messages);
+                    if (run.messages.length !== _before) {
+                        Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _before, after: run.messages.length, site: 'autocompact' });
+                    }
                     Logger.info('AUTOCOMPACT', { sid, iter, dropped: compactRes.dropped, truncated: compactRes.truncated, proactive: proactiveBudget !== COMPACT_BUDGET });
                     this._postToRun(run, { type: 'status', text: isZh() ? '🗜 压缩历史…' : 'Compacting history…' });
                     postProgress('compacting');
@@ -402,7 +410,13 @@ class AgentLoop {
                         // No LLM summarisation during emergency compaction — speed is critical.
                         const agg = await autoCompactIfNeeded(run.messages, Math.floor(MODEL_CTX_HARD_LIMIT * 0.6), emergencyKeepTail, null);
                         if (agg.compacted) {
-                            run.messages = agg.messages;
+                            // Issue #145: never let a compaction-induced orphan
+                            // group leak into the next API call.
+                            const _before = agg.messages.length;
+                            run.messages = _dropOrphanToolCallGroups(agg.messages);
+                            if (run.messages.length !== _before) {
+                                Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _before, after: run.messages.length, site: 'preflight_compact' });
+                            }
                             Logger.info('PREFLIGHT_COMPACT', { sid, iter, before: preflightTokens, keepTail: emergencyKeepTail, dropped: agg.dropped, truncated: agg.truncated });
                             this._postToRun(run, { type: 'status', text: isZh() ? '⚠️ 上下文接近上限，已紧急压缩历史…' : 'Context near limit — emergency compaction applied…' });
                         }
@@ -418,7 +432,14 @@ class AgentLoop {
                     // edge case where the model is mid tool-call when nuking).
                     if (preflightTokens > MODEL_CTX_HARD_LIMIT) {
                         const before = preflightTokens;
-                        run.messages = nuclearCompact(run.messages);
+                        // Issue #145: nuclearCompact synthesises a fresh
+                        // {firstUser, summary, lastUser} — normally orphan-
+                        // free, but defensively re-sanitize anyway.
+                        const _nuked = nuclearCompact(run.messages);
+                        run.messages = _dropOrphanToolCallGroups(_nuked);
+                        if (run.messages.length !== _nuked.length) {
+                            Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _nuked.length, after: run.messages.length, site: 'nuclear' });
+                        }
                         const after = estimateMessagesTokens([{ role: 'system', content: sysPrompt }, ...run.messages]);
                         Logger.info('NUCLEAR_COMPACT', { sid, iter, before, after });
                         this._postToRun(run, {
@@ -434,6 +455,19 @@ class AgentLoop {
                 checkAbort();
 
                 // Rebuild msgs in case pre-flight compaction modified run.messages
+                // Issue #145: final guard — strip any orphan assistant{tool_calls}
+                // group that may have survived compaction / a mid-turn crash before
+                // we send the request. Cheap (single pass) and idempotent.
+                const _sanitized = _dropOrphanToolCallGroups(run.messages);
+                if (_sanitized.length !== run.messages.length) {
+                    Logger.info('ORPHAN_TOOLCALL_DROPPED', {
+                        sid, iter,
+                        before: run.messages.length,
+                        after:  _sanitized.length,
+                        site:   'preflight',
+                    });
+                    run.messages = _sanitized;
+                }
                 const finalMsgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
 
                 // Snapshot current (valid) state before the API call. Restored in the
@@ -849,7 +883,11 @@ class AgentLoop {
             if (iter > MAX_ITERS && !run.reply.asst.trim()) {
                 Logger.info('FORCE_FINAL_SUMMARY', { iter });
                 const compacted = await autoCompactIfNeeded(run.messages, Math.floor(COMPACT_BUDGET * 0.6), 12, { apiKey, baseUrl, model, provider });
-                const baseMsgs  = compacted.compacted ? compacted.messages : run.messages;
+                const _srcMsgs  = compacted.compacted ? compacted.messages : run.messages;
+                const baseMsgs  = _dropOrphanToolCallGroups(_srcMsgs);
+                if (baseMsgs.length !== _srcMsgs.length) {
+                    Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _srcMsgs.length, after: baseMsgs.length, site: 'force_final_summary' });
+                }
                 const finalMsgs = [
                     { role: 'system', content: sysPrompt },
                     ...baseMsgs,
