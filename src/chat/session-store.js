@@ -7,7 +7,7 @@
 
 const vscode = require('vscode');
 const { randomBytes } = require('crypto');
-const { t } = require('../utils/i18n');
+const { t, tf } = require('../utils/i18n');
 
 // ─── Orphan tool_calls sanitizer ───────────────────────────────────────────
 // Removes ANY incomplete assistant{tool_calls} group from a message array,
@@ -360,17 +360,100 @@ class SessionStore {
         this.postList();
     }
 
+    /**
+     * "Archive" a session — issue #165.
+     *
+     * Original behaviour (pre-#165) was a soft-hide toggle: flip `archived`,
+     * disappear from the sidebar list, data stays in globalState. Users
+     * reported that this didn't match the menu label's promise: nothing was
+     * actually *archived* anywhere they could see, find, or grep.
+     *
+     * New behaviour: render the session to Markdown and write it under
+     *   <workspace>/.deepcopilot/archives/yyyyMMdd-HHmmss-<title>.md
+     * Then perform the original soft-hide so the session leaves the sidebar.
+     *
+     * The "un-archive" gesture (clicking again on an already-archived item)
+     * is still supported via the boolean toggle — it simply un-hides the
+     * record without touching the Markdown file on disk.
+     */
     async archive(id) {
         const list = this.all();
         const s = list.find(x => x.id === id);
         if (!s) return;
-        s.archived = !s.archived;
-        if (this.sessionId === id && s.archived) {
+
+        // Un-archive: just flip back to visible. No file I/O needed.
+        if (s.archived) {
+            s.archived = false;
+            await this.set(list);
+            this.postList();
+            return;
+        }
+
+        // Archive: render to Markdown FIRST. Only hide the session from the
+        // sidebar if we actually produced a file on disk — otherwise setting
+        // `archived = true` on export failure (or on a user-cancelled save
+        // dialog) would leave the session invisible in the list while nothing
+        // was actually archived. Contract:
+        //   - savedPath is a string  → write succeeded, hide the session.
+        //   - savedPath is null      → user cancelled the save dialog; keep
+        //                              session visible, do nothing more.
+        //   - throw caught below     → fs error; surface message, keep visible.
+        let savedPath = null;
+        try {
+            const { exportSessionToMarkdown } = require('./archive-export');
+            savedPath = await exportSessionToMarkdown(s);
+        } catch (err) {
+            const msg = (err && err.message) || String(err);
+            vscode.window.showErrorMessage(tf('archiveFailed', { msg }));
+            return; // do not toggle archived — keep state consistent
+        }
+        if (!savedPath) return; // user cancelled; keep state consistent
+
+        s.archived = true;
+        if (this.sessionId === id) {
             this.sessionId = null;
             this._post({ type: 'sessionLoaded', id: null, messages: [] });
         }
         await this.set(list);
         this.postList();
+
+        this._notifyArchived(savedPath);
+    }
+
+    /**
+     * Show the bottom-right toast with "Open" / "Reveal in Explorer" buttons.
+     * Path display is workspace-relative when possible so users see
+     *   ".deepcopilot/archives/20260526-….md"
+     * instead of a long absolute path. Delegates the relativisation to
+     * `findContainingFolder` so multi-root + nested-root cases stay correct.
+     */
+    _notifyArchived(absPath) {
+        const { findContainingFolder } = require('../utils/paths');
+        const hit = findContainingFolder(absPath);
+        const display = hit ? hit.rel : absPath;
+
+        const openLabel   = t('archiveOpenFile');
+        const revealLabel = t('archiveRevealInOS');
+        // `showInformationMessage` already returns a thenable, so we can
+        // chain `.then()` directly. We still attach `.catch()` defensively
+        // because the action handler itself is async and may reject if a
+        // command call throws synchronously before reaching our try/catch.
+        vscode.window.showInformationMessage(
+            tf('archiveSaved', { path: display }), openLabel, revealLabel,
+        ).then(async (choice) => {
+            if (!choice) return;
+            const uri = vscode.Uri.file(absPath);
+            try {
+                if (choice === openLabel) {
+                    await vscode.window.showTextDocument(uri);
+                } else if (choice === revealLabel) {
+                    await vscode.commands.executeCommand('revealFileInOS', uri);
+                }
+            } catch (err) {
+                const msg = (err && err.message) || String(err);
+                vscode.window.showWarningMessage(tf('archiveOpenFailed', { msg }));
+            }
+        }, () => { /* swallow toast-promise rejection, if any */ });
     }
 
     // ─── Auto-naming ────────────────────────────────────────────────────────
