@@ -11,6 +11,10 @@
 session-*.log
 **/*.map
 release/**
+# Local PR-review scratch caches (GH API dumps); must never ship in the VSIX
+.tmp-*.json
+.tmp-*.txt
+.tmp-*.md
 
 # 源码（已通过 esbuild 打包到 out/）
 src/**
