@@ -54,7 +54,18 @@ function injectSyntheticSkillRead(messages, skillName, body, skillPath) {
     const filePath = skillPath
         || path.join(DEEPCOPILOT_SKILLS_DIR, safeName, 'SKILL.md');
     const callId = `synthetic_skill_read_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-    messages.push({
+    // DeepSeek thinking-mode quirk: once any assistant message in history
+    // carries reasoning_content, every subsequent assistant message MUST
+    // also carry it, or the API returns 400 ("reasoning_content in the
+    // thinking mode must be passed back to the API"). Only attach a
+    // reasoning_content here when the history already shows thinking mode is
+    // live — that way non-DeepSeek providers (which don't round-trip this
+    // field) aren't poisoned by a synthetic value, and the providers/index.js
+    // backfill stays inactive until real thoughts have already appeared.
+    const thinkingLive = Array.isArray(messages) && messages.some(
+        m => m && m.role === 'assistant' && typeof m.reasoning_content === 'string' && m.reasoning_content.length > 0,
+    );
+    const asst = {
         role: 'assistant',
         content: null,
         tool_calls: [{
@@ -65,7 +76,11 @@ function injectSyntheticSkillRead(messages, skillName, body, skillPath) {
                 arguments: JSON.stringify({ path: filePath }),
             },
         }],
-    });
+    };
+    if (thinkingLive) {
+        asst.reasoning_content = `Loading skill SOP "${safeName}" via read_file to obtain its instructions before proceeding.`;
+    }
+    messages.push(asst);
     messages.push({
         role:         'tool',
         tool_call_id: callId,
@@ -924,15 +939,23 @@ class AgentLoop {
                     { role: 'user', content: '<system-reminder>\nYou have reached the tool-call iteration limit without producing a user-facing answer. Stop calling tools. Write a concise plain-text reply that: (1) summarises what you tried, (2) states what you found or could not find, (3) suggests a concrete next step the user can take.\n</system-reminder>' },
                 ];
                 let tail = '';
+                let tailThoughts = '';
                 await streamChat(
                     { provider, apiKey, baseUrl, messages: finalMsgs, model, noTools: true },
                     {
                         onDelta:    t => { tail += t; run.reply.asst += t; this._postToRun(run, { type: 'replyDelta', text: t }); },
-                        onThinking: t => { run.reply.thoughts += t; this._postToRun(run, { type: 'thinkingDelta', text: t }); },
+                        onThinking: t => { tailThoughts += t; run.reply.thoughts += t; this._postToRun(run, { type: 'thinkingDelta', text: t }); },
                     },
                     signal,
                 ).catch(e => Logger.info('FORCE_FINAL_SUMMARY_ERROR', { message: e.message }));
-                if (tail) run.messages.push({ role: 'assistant', content: tail });
+                if (tail) run.messages.push({
+                    role: 'assistant',
+                    content: tail,
+                    // Preserve thinking output so the persisted/reloaded history
+                    // does not end with a reasoning-less assistant message, which
+                    // would 400 on the next turn under DeepSeek thinking mode.
+                    ...(tailThoughts ? { reasoning_content: tailThoughts } : {}),
+                });
             }
         } catch (e) {
             // Restore the last known-good message state to prevent persisting a

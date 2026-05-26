@@ -15,6 +15,17 @@ const path = require('path');
 const { discoverSkills, DEEPCOPILOT_SKILLS_DIR } = require('../skills');
 const { wsRoot } = require('../utils/paths');
 
+// Issue #146 — Canonical name variants for the optional `skill-creator`
+// meta-skill. When this skill is installed in the workspace, the `skill_create`
+// gate requires it to be invoked before any new skill can be created (a
+// quality-review step). When it is NOT installed the gate is a no-op and
+// `skill_create` proceeds directly — see `skillCreate` for the conditional
+// check and `system.js` / `schema.js` for the matching prompt/schema wording.
+// Accept a couple of common spellings to be permissive about how the on-disk
+// skill is named. Defined at module scope so both skill_invoke (for the "did
+// you mean X?" soft-notice path) and the skill_create gate share the same set.
+const SKILL_CREATOR_NAMES = new Set(['skill-creator', 'skill_creator', 'skillcreator']);
+
 // ─── skill_invoke ────────────────────────────────────────────────────────────
 
 /**
@@ -30,6 +41,23 @@ function skillInvoke(args, run) {
     const all = discoverSkills(wsRoot());
     const s = all.find(x => x.name === name);
     if (!s) {
+        // Issue #146 follow-up: handle a model that calls a skill-creator
+        // variant. Two distinct cases must be told apart:
+        //   1. A creator IS installed but the model used wrong casing/spelling.
+        //      → return an actionable "did you mean X" error so the gate
+        //        stays effective.
+        //   2. No creator is installed at all.
+        //      → return a soft notice so the agent can proceed straight to
+        //        skill_create (the executor-side gate is a no-op here).
+        if (SKILL_CREATOR_NAMES.has(name.toLowerCase())) {
+            const installedCreator = all.find(
+                x => SKILL_CREATOR_NAMES.has(String(x && x.name || '').toLowerCase()),
+            );
+            if (installedCreator) {
+                return `Error: skill "${name}" not found. Did you mean "${installedCreator.name}"? Call \`skill_invoke({ name: "${installedCreator.name}" })\` with that exact spelling.`;
+            }
+            return 'Notice: no skill-creator meta-skill is installed in this environment. The skill_create quality gate is inactive here — you may proceed to call `skill_create` directly when appropriate.';
+        }
         const known = all.map(x => x.name).join(', ') || '(none installed)';
         return `Error: skill "${name}" not found. Available: ${known}`;
     }
@@ -69,11 +97,6 @@ const NAME_RE        = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const VALID_SOURCES  = new Set(['self', 'web', 'hybrid']);
 const VALID_TRUSTS   = new Set(['trusted', 'untrusted']);
 const MAX_BODY_BYTES = 64 * 1024; // 64 KB hard ceiling
-
-// Issue #146 — Meta-skill that must review every skill_create call.
-// Accept a couple of common spelling variants to be permissive about how
-// the on-disk skill is named.
-const SKILL_CREATOR_NAMES = new Set(['skill-creator', 'skill_creator', 'skillcreator']);
 
 /**
  * Issue #146 — Check whether `skill_invoke({name: 'skill-creator'})` was

@@ -143,37 +143,92 @@ function listModels(providerId) {
 
 /**
  * Apply provider-declared `stripInputFields` to a messages array.
- * Returns a NEW array; never mutates the input. The strip rule lives in the
- * provider JSON so a vendor's protocol quirks stay encapsulated.
+ * Never mutates the input. Returns either a NEW array (when at least one
+ * message was rewritten by stripping or backfill) or the ORIGINAL `messages`
+ * reference unchanged (fast path: no quirks apply, e.g. an OpenAI/Anthropic
+ * call with an empty `stripInputFields`). Callers must treat the result as
+ * read-only — do not mutate elements of the returned array. The strip rule
+ * lives in the provider JSON so a vendor's protocol quirks stay encapsulated.
  *
- * Example: DeepSeek 400s when the input contains `reasoning_content`.
- * deepseek.json sets quirks.stripInputFields: ["reasoning_content"], and this
- * function removes that field from each message before the API call.
+ * Two behaviours, switched on whether the call is in DeepSeek's thinking-mode
+ * round-trip protocol (provider declares `reasoning_content` in stripInputFields
+ * AND the chosen model is reasoning-capable):
  *
- * Exception: `reasoning_content` is never stripped for reasoning-capable models
- * (capabilities.reasoning === true) because DeepSeek's API requires it to be
- * passed back in subsequent turns — omitting it causes HTTP 400.
+ *  - **Non-thinking-mode call** (everything else, including non-reasoning
+ *    DeepSeek models and all OpenAI/Anthropic models): every field declared in
+ *    `quirks.stripInputFields` is removed. DeepSeek 400s when the input
+ *    contains `reasoning_content` outside thinking mode, so deepseek.json sets
+ *    `stripInputFields: ["reasoning_content"]` and we drop it here.
+ *
+ *  - **Thinking-mode call** (DeepSeek reasoner family, etc.): `reasoning_content`
+ *    is NOT stripped because the API requires it to be passed back in
+ *    subsequent turns. On top of that we enforce the documented invariant
+ *    "once any assistant in history carries non-empty `reasoning_content`,
+ *    EVERY subsequent assistant message MUST also carry one" — otherwise the
+ *    API rejects with `400 "reasoning_content in the thinking mode must be
+ *    passed back to the API"`. We backfill a short placeholder on assistant
+ *    messages that come after the first one with thoughts, leaving earlier
+ *    pre-thinking messages alone. This is a defence-in-depth net: callers
+ *    should still attach the real thought stream when they have one.
  */
+const REASONING_PLACEHOLDER = '(no thoughts surfaced for this step)';
+
 function sanitizeMessages(providerId, messages, modelId) {
     if (!Array.isArray(messages) || !messages.length) return messages;
     const strip = getProvider(providerId)?.quirks?.stripInputFields;
-    if (!Array.isArray(strip) || !strip.length) return messages;
-    // Reasoning-capable models MUST have reasoning_content passed back to the
-    // API; strip every other declared field but skip reasoning_content for them.
     const isReasoning = !!(modelId && getModel(providerId, modelId)?.capabilities?.reasoning);
-    const effectiveStrip = isReasoning ? strip.filter(f => f !== 'reasoning_content') : strip;
-    if (!effectiveStrip.length) return messages;
-    return messages.map(m => {
-        if (!m || typeof m !== 'object') return m;
-        let copy = m;
-        for (const k of effectiveStrip) {
-            if (Object.prototype.hasOwnProperty.call(copy, k)) {
-                if (copy === m) copy = Object.assign({}, m);
-                delete copy[k];
+    // The reasoning_content round-trip rule is specific to providers that
+    // BOTH (a) declare reasoning_content as a stripInputField (i.e. the
+    // provider's API is known to care about this field) AND (b) are being
+    // used in a reasoning-capable mode. Without this narrower gate, OpenAI /
+    // Anthropic models that happen to flip `capabilities.reasoning` would
+    // get unknown `reasoning_content` fields pushed onto their requests.
+    const stripsReasoning = Array.isArray(strip) && strip.includes('reasoning_content');
+    const honorsReasoningRoundTrip = isReasoning && stripsReasoning;
+    // For models that honor the round-trip protocol, strip every declared
+    // field except reasoning_content. Otherwise strip everything declared.
+    const effectiveStrip = Array.isArray(strip)
+        ? (honorsReasoningRoundTrip ? strip.filter(f => f !== 'reasoning_content') : strip)
+        : [];
+
+    let out = messages;
+    if (effectiveStrip.length) {
+        out = out.map(m => {
+            if (!m || typeof m !== 'object') return m;
+            let copy = m;
+            for (const k of effectiveStrip) {
+                if (Object.prototype.hasOwnProperty.call(copy, k)) {
+                    if (copy === m) copy = Object.assign({}, m);
+                    delete copy[k];
+                }
             }
+            return copy;
+        });
+    }
+
+    // Reasoning-mode invariant backfill. The DeepSeek rule is specifically
+    // about messages that come AFTER the first assistant message with
+    // non-empty reasoning_content — earlier "pre-thinking" assistant
+    // messages don't need it. Locating the first thinking index and only
+    // backfilling from there onward keeps payload size minimal and matches
+    // the documented protocol more precisely. Scoped to providers that
+    // actually honor the round-trip protocol so we never inject
+    // reasoning_content into OpenAI/Anthropic-bound requests.
+    if (honorsReasoningRoundTrip) {
+        const firstThinkingIdx = out.findIndex(
+            m => m && m.role === 'assistant' && typeof m.reasoning_content === 'string' && m.reasoning_content.length > 0,
+        );
+        if (firstThinkingIdx !== -1) {
+            out = out.map((m, i) => {
+                if (i <= firstThinkingIdx) return m;
+                if (!m || m.role !== 'assistant') return m;
+                if (typeof m.reasoning_content === 'string' && m.reasoning_content.length > 0) return m;
+                return Object.assign({}, m, { reasoning_content: REASONING_PLACEHOLDER });
+            });
         }
-        return copy;
-    });
+    }
+
+    return out;
 }
 
 /**
