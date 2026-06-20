@@ -1,13 +1,13 @@
 {
   "name": "deep-copilot",
-  "displayName": "Deep Copilot",
-  "description": "Deep Copilot — AI coding agent embedded in VS Code. Powered by DeepSeek V4, with file editing, terminal, search, and plan/todos. Standalone, no backend required.",
+  "displayName": "Deep Copilot (difred)",
+  "description": "Deep Copilot — AI coding agent embedded in VS Code. Authored by ZhouChaunge, modded by difr.",
   "version": "0.43.1",
-  "publisher": "ZhouChaunge",
+  "publisher": "difr",
   "icon": "imgs/logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ZhouChaunge/DeepCopilot"
+    "url": "https://github.com/difr/DeepCopilot"
   },
   "engines": {
     "vscode": "^1.95.0"
@@ -25,8 +25,8 @@
       {
         "id": "deepseek-agent.deepseek",
         "name": "deepseek",
-        "fullName": "Deep Copilot",
-        "description": "Deep Copilot V4 agent (file read/write / search / shell)",
+        "fullName": "Deep Copilot (difred)",
+        "description": "Deep Copilot agent",
         "isSticky": true,
         "commands": [
           {

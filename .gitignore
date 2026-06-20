@@ -27,9 +27,9 @@ Thumbs.db
 *.swo
 *~
 
-# Build output
+# Build script & output
+.build.cmd
 out/
-
 
 # scratch files used by AI review triage
 .tmp-*.json
