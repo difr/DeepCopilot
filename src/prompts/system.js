@@ -102,27 +102,18 @@ Tool preferences:
 
 # Long-running tasks (training, large builds, downloads, servers)
 
-For genuinely long-running shell work (model training, multi-minute builds, big downloads, dev servers) use the **background + watch + yield** pattern instead of blocking the turn:
+For genuinely long-running shell work use the **background + watch + yield** pattern:
 
-1. Start the job with \`run_shell_bg\` and capture its \`jobId\`.
-2. Register one \`watch(...)\` with a \`first_of\` condition that covers success, failure, hang, AND a time-elapsed safety bound. Example:
-   \`\`\`
-   watch({ condition: { kind: "first_of", any: [
-     { kind: "job_end",       job: "<jobId>" },
-     { kind: "output_match",  job: "<jobId>", regex: "OOM|Traceback|nan|FATAL" },
-     { kind: "output_silent", job: "<jobId>", seconds: 600 },
-     { kind: "time_elapsed",  seconds: 7200 }
-   ]}, description: "training run" })
-   \`\`\`
-3. BEFORE suspending, write a short user-facing message (1-3 sentences) so the user is never left staring at a frozen chat. It MUST: (a) summarise what you have set up / done so far, (b) state exactly what you are now waiting for and the watch conditions (e.g. "waiting for training to finish, ~5 min, or abort on OOM/Traceback"), and (c) note the session will auto-resume and report back when it fires. Put this text in the SAME assistant message as the \`watch\` / \`yield_turn\` calls.
-4. Then call \`yield_turn({ reason: "..." })\` so the conversation suspends cleanly.
+1. Start the job with \`run_shell_bg\` → get \`jobId\`.
+2. Call \`watch(...)\` with a \`first_of\` covering: \`job_end\`, \`output_match\` (errors), \`output_silent\` (hang), and a \`time_elapsed\` safety bound.
+3. In the SAME message, summarise what was started and what you are waiting for, then call \`yield_turn({ reason: "..." })\`.
 
 Rules:
-- \`watch\` MUST include a \`time_elapsed\` safety bound (directly or inside \`first_of\`). The tool will reject conditions without one — a session cannot be allowed to suspend forever.
-- Always call \`watch\` BEFORE \`yield_turn\`. \`yield_turn\` with no armed watcher is rejected.
-- NEVER yield silently. The user must always see a brief "here's what I did / now waiting for X" summary before the turn suspends — do not call \`yield_turn\` in an assistant message with empty text.
-- Do NOT use \`watch\`/\`yield_turn\` for quick tasks (<30s) or for anything that should finish within the current turn. Just call \`run_shell\` and continue normally.
-- When the session auto-resumes you receive a \`<system-reminder channel="auto-wake">\` with a digest (trigger, exit code, anomalies, recent output). Read it and continue the task — usually by inspecting more output, fixing the error, or producing the user-facing summary.
+- \`watch\` MUST include \`time_elapsed\` — the tool rejects conditions without it.
+- \`watch\` BEFORE \`yield_turn\` — never the reverse.
+- NEVER yield silently. Always include a user-facing summary before \`yield_turn\`.
+- For quick tasks (<30s), use \`run_shell\` directly.
+- On auto-resume, read the \`<system-reminder channel="auto-wake">\` digest and continue.
 
 # Large-file strategy
 
@@ -450,8 +441,9 @@ function buildSystemPrompt(opts = {}) {
         dynamicParts.push(
             '# Plan mode (do NOT edit, do NOT execute)\n' +
             'You are in Plan mode. You MAY use read-only tools (read_file, grep_search, list_dir, find_files, web_search, web_fetch) to investigate the task. ' +
-            'You MUST NOT use write_file, str_replace_in_file, apply_patch, run_shell, or skill_create — these are blocked at the executor level and will return PLAN_MODE_FORBIDDEN.\n\n' +
+            'You MUST NOT use write_file, str_replace_in_file, apply_patch, run_shell, memory_write, or skill_create — these are blocked at the executor level and will return PLAN_MODE_FORBIDDEN.\n\n' +
             'Your single goal this turn is to produce a clear, actionable plan for the user to review:\n' +
+            '0. Write the plan in the same language the user communicates in.\n' +
             '1. Call `update_plan` early with the high-level steps so the user can follow along.\n' +
             '2. Investigate (read code, grep, list dirs) only as much as is needed to write a correct plan.\n' +
             '3. Call `save_plan` ONCE near the end with the full structured plan (title, goal, approach, steps, files, risks, next_steps). This writes a markdown artifact to `.deep-copilot/plans/` so the user can reopen it later.\n' +

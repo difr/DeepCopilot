@@ -26,6 +26,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+tmp/
 
 # Build script & output
 .build.cmd
