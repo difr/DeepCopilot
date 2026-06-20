@@ -111,12 +111,12 @@
       },
       {
         "command": "deepseekAgent.attachSelection",
-        "title": "附加到 Deep Copilot",
+        "title": "Attach to Deep Copilot",
         "icon": "$(link)"
       },
       {
         "command": "deepseekAgent.attachFolder",
-        "title": "附加到 Deep Copilot",
+        "title": "Attach Folder to Deep Copilot",
         "icon": "$(folder-opened)"
       }
     ],
@@ -170,7 +170,7 @@
             "deepseek-reasoner"
           ],
           "enumDescriptions": [
-            "V4 Pro — strongest, ¥3/¥6 per 1M tokens (2.5折至 2026-05-31，原价 ¥12/¥24)",
+            "V4 Pro — strongest, ¥3/¥6 per 1M tokens",
             "V4 Flash — fast & cheap, ¥1/¥2 per 1M tokens",
             "Compat alias (= v4-flash, non-thinking)",
             "Compat alias (= v4-flash, thinking mode)"
@@ -240,25 +240,25 @@
             "terminal"
           ],
           "enumDescriptions": [
-            "Silent — run_shell 在隐藏的子进程中静默执行命令，输出仅回传给模型（默认，速度最快）。",
-            "Terminal — run_shell 在 VS Code 集成终端中可见地执行命令，用户可以实时看到完整输出。"
+            "Silent — run commands in a hidden subprocess, output is only sent back to the model (default, fastest).",
+            "Terminal — run commands visibly in a VS Code integrated terminal so the user can watch the full output live."
           ],
-          "description": "run_shell 工具的默认执行方式。silent = 后台静默执行；terminal = 在 VS Code 集成终端中执行（用户可见）。可被工具调用的 in_terminal 参数覆盖。"
+          "description": "Default run_shell execution mode. silent = hidden subprocess; terminal = VS Code integrated terminal (user-visible). Can be overridden by the tool call in_terminal parameter."
         },
         "deepseekAgent.enableDebugLog": {
           "type": "boolean",
           "default": true,
-          "description": "记录每次请求的思维链 / 工具调用 / API 事件到 .deep-copilot/logs/ 与 Output 面板，便于排查卡住的问题。"
+          "description": "Log every request's chain-of-thought / tool calls / API events to .deep-copilot/logs/ and the Output panel for debugging stuck sessions."
         },
         "deepseekAgent.contextRefs.terminalUseClipboard": {
           "type": "boolean",
           "default": false,
-          "description": "允许 #terminal 通过系统剪贴板捕获终端选区（会临时覆盖剪贴板内容；非文本剪贴板可能丢失）。默认关闭。"
+          "description": "Allow #terminal to capture terminal selection via the system clipboard (temporarily overwrites clipboard contents; non-text clipboard may be lost). Off by default."
         },
         "deepseekAgent.terminal.captureHistory": {
           "type": "boolean",
           "default": true,
-          "description": "允许 read_terminal 工具读取你的集成终端最近输出。开启后，扩展会在内存中保留每个终端最近 20 条命令的输出（每条上限 64KB，不落盘，VS Code 关闭后即清空）。需要 Shell Integration（bash/zsh/fish/pwsh 默认启用；cmd.exe 不支持）。"
+          "description": "Allow the read_terminal tool to read your integrated terminal's recent output. When enabled, the extension keeps the last 20 commands' output for each terminal in memory (max 64KB each, not persisted, cleared on VS Code close). Requires Shell Integration (bash/zsh/fish/pwsh enabled by default; cmd.exe not supported)."
         },
         "deepseekAgent.maxIterations": {
           "type": "number",
@@ -278,7 +278,7 @@
           "default": 12,
           "minimum": 1,
           "maximum": 120,
-          "description": "后台唤醒调度：每个会话每小时最多自动恢复（auto-resume）的次数上限，防止 watcher 频繁唤醒造成 API 成本失控。默认 12。"
+          "description": "Background wake scheduler: maximum auto-resumes per session per hour to prevent runaway API cost from frequent watcher wake-ups. Default 12."
         },
         "deepseekAgent.webSearchProvider": {
           "type": "string",
