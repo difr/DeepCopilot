@@ -310,6 +310,35 @@ class ChatViewProvider {
             case 'sessionUnread':  this._store.unread(msg.id); break;
             case 'sessionArchive': this._store.archive(msg.id); break;
 
+            // Issue #142 P3-3: webview pull for footer context ring.
+            // When the user opens the context popup between turns (no live
+            // run), _lastCtx is stale/zero — the webview posts this message
+            // and we compute a fresh value from the persisted store.
+            case 'getCtxUsage': {
+                const { estimateMessagesTokens } = require('./compact');
+                const run = this._activeRun();
+                const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+                const provider = cfg.get('provider') || 'deepseek';
+                const model    = cfg.get('defaultModel') || 'deepseek-v4-pro';
+                const { resolveProvider } = require('../providers');
+                let modelCfg = { contextWindow: 65536 };
+                try {
+                    const p = resolveProvider(provider);
+                    modelCfg = p?.models?.find(m => m.id === model) || modelCfg;
+                } catch { /* fallback */ }
+                const window = modelCfg.contextWindow || 65536;
+                const sid  = this._store.sessionId;
+                const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
+                    ? run.messages
+                    : (sid ? this._store.loadApiMessages(sid) : []);
+                const tokens = estimateMessagesTokens(msgs, { provider, model });
+                this._post({ type: 'ctxUsage',
+                    tokens, window,
+                    pct: Math.min(100, Math.round(tokens / window * 100)),
+                });
+                break;
+            }
+
             // ─── Pending edits panel (Copilot-style review of agent writes) ───
             case 'keepEdit':        this._handlePendingEdit('keep',    msg.path); break;
             case 'keepAllEdits':    this._handlePendingEdit('keepAll'); break;
@@ -803,6 +832,23 @@ class ChatViewProvider {
                     type: 'status',
                     text: `✅  Compacted ${Math.round(before / 1000)}K → ${Math.round(after / 1000)}K tokens`,
                 });
+                // Issue #142 P3-3: broadcast fresh ctxUsage so the footer ring
+                // and popup reflect the compacted count immediately.
+                try {
+                    const { resolveProvider } = require('../providers');
+                    let modelCfg = { contextWindow: 65536 };
+                    try {
+                        const p = resolveProvider(provider);
+                        modelCfg = p?.models?.find(m => m.id === model) || modelCfg;
+                    } catch { /* fallback */ }
+                    const window = modelCfg.contextWindow || 65536;
+                    this._post({
+                        type: 'ctxUsage',
+                        tokens: after,
+                        window,
+                        pct: Math.min(100, Math.round(after / window * 100)),
+                    });
+                } catch { /* never fail compaction over a UI broadcast */ }
             } else {
                 this._post({ type: 'status', text: 'History already compact' });
             }

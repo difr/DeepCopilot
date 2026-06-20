@@ -315,6 +315,8 @@ class AgentLoop {
         let lastUsage = null;
         let messagesSnapshot = null; // snapshot of run.messages before each API call; restored on protocol error
 
+        let _lastCtxTokens = 0, _lastCtxWindow = 0;
+
         // ── Bg-job end notifications (terminal-monitor push) ──────────────────
         // Collect events from background terminals; injected as system-reminders
         // at the top of each iteration so the model learns of completion promptly.
@@ -463,7 +465,9 @@ class AgentLoop {
                 let ctxUsageTokens = 0;
                 try {
                     ctxUsageTokens = estimateMessagesTokens(ctxUsageMsgs, tokCtx);
+                    _lastCtxTokens = ctxUsageTokens;
                     const ctxWindow = modelCfg.contextWindow || 65536;
+                    _lastCtxWindow = ctxWindow;
                     this._postToRun(run, {
                         type: 'ctxUsage',
                         tokens: ctxUsageTokens,
@@ -1207,6 +1211,15 @@ class AgentLoop {
             ).catch(() => {});
         }
 
+        // Issue #142 P3-3: send final context usage so the webview footer ring
+        // stays accurate between turns (run is deleted below).
+        if (_lastCtxTokens > 0 && _lastCtxWindow > 0 && !run.discarded) {
+            this._postToRun(run, { type: 'ctxUsage',
+                tokens: _lastCtxTokens,
+                window: _lastCtxWindow,
+                pct: Math.min(100, Math.round(_lastCtxTokens / _lastCtxWindow * 100)),
+            });
+        }
         this._deleteRun(sid);
         this._postSessionList();
         } finally { // P0-2: guarantees busy flag is cleared on any exit path

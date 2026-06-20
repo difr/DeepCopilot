@@ -214,6 +214,15 @@
   }
   function closeCtxPop(){ if (_ctxPop) { _ctxPop.remove(); _ctxPop = null; document.removeEventListener('mousedown', _ctxPopOutside, true); } }
   function _ctxPopOutside(e){ if (_ctxPop && !_ctxPop.contains(e.target) && e.target !== ftCtxBtn && !ftCtxBtn.contains(e.target)) closeCtxPop(); }
+  /* Refresh the open popup in-place after a late ctxUsage response arrives
+     (e.g. from the pull request below). Only touches the Used row. */
+  function _updateCtxPop(){
+    if (!_ctxPop) return;
+    var b = _ctxPop.querySelector('.ft-ctx-pop-row b');
+    if (!b) return;
+    var pct = _lastCtx.pct|0, tk = Math.round((_lastCtx.tokens||0)/1000), wn = Math.round((_lastCtx.window||0)/1000);
+    b.textContent = tk + 'K / ' + wn + 'K (' + pct + '%)';
+  }
   function openCtxPop(){
     if (_ctxPop) { closeCtxPop(); return; }
     /* Escape any value that flows into innerHTML to satisfy CodeQL
@@ -223,6 +232,11 @@
       return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    // Issue #142 P3-3: if data is stale (no live run has pushed ctxUsage
+    // yet, or last turn ended), request fresh values from the extension.
+    if (_lastCtx.tokens === 0 && _lastCtx.window === 0) {
+      vscode.postMessage({ type: 'getCtxUsage' });
     }
     var pop = document.createElement('div');
     pop.className = 'ft-ctx-pop';
@@ -2902,6 +2916,7 @@
     } else if (m.type === "ctxUsage"){
       // Issue #142 P3-3: footer ring (replaces old top bar).
       try { updateCtxRing(m.pct, m.tokens, m.window); } catch (_e) {}
+      _updateCtxPop();
     } else if (m.type === "progress"){
       if (m.phase) _curPhase = m.phase;
       _curTool = m.activeTool || "";
