@@ -1,4 +1,4 @@
-﻿(function(){
+(function(){
   var vscode;
   try { vscode = acquireVsCodeApi(); } catch(e) { document.body.innerHTML += "<div style=\"color:red;padding:10px\">vscode API error: "+e.message+"</div>"; return; }
   var msgs = document.getElementById("main");
@@ -103,11 +103,11 @@
     var cur = getSelectedModel();
     if (!MODELS.length) {
       var placeholder = _currentProvider === 'ollama' ? 'llama3.2' : 'your-model-name';
-      var label = _currentProvider === 'ollama' ? 'Ollama 模型名' : '自定义模型名';
+      var label = _currentProvider === 'ollama' ? 'Ollama model name' : 'Custom model name';
       modelDrop.innerHTML = "<div class='mode-drop-hd'>" + label + "</div>" +
         "<div class='mo-custom-wrap'>" +
           "<input class='mo-custom-input' type='text' placeholder='" + placeholder + "' value='" + escHtml(cur) + "'/>" +
-          "<button class='mo-custom-ok'>确认</button>" +
+          "<button class='mo-custom-ok'>OK</button>" +
         "</div>";
       modelDrop.style.display = 'block';
       _modelOpen = true;
@@ -125,7 +125,7 @@
       });
       return;
     }
-    var h = "<div class='mode-drop-hd'>切换模型</div>";
+    var h = "<div class='mode-drop-hd'>Switch model</div>";
     for (var i = 0; i < MODELS.length; i++) {
       var md = MODELS[i];
       h += "<div class='mo" + (md.value === cur ? ' sel' : '') + "' data-model='" + md.value + "'>" +
@@ -146,8 +146,8 @@
   var iModeBtn    = document.getElementById("iModeBtn");
   var _curIMode   = "agent"; // tracks current interaction mode for ft-mode display
   var INTERACTION_MODES = [
-    { value: "agent", icon: "tools",       name: "Agent", desc: "自主调用工具完成任务（文件读写、Shell、搜索等）" },
-    { value: "plan",  icon: "list-ordered", name: "Plan",  desc: "只探索代码库、生成可审阅的计划，不执行任何写操作" },
+    { value: "agent", icon: "tools",       name: "Agent", desc: "Autonomously calls tools to complete tasks (file read/write, shell, search, etc.)" },
+    { value: "plan",  icon: "list-ordered", name: "Plan",  desc: "Explores codebase, generates reviewable plans, no write operations" },
   ];
   function setIModeUI(mode){
     var md = INTERACTION_MODES.find(function(x){ return x.value === mode; }) || INTERACTION_MODES[0];
@@ -162,10 +162,10 @@
   var modeDrop   = document.getElementById("modeDrop");
   var _modeOpen  = false;
   var MODES = [
-    { value: "manual",    icon: "shield",  name: "Manual",    desc: "每次操作前逐一确认，完全掌控执行过程" },
-    { value: "auto-edit", icon: "edit",    name: "Auto-Edit", desc: "文件编辑自动执行，Shell 命令仍需手动确认" },
-    { value: "autopilot", icon: "rocket",  name: "Autopilot", desc: "完全自动运行，无需任何手动确认（高风险）" },
-    { value: "readonly",  icon: "eye",     name: "Read-Only", desc: "仅读取与分析，不执行任何写操作" },
+    { value: "manual",    icon: "shield",  name: "Manual",    desc: "Confirm every action before execution, full control" },
+    { value: "auto-edit", icon: "edit",    name: "Auto-Edit", desc: "File edits auto-executed, shell commands require confirmation" },
+    { value: "autopilot", icon: "rocket",  name: "Autopilot", desc: "Fully automatic, no manual confirmation required (high risk)" },
+    { value: "readonly",  icon: "eye",     name: "Read-Only", desc: "Read and analyze only, no write operations" },
   ];
   function setModeUI(mode){
     var md = MODES.find(function(x){ return x.value === mode; }) || MODES[0];
@@ -176,7 +176,7 @@
   function openModeDrop(){
     if (!modeDrop || _modeOpen) return;
     var cur = modePicker ? (modePicker.dataset.m || "manual") : "manual";
-    var h = "<div class='mode-drop-hd'>批准策略 (Approval Mode)</div>";
+    var h = "<div class='mode-drop-hd'>Approval mode</div>";
     for (var i=0;i<MODES.length;i++){
       var md = MODES[i];
       h += "<div class='mo" + (md.value === cur ? " sel" : "") + "' data-mode='" + md.value + "'>" +
@@ -270,7 +270,7 @@
   /* Smart scroll: only auto-stick to bottom when user is at/near bottom; otherwise leave alone. */
   var stick = true;
   var jumpBtn = document.createElement("button");
-  jumpBtn.className = "jumpbtn"; jumpBtn.textContent = "↓ 跳到最新";
+  jumpBtn.className = "jumpbtn"; jumpBtn.textContent = "↓ Latest";
   jumpBtn.addEventListener("click", function(){ stick = true; msgs.scrollTop = msgs.scrollHeight; jumpBtn.classList.remove("show"); });
   msgs.appendChild(jumpBtn);
   msgs.addEventListener("scroll", function(){
@@ -530,25 +530,25 @@
       }
       return "<pre class=\"cb tb" + (foldable ? " foldable" : "") + "\" data-code=\"" + b64 + "\" data-lang=\"" + escHtml(c.L) + "\" data-lines=\"" + rawLines.length + "\" data-keep=\"" + FOLD_KEEP + "\">" +
         "<div class=\"cb-h\">" +
-          "<span class=\"lang\">\u25B6 " + escHtml(c.L) + "</span>" +
-          "<button class=\"cb-run\" title=\"\u5728 VS Code \u7ec8\u7aef\u8fd0\u884c\">\u25B6 \u8fd0\u884c</button>" +
-          "<button class=\"cb-term\" title=\"\u63d2\u5165\u7ec8\u7aef\u4f46\u4e0d\u6267\u884c\">\u2192 \u63d2\u5165\u7ec8\u7aef</button>" +
-          "<button class=\"cb-copy\">\u590d\u5236</button>" +
+          "<span class=\"lang\">▶ " + escHtml(c.L) + "</span>" +
+          "<button class=\"cb-run\" title=\"Run in terminal\">▶ Run</button>" +
+          "<button class=\"cb-term\" title=\"Insert into terminal\">→ Insert</button>" +
+          "<button class=\"cb-copy\">⿻ Copy</button>" +
         "</div>" +
         "<code>" + body + "</code>" +
-        (foldable ? "<button class=\"cb-fold\">\u2026 \u5c55\u5f00\u5168\u90e8 " + rawLines.length + " \u884c</button>" : "") +
+        (foldable ? "<button class=\"cb-fold\">… Expand all " + rawLines.length + " lines</button>" : "") +
       "</pre>";
     }
     var highlighted = hl(c.raw, c.L);
     return "<pre class=\"cb" + (foldable ? " foldable" : "") + "\" data-code=\"" + b64 + "\" data-lang=\"" + escHtml(c.L) + "\" data-lines=\"" + rawLines.length + "\" data-keep=\"" + FOLD_KEEP + "\">" +
       "<div class=\"cb-h\">" +
         "<span class=\"lang\">" + escHtml(c.L) + "</span>" +
-        "<button class=\"cb-copy\">\u590d\u5236</button>" +
-        "<button class=\"cb-insert\">\u63d2\u5165\u7f16\u8f91\u5668</button>" +
-        "<button class=\"cb-apply\" title=\"\u667a\u80fd Apply \u5230\u5f53\u524d\u6587\u4ef6\">\u2714 Apply</button>" +
-        "<button class=\"cb-newfile\" title=\"\u4fdd\u5b58\u4e3a\u65b0\u6587\u4ef6\">\ud83d\udcc4 \u65b0\u5efa\u6587\u4ef6</button>" +
+        "<button class=\"cb-insert\" title=\"Insert into current file\">→ Insert</button>" +
+        "<button class=\"cb-newfile\" title=\"Insert into new file\">→ Insert new</button>" +
+        "<button class=\"cb-apply\" title=\"Apply patch to current file\">✔ Apply</button>" +
+        "<button class=\"cb-copy\">⿻ Copy</button>" +
       "</div><code>" + highlighted + "</code>" +
-      (foldable ? "<button class=\"cb-fold\">\u2026 \u5c55\u5f00\u5168\u90e8 " + rawLines.length + " \u884c</button>" : "") +
+      (foldable ? "<button class=\"cb-fold\">… Expand all " + rawLines.length + " lines</button>" : "") +
     "</pre>";
   }
 
@@ -871,10 +871,10 @@
   var ICO_DOWN  = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M6 2.5H3.5v6H6m0-6 2.2 0a1.5 1.5 0 0 1 1.48 1.24l.6 3.3A1 1 0 0 1 9.3 8.25H6.8l.55 2.6A1.4 1.4 0 0 1 5.98 12.5L6 8.5v-6Z"/></svg>';
   function actionBarHtml(){
     return "<div class=\"msgActs\">" +
-      "<button class=\"ma ma-copy\" title=\"\u590d\u5236\" aria-label=\"\u590d\u5236\">" + ICO_COPY + "</button>" +
-      "<button class=\"ma ma-regen\" title=\"\u91cd\u65b0\u751f\u6210\" aria-label=\"\u91cd\u65b0\u751f\u6210\">" + ICO_REGEN + "</button>" +
-      "<button class=\"ma ma-up\" title=\"\u6709\u7528\" aria-label=\"\u6709\u7528\">" + ICO_UP + "</button>" +
-      "<button class=\"ma ma-down\" title=\"\u4e0d\u6709\u7528\" aria-label=\"\u4e0d\u6709\u7528\">" + ICO_DOWN + "</button>" +
+      "<button class=\"ma ma-copy\" title=\"Copy\" aria-label=\"Copy\">" + ICO_COPY + "</button>" +
+      "<button class=\"ma ma-regen\" title=\"Regenerate\" aria-label=\"Regenerate\">" + ICO_REGEN + "</button>" +
+      "<button class=\"ma ma-up\" title=\"Useful\" aria-label=\"Useful\">" + ICO_UP + "</button>" +
+      "<button class=\"ma ma-down\" title=\"Not useful\" aria-label=\"Not useful\">" + ICO_DOWN + "</button>" +
     "</div>";
   }
 
@@ -883,12 +883,12 @@
     if (es) es.style.display = "none";
     var d = document.createElement("div");
     d.className = "errCard";
-    var title = escHtml(m.title || "请求失败");
+    var title = escHtml(m.title || "Request failed");
     var body  = escHtml(m.text || "");
     var codeBadge = m.code ? "<span class=\"errCode\">HTTP " + m.code + "</span>" : "";
-    var retryBtn = m.retryable ? "<button class=\"errRetry\">\ud83d\udd04 \u91cd\u8bd5</button>" : "";
+    var retryBtn = m.retryable ? "<button class=\"errRetry\">🔄 Retry</button>" : "";
     var rawDetails = m.raw && m.raw !== m.text
-      ? "<details class=\"errRaw\"><summary>\u539f\u59cb\u9519\u8bef</summary><pre>" + escHtml(m.raw) + "</pre></details>"
+      ? "<details class=\"errRaw\"><summary>Raw error</summary><pre>" + escHtml(m.raw) + "</pre></details>"
       : "";
     d.innerHTML =
       "<div class=\"errHd\"><span class=\"errIco\">\u26a0</span><span class=\"errTitle\">" + title + "</span>" + codeBadge + "</div>" +
@@ -1329,7 +1329,7 @@
       "<i class=\"ico codicon " + escHtml(meta.icon) + "\"></i>" +
       "<span class=\"tl-prose\">" + toolProseHtml(name, args, meta) + "</span>" +
       "<span class=\"tl-res\"></span>" +
-      "<span class=\"tl-exp codicon codicon-chevron-right\" title=\"展开\"></span>";
+      "<span class=\"tl-exp codicon codicon-chevron-right\" title=\"Expand\"></span>";
     var detail = document.createElement("div");
     detail.className = "tl-detail";
     wrap.appendChild(d);
@@ -1357,7 +1357,7 @@
     var meta = toolMeta(name, args);
     d.className = "tool run k-" + meta.kind;
     var target = toolTarget(name, args);
-    var statusTxt = opts.approval ? "等待批准" : "…";
+    var statusTxt = opts.approval ? "Awaiting approval" : "…";
     d.innerHTML = 
       "<div class=\"h\">" +
         "<span class=\"chev\">▶</span>" +
@@ -1387,15 +1387,15 @@
       d.classList.add("open");
       var ap = document.createElement("div");
       ap.className = "approve";
-      ap.innerHTML = "<button class=\"btn-yes\">允许</button><button class=\"btn-no\">拒绝</button>";
+      ap.innerHTML = "<button class=\"btn-yes\">Approve</button><button class=\"btn-no\">Reject</button>";
       d.appendChild(ap);
       ap.querySelector(".btn-yes").addEventListener("click", function(){
         vscode.postMessage({type:"approve", id:id, decision:true}); ap.remove();
-        d.querySelector(".st").textContent = "运行中";
+        d.querySelector(".st").textContent = "Running";
       });
       ap.querySelector(".btn-no").addEventListener("click", function(){
         vscode.postMessage({type:"approve", id:id, decision:false}); ap.remove();
-        d.querySelector(".st").textContent = "拒绝"; d.classList.remove("run"); d.classList.add("err");
+        d.querySelector(".st").textContent = "Rejected"; d.classList.remove("run"); d.classList.add("err");
       });
     }
     toolMap.set(id, {
@@ -1591,15 +1591,15 @@
     /* Tooltip with per-turn breakdown */
     if (b) {
       var tip =
-        "本次: " + (b.total_tokens||0) + " tok"
+        "This turn: " + (b.total_tokens||0) + " tok"
         + " (in " + (b.prompt_tokens||0)
         + (b.cache_hit_tokens ? ", cache " + b.cache_hit_tokens : "")
         + " / out " + (b.completion_tokens||0) + ")"
-        + "\n累计: " + sess.tokens + " tok / " + fmtCny(sess.cost)
-        + "\n缓存命中率: " + (sess.promptTotal ? (sess.cacheHit/sess.promptTotal*100).toFixed(1) + "%" : "-")
+        + "\nTotal: " + sess.tokens + " tok / " + fmtCny(sess.cost)
+        + "\nCache hit rate: " + (sess.promptTotal ? (sess.cacheHit/sess.promptTotal*100).toFixed(1) + "%" : "-")
         + "  (" + sess.cacheHit + "/" + sess.promptTotal + " prompt tok)"
-        + (u.model ? "\n模型: " + u.model : "")
-        + (b.pricing ? "\n单价(¥/1M): in " + b.pricing.input
+        + (u.model ? "\nModel: " + u.model : "")
+        + (b.pricing ? "\nPrice (¥/1M): in " + b.pricing.input
             + " · cache " + b.pricing.cache_hit
             + " · out " + b.pricing.output : "");
       ftTokens.title = tip;
@@ -1615,24 +1615,24 @@
     if (b.unsupported){ ftBalance.style.display = "none"; return; }
     ftBalance.style.display = "";
     if (!b.available){
-      ftBalance.textContent = "⛔ 账户不可用";
+      ftBalance.textContent = "⛔ Account unavailable";
       ftBalance.className = "pill balance-unavail";
-      ftBalance.title = "账户不可用，请检查 API Key";
+      ftBalance.title = "Account unavailable, check your API Key";
       return;
     }
     var cny = b.balance_cny || 0;
     var low = cny < 5;
     ftBalance.textContent = (low ? "⚠️ " : "💰 ") + fmtCny(cny);
     ftBalance.className = "pill" + (low ? " balance-low" : " balance-ok");
-    ftBalance.title = "账户余额: " + fmtCny(cny)
-      + "\n充值: " + fmtCny(b.topped_up_cny || 0)
-      + "  赠送: " + fmtCny(b.granted_cny || 0)
-      + "\n本次会话消耗: " + fmtCny(sess.cost)
-      + "\n点击刷新";
+    ftBalance.title = "Balance: " + fmtCny(cny)
+      + "\nTop-up: " + fmtCny(b.topped_up_cny || 0)
+      + "  Granted: " + fmtCny(b.granted_cny || 0)
+      + "\nThis session: " + fmtCny(sess.cost)
+      + "\nClick to refresh";
   }
   if (ftBalance){
     ftBalance.addEventListener("click", function(){
-      ftBalance.textContent = "💰 查询中…";
+      ftBalance.textContent = "💰 Checking…";
       vscode.postMessage({ type: "balanceRefresh" });
     });
   }
@@ -1658,17 +1658,17 @@
   var pop = document.getElementById("pop");
   var popVisible = false, popItems = [], popSel = 0, popKind = "", popTrigStart = 0;
   var SLASH_CMDS = [
-    { name: "/explain",  desc: "解释下面这段代码做了什么", expand: "请详细解释下列代码的功能、关键逻辑和潜在问题:\n\n" },
-    { name: "/fix",      desc: "查找并修复 bug",           expand: "请审查下列代码,找出 bug 或潜在问题并给出修复版本:\n\n" },
-    { name: "/tests",    desc: "为以下代码写单元测试",     expand: "请为下列代码编写完整的单元测试,覆盖正常路径与边界情况:\n\n" },
-    { name: "/doc",      desc: "为代码补全文档/注释",       expand: "请为下列代码补全文档注释(JSDoc/docstring 等,按语言惯例):\n\n" },
-    { name: "/refactor", desc: "重构以提升清晰度/性能",     expand: "请重构下列代码以提升可读性、模块化与性能,并解释每处改动的理由:\n\n" },
-    { name: "/clear",    desc: "清空当前会话",             expand: "__CLEAR__" },
+    { name: "/explain",  desc: "Explain what the code does",       expand: "Explain the following code in detail — its purpose, key logic, and potential issues:\n\n" },
+    { name: "/fix",      desc: "Find and fix bugs",                expand: "Review the following code, find bugs or potential issues, and provide a fixed version:\n\n" },
+    { name: "/tests",    desc: "Write unit tests",                 expand: "Write comprehensive unit tests for the following code, covering normal paths and edge cases:\n\n" },
+    { name: "/doc",      desc: "Add documentation / comments",     expand: "Add documentation comments (JSDoc/docstring etc., per language conventions) to the following code:\n\n" },
+    { name: "/refactor", desc: "Refactor for clarity/performance", expand: "Refactor the following code to improve readability, modularity, and performance. Explain each change:\n\n" },
+    { name: "/clear",    desc: "Clear the current session",        expand: "__CLEAR__" },
   ];
   var AT_CMDS = [
-    { name: "@file",      desc: "附带当前打开的文件",   action: "refEditor" },
-    { name: "@selection", desc: "附带编辑器中选中的代码", action: "refSelection" },
-    { name: "@terminal",  desc: "附带终端选中文本",          action: "refTerminal" },
+    { name: "@file",      desc: "Attach active editor file",      action: "refEditor" },
+    { name: "@selection", desc: "Attach selected code in editor", action: "refSelection" },
+    { name: "@terminal",  desc: "Attach terminal selection",      action: "refTerminal" },
   ];
   // ── # context references (GitHub Copilot–style) ────────────────────────
   // Each entry is either:
@@ -1676,14 +1676,14 @@
   //   { name:"#xxx",   desc, ref:"xxx" }               → resolveContextRef on extension side
   //   { name:"#yyy:",  desc, ref:"yyy", needsArg:true } → ref with inline argument
   var HASH_REFS = [
-    { name: "#file",      desc: "工作区内某个文件",            ref: "file"                       },
-    { name: "#selection", desc: "当前编辑器选中的代码",        ref: "selection"                  },
-    { name: "#editor",    desc: "当前编辑器整文件",            ref: "editor"                     },
-    { name: "#problems",  desc: "工作区诊断 / Problems",       ref: "problems"                   },
-    { name: "#changes",   desc: "Git 未提交改动 (git diff)",   ref: "changes"                    },
-    { name: "#terminal",  desc: "终端选中文本",                ref: "terminal"                   },
-    { name: "#symbol:",   desc: "工作区符号(函数/类) 跟符号名", ref: "symbol",  needsArg: true    },
-    { name: "#fetch:",    desc: "抓取 URL 内容 跟链接",         ref: "fetch",   needsArg: true    },
+    { name: "#file",      desc: "Pick a file from workspace",               ref: "file"                       },
+    { name: "#selection", desc: "Current editor selection",                 ref: "selection"                  },
+    { name: "#editor",    desc: "Current editor full file",                 ref: "editor"                     },
+    { name: "#problems",  desc: "Workspace diagnostics / Problems panel",   ref: "problems"                   },
+    { name: "#changes",   desc: "Git unstaged changes (git diff)",          ref: "changes"                    },
+    { name: "#terminal",  desc: "Terminal selection",                       ref: "terminal"                   },
+    { name: "#symbol:",   desc: "Workspace symbol (function/class) + name", ref: "symbol",  needsArg: true    },
+    { name: "#fetch:",    desc: "Fetch URL content + link",                 ref: "fetch",   needsArg: true    },
   ];
 
   // ── @file chips (attached files) ──────────────────────────────────────
@@ -1698,7 +1698,7 @@
     if (!skillNoticeEl) return;
     if (pendingSkill) {
       skillNoticeEl.style.display = "inline-flex";
-      skillNoticeEl.innerHTML = '/' + pendingSkill.name + ' <button class="skill-notice-x" title="移除">×</button>';
+      skillNoticeEl.innerHTML = '/' + pendingSkill.name + ' <button class="skill-notice-x" title="Remove">×</button>';
     } else {
       skillNoticeEl.style.display = "none";
       skillNoticeEl.innerHTML = "";
@@ -1718,12 +1718,12 @@
       // signalling that they are visible but NOT auto-included in the prompt.
       var extCls = liveSelection.external ? ' chip-external' : '';
       var extTip = liveSelection.external
-        ? ('External (\u5916\u90e8\u6587\u4ef6, \u4e0d\u81ea\u52a8\u9644\u5e26): ' + liveSelection.path)
+        ? ('External (outside workspace, not auto-attached): ' + liveSelection.path)
         : liveSelection.path;
       liveHtml = '<span class="chip chip-live'+extCls+'" title="'+escHtml(extTip)+'">' +
         '<span class="codicon codicon-selection chip-ico"></span>' +
         '<span class="chip-name">' + escHtml(lsName) + '</span>' + lsLine +
-        '<button class="chip-x chip-x-live" title="取消选区">×</button></span>';
+        '<button class="chip-x chip-x-live" title="Dismiss selection">×</button></span>';
     }
     var html = attachedFiles.map(function(f, i){
       var name = f.path.replace(/^.*[\\/]/, '');
@@ -1735,16 +1735,16 @@
         return '<span class="chip chip-err" data-i="'+i+'" title="'+escHtml(f.errText || '')+'">' +
           '<span class="chip-ico">⚠</span>' +
           '<span class="chip-name">' + escHtml(f.path) + '</span>' +
-          '<button class="chip-x" data-i="'+i+'" title="移除">×</button></span>';
+          '<button class="chip-x" data-i="'+i+'" title="Remove">×</button></span>';
       }
       if (f.imageData) {
         return '<span class="chip" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
           '<img class="chip-img" src="'+f.imageData+'" alt=""/>' +
           '<span class="chip-name">' + escHtml(name) + '</span>' + lineLabel +
-          '<button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
+          '<button class="chip-x" data-i="'+i+'" title="Remove">×</button></span>';
       }
       var icoHtml = isLoading
-        ? '<span class="chip-spin chip-ico">\u29d6</span>'
+        ? '<span class="chip-spin chip-ico">⧖</span>'
         : f.isFolder
           ? '<span class="codicon codicon-folder-opened chip-ico"></span>'
           : '<span class="codicon codicon-file-text chip-ico"></span>';
@@ -1752,7 +1752,7 @@
       return '<span class="chip' + (isLoading ? ' loading' : '') + (f.isFolder ? ' chip-folder' : '') + '" data-i="'+i+'" title="'+escHtml(f.path)+'">' +
         icoHtml +
         '<span class="chip-name">' + escHtml(name) + '</span>' + trailLabel +
-        '<button class="chip-x" data-i="'+i+'" title="\u79fb\u9664">\u00d7</button></span>';
+        '<button class="chip-x" data-i="'+i+'" title="Remove">×</button></span>';
     }).join('');
     var combined = liveHtml + html;
     if (!combined) { atChipsEl.innerHTML = ""; atChipsEl.style.display = "none"; }
@@ -2037,8 +2037,8 @@
     }
     sbtn.classList.toggle("stop", busy);
     sbtn.classList.toggle("stopping", _stopping);
-    sbtn.textContent = busy ? "\u23F9" : "\u2191";
-    sbtn.title = _stopping ? "\u6B63\u5728\u505C\u6B62\u2026" : (busy ? "\u505C\u6B62\u751F\u6210 (Esc)" : "\u53D1\u9001");
+    sbtn.textContent = busy ? "⏹" : "↑";
+    sbtn.title = _stopping ? "Stopping…" : (busy ? "Stop (Esc)" : "Send");
     sbtn.disabled = _stopping;
     if (dot) dot.className = "dot" + (busy ? " warn" : "");
     var pb = document.getElementById("prog");
@@ -2051,11 +2051,11 @@
   /* Per-session timer map: preserves each session's busy start timestamp across switches. */
   var _sessionTimerMap = {};
   var _phaseLabels = {
-    thinking: "\u601D\u8003\u4E2D",
-    streaming: "\u751F\u6210\u4E2D",
-    waiting_first_token: "\u7B49\u5F85\u54CD\u5E94",
-    tool_running: "\u5DE5\u5177\u8FD0\u884C",
-    compacting: "\u538B\u7F29\u5386\u53F2"
+    thinking: "Thinking",
+    streaming: "Streaming",
+    waiting_first_token: "Waiting first token",
+    tool_running: "Running tool",
+    compacting: "Compacting"
   };
   function _fmtElapsed(ms){
     var s = Math.floor(ms/1000); var m = Math.floor(s/60); s = s%60;
@@ -2956,7 +2956,7 @@
       addErrorCard(m);
     } else if (m.type === "serverStatus"){
       sb.style.display = m.running ? "none" : "block";
-      if (!m.running) sb.textContent = "⚠ 后端服务器未启动 — 发送时将自动启动";
+      if (!m.running) sb.textContent = "⚠ Backend server not started — will auto-start on send";
       if (dot) dot.className = "dot" + (m.running ? "" : " err");
     } else if (m.type === "providersInfo"){
       applyProvidersInfo(m.providers);
@@ -3056,7 +3056,7 @@
       if (popVisible && popKind === "at") {
         var q3 = (m.query || "").toLowerCase();
         var fileItems = (m.files || []).map(function(fp){
-          return { name: "@" + fp, desc: "附带文件", filePath: fp };
+          return { name: "@" + fp, desc: "Attach file", filePath: fp };
         });
         // Keep AT_CMDS entries that match, then append file results
         var builtIn = AT_CMDS.filter(function(c){ return c.name.slice(1).startsWith(q3); });
@@ -3068,7 +3068,7 @@
         // no built-in refs match, the popup is hidden while file results arrive.
         var q3h = (m.query || "").toLowerCase();
         var fileItemsH = (m.files || []).map(function(fp){
-          return { name: "#" + fp, desc: "附带文件", filePath: fp, ref: "file" };
+          return { name: "#" + fp, desc: "Attach file", filePath: fp, ref: "file" };
         });
         var builtH = HASH_REFS.filter(function(c){
           var n = c.name.slice(1).replace(/:$/, "");
@@ -3172,34 +3172,34 @@
   function relTime(ts){
     if (!ts) return "";
     var d = Date.now() - ts;
-    if (d < 60000) return "刚刚";
-    if (d < 3600000) return Math.floor(d/60000) + " 分钟前";
-    if (d < 86400000) return Math.floor(d/3600000) + " 小时前";
-    if (d < 7*86400000) return Math.floor(d/86400000) + " 天前";
+    if (d < 60000) return "Just now";
+    if (d < 3600000) return Math.floor(d/60000) + " min ago";
+    if (d < 86400000) return Math.floor(d/3600000) + " hr ago";
+    if (d < 7*86400000) return Math.floor(d/86400000) + " days ago";
     var dt = new Date(ts);
-    return (dt.getMonth()+1) + "月" + dt.getDate() + "日";
+    return (dt.getMonth()+1) + "/" + dt.getDate();
   }
   function dayBucket(ts){
     var now = new Date();
     var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     var yesterdayStart = todayStart - 86400000;
     var weekStart = todayStart - 6*86400000;
-    if (ts >= todayStart) return "今天";
-    if (ts >= yesterdayStart) return "昨天";
-    if (ts >= weekStart) return "本周";
-    return "更早";
+    if (ts >= todayStart) return "Today";
+    if (ts >= yesterdayStart) return "Yesterday";
+    if (ts >= weekStart) return "This week";
+    return "Older";
   }
   function renderSessions(){
     var q = (dsearch && dsearch.value || "").trim().toLowerCase();
     var list = sessions.slice();
     if (scopeMode === "ws" && currentWs) list = list.filter(function(s){ return (s.ws||"") === currentWs; });
     if (q) list = list.filter(function(s){ return (s.title||"").toLowerCase().indexOf(q) >= 0 || (s.preview||"").toLowerCase().indexOf(q) >= 0; });
-    if (!list.length){ dlist.innerHTML = '<div class="empty">' + (q ? "无匹配" : (scopeMode==="ws" ? "本工作区暂无会话" : "暂无会话")) + '</div>'; return; }
+    if (!list.length){ dlist.innerHTML = '<div class="empty">' + (q ? "No matches" : (scopeMode==="ws" ? "No sessions in this workspace" : "No sessions")) + '</div>'; return; }
     // Pinned first, then by time
     list.sort(function(a,b){ return (b.pinned?1:0)-(a.pinned?1:0) || (b.updatedAt||0)-(a.updatedAt||0); });
     var html = "", lastBucket = "";
     list.forEach(function(s){
-      var b = s.pinned ? "📌 已固定" : dayBucket(s.updatedAt || s.createdAt || 0);
+      var b = s.pinned ? "📌 Pinned" : dayBucket(s.updatedAt || s.createdAt || 0);
       if (b !== lastBucket){ html += '<div class="grp">' + b + '</div>'; lastBucket = b; }
       var act = (s.id === activeSessionId) ? " active" : "";
       var bsy = s.busy ? " busy" : "";
@@ -3207,14 +3207,14 @@
       var unr = s.unread ? " unread" : "";
       html += '<div class="si' + act + bsy + pnd + unr + '" data-id="' + s.id + '">' +
         '<div class="ti">' +
-          (s.busy ? '<span class="busy-dot" title="思考中…"></span>' : '') +
+          (s.busy ? '<span class="busy-dot" title="Thinking…"></span>' : '') +
           (s.unread ? '<span class="unread-dot"></span>' : '') +
           escHtml(s.title || "Untitled") +
         '</div>' +
         '<div class="si-time">' + escHtml(relTime(s.updatedAt || s.createdAt || 0)) + '</div>' +
         '<div class="ops">' +
-          '<button class="op-pin" title="' + (s.pinned ? '取消固定' : '固定') + '">' + (s.pinned ? '📌' : '📍') + '</button>' +
-          '<button class="op-dl" title="删除">🗑</button>' +
+          '<button class="op-pin" title="' + (s.pinned ? 'Unpin' : 'Pin') + '">' + (s.pinned ? '📌' : '📍') + '</button>' +
+          '<button class="op-dl" title="Delete">🗑</button>' +
         '</div>' +
       '</div>';
     });
@@ -3264,15 +3264,15 @@
     // Reset previous button if still in DOM
     if (prevId) {
       var pb = dlist.querySelector('.si[data-id="' + prevId + '"] .op-dl');
-      if (pb) { pb.textContent = "\uD83D\uDDD1"; pb.title = "\u5220\u9664"; pb.style.color = ""; }
+      if (pb) { pb.textContent = "🗑"; pb.title = "Remove"; pb.style.color = ""; }
     }
     // Mark the target button
     var btn = dlist.querySelector('.si[data-id="' + id + '"] .op-dl');
-    if (btn) { btn.textContent = "\u2713?"; btn.title = "\u518D\u6B21\u70B9\u51FB\u786E\u8BA4\u5220\u9664"; btn.style.color = "var(--vscode-errorForeground, #f44)"; }
+    if (btn) { btn.textContent = "✓?"; btn.title = "Click again to confirm remove"; btn.style.color = "var(--vscode-errorForeground, #f44)"; }
     _pendingDeleteTimer = setTimeout(function() {
       _pendingDeleteId = null; _pendingDeleteTimer = null;
       var b = dlist.querySelector('.si[data-id="' + id + '"] .op-dl');
-      if (b) { b.textContent = "\uD83D\uDDD1"; b.title = "\u5220\u9664"; b.style.color = ""; }
+      if (b) { b.textContent = "🗑"; b.title = "Remove"; b.style.color = ""; }
     }, 2500);
   }
 
@@ -3285,13 +3285,13 @@
   function openCtx(e, id, pinned){
     _ctxId = id; _ctxPinned = pinned;
     ctxMenu.innerHTML =
-      '<div class="ctx-item" data-action="pin">' + (pinned ? '📌 取消固定' : '📍 固定') + '</div>' +
-      '<div class="ctx-item" data-action="unread">🔵 标记为未读</div>' +
+      '<div class="ctx-item" data-action="pin">' + (pinned ? '📌 Unpin' : '📍 Pin') + '</div>' +
+      '<div class="ctx-item" data-action="unread">🔵 Mark as unread</div>' +
       '<div class="ctx-sep"></div>' +
-      '<div class="ctx-item" data-action="rename">✏️ 重命名</div>' +
-      '<div class="ctx-item" data-action="archive">📦 存档</div>' +
+      '<div class="ctx-item" data-action="rename">✏️ Rename</div>' +
+      '<div class="ctx-item" data-action="archive">📦 Archive</div>' +
       '<div class="ctx-sep"></div>' +
-      '<div class="ctx-item danger" data-action="delete">🗑 删除</div>';
+      '<div class="ctx-item danger" data-action="delete">🗑 Delete</div>';
     var x = e.clientX, y = e.clientY;
     ctxMenu.style.display = "block";
     var mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
@@ -3344,9 +3344,9 @@
     editor.innerHTML =
       "<textarea spellcheck=\"false\"></textarea>" +
       "<div class=\"msgU-editor-bar\">" +
-        "<span class=\"hint\">Enter \u63d0\u4ea4 \u00b7 Shift+Enter \u6362\u884c \u00b7 Esc \u53d6\u6d88</span>" +
-        "<button class=\"btn-cancel\" type=\"button\">\u53d6\u6d88</button>" +
-        "<button class=\"btn-save\" type=\"button\">\u63d0\u4ea4</button>" +
+        "<span class=\"hint\">Enter Enter to submit · Shift+Enter for newline · Esc to cancel</span>" +
+        "<button class=\"btn-cancel\" type=\"button\">Cancel</button>" +
+        "<button class=\"btn-save\" type=\"button\">Save</button>" +
       "</div>";
     msgU.appendChild(editor);
     var ta = editor.querySelector("textarea");
@@ -3423,7 +3423,7 @@
       var pre = t.closest("pre.cb"); if (!pre) return;
       var code = decodeURIComponent(pre.getAttribute("data-code") || "");
       navigator.clipboard.writeText(code).then(function(){
-        var orig = t.textContent; t.textContent = "✓ 已复制"; t.classList.add("copied");
+        var orig = t.textContent; t.textContent = "✓ Copied"; t.classList.add("copied");
         setTimeout(function(){ t.textContent = orig; t.classList.remove("copied"); }, 1500);
       });
       return;
@@ -3432,7 +3432,7 @@
       var pre2 = t.closest("pre.cb"); if (!pre2) return;
       var code2 = decodeURIComponent(pre2.getAttribute("data-code") || "");
       vscode.postMessage({type:"insert", code: code2});
-      var orig2 = t.textContent; t.textContent = "✓ 已插入";
+      var orig2 = t.textContent; t.textContent = "✓ Inserted";
       setTimeout(function(){ t.textContent = orig2; }, 1500);
       return;
     }
@@ -3441,7 +3441,7 @@
       var codeT = decodeURIComponent(preT.getAttribute("data-code") || "");
       var langT = preT.getAttribute("data-lang") || "";
       vscode.postMessage({type:"insertTerminal", code: codeT, lang: langT});
-      var origT = t.textContent; t.textContent = "✓ 已插入";
+      var origT = t.textContent; t.textContent = "✓ Inserted";
       setTimeout(function(){ t.textContent = origT; }, 1500);
       return;
     }
@@ -3450,7 +3450,7 @@
       var codeR = decodeURIComponent(preR.getAttribute("data-code") || "");
       var langR = preR.getAttribute("data-lang") || "";
       vscode.postMessage({type:"runTerminal", code: codeR, lang: langR});
-      var origR = t.textContent; t.textContent = "▶ 运行中…";
+      var origR = t.textContent; t.textContent = "▶ Running…";
       setTimeout(function(){ t.textContent = origR; }, 1800);
       return;
     }
@@ -3458,8 +3458,8 @@
       var preF = t.closest("pre.cb"); if (!preF) return;
       preF.classList.toggle("expanded");
       t.textContent = preF.classList.contains("expanded")
-        ? "\u2191 \u6298\u53e0"
-        : "\u2026 \u5c55\u5f00\u5168\u90e8 " + (preF.getAttribute("data-lines") || "?") + " \u884c";
+        ? "↑ Fold"
+        : "… Expand all " + (preF.getAttribute("data-lines") || "?") + " lines";
       return;
     }
     if (t.classList.contains("cb-apply")){
@@ -3467,7 +3467,7 @@
       var codeA = decodeURIComponent(preA.getAttribute("data-code") || "");
       var langA = preA.getAttribute("data-lang") || "";
       vscode.postMessage({type:"codeBlockApply", code: codeA, lang: langA});
-      var origA = t.textContent; t.textContent = "✓ 应用中…";
+      var origA = t.textContent; t.textContent = "✓ Applying…";
       setTimeout(function(){ t.textContent = origA; }, 2000);
       return;
     }
@@ -3476,7 +3476,7 @@
       var codeN = decodeURIComponent(preN.getAttribute("data-code") || "");
       var langN = preN.getAttribute("data-lang") || "";
       vscode.postMessage({type:"codeBlockCreate", code: codeN, lang: langN});
-      var origN = t.textContent; t.textContent = "✓ 已创建";
+      var origN = t.textContent; t.textContent = "✓ Created";
       setTimeout(function(){ t.textContent = origN; }, 2000);
       return;
     }

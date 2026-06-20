@@ -33,11 +33,11 @@ async function openFile(p, line) {
             if (found.length === 1) target = found[0];
             else if (found.length > 1) {
                 const picks = found.map(u => ({ label: vscode.workspace.asRelativePath(u), uri: u }));
-                const c = await vscode.window.showQuickPick(picks, { placeHolder: `选择 ${path.basename(p)}` });
+                const c = await vscode.window.showQuickPick(picks, { placeHolder: `Select ${path.basename(p)}` });
                 if (c) target = c.uri;
             }
         }
-        if (!target) { vscode.window.showWarningMessage(`找不到文件：${p}`); return; }
+        if (!target) { vscode.window.showWarningMessage(`File not found: ${p}`); return; }
 
         const ext = path.extname(target.fsPath).toLowerCase();
         if (BINARY_EXT.has(ext)) {
@@ -55,7 +55,7 @@ async function openFile(p, line) {
         }
         await vscode.window.showTextDocument(target, opts);
     } catch (err) {
-        vscode.window.showErrorMessage('打开文件失败：' + (err?.message || err));
+        vscode.window.showErrorMessage('Failed to open file: ' + (err?.message || err));
     }
 }
 

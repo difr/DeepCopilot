@@ -12,6 +12,13 @@ function isZh() {
     } catch { return false; }
 }
 
+function isRu() {
+    try {
+        const lang = (vscode.env && vscode.env.language) || 'en';
+        return lang.toLowerCase().startsWith('ru');
+    } catch { return false; }
+}
+
 const EN = {
     apiKeyPrompt: 'Enter your DeepSeek API key (saved to VS Code SecretStorage)',
     apiKeySaved: 'Deep Copilot: API key saved.',
@@ -247,8 +254,123 @@ const ZH = {
     archiveThoughtsLabel: '思维链',
 };
 
+const RU = {
+    apiKeyPrompt: 'Введите API-ключ DeepSeek (сохраняется в VS Code SecretStorage)',
+    apiKeySaved: 'Deep Copilot: API-ключ сохранён.',
+    apiKeyDeleted: 'Deep Copilot: API-ключ удалён.',
+    apiKeyMissing: 'Сначала задайте API-ключ — нажмите значок ключа на панели инструментов.',
+    baseUrlIntl: 'Международный (по умолчанию)',
+    baseUrlCustom: 'Свой...',
+    baseUrlClear: 'Сбросить (по умолчанию)',
+    baseUrlEnter: 'Введите OpenAI-совместимый Base URL',
+    baseUrlSet: 'Deep Copilot: Base URL = ',
+    statusKey: 'API-ключ',
+    statusKeyOn: 'задан',
+    statusKeyOff: 'не задан (нажмите «Задать ключ»)',
+    statusBaseUrl: 'Base URL',
+    statusModel: 'Модель',
+    statusMode: 'Режим подтверждения',
+    statusBtnSetKey: 'Задать API-ключ',
+    statusBtnSwitchUrl: 'Сменить Base URL',
+    standaloneNoServer: 'Deep Copilot — автономное расширение, сервер не требуется.',
+    standaloneNoTui: 'Автономная сборка Deep Copilot не включает TUI-терминал.',
+    logFileLabel: 'Файл лога: ',
+    logOpenInEditor: 'Открыть в редакторе',
+    logCopyPath: 'Копировать путь',
+    logRevealInOS: 'Показать в проводнике',
+    logPathCopied: 'Путь к логу скопирован.',
+    logNotInit: 'Лог ещё не создан (отправьте сообщение).',
+    approvalRequest: 'Deep Copilot хочет: ',
+    approvalApprove: 'Разрешить',
+    approvalDeny: 'Запретить',
+    deniedByUser: 'Запрещено пользователем.',
+    dangerCmdTitle: 'Deep Copilot хочет выполнить потенциально опасную команду:',
+    dangerAllowOnce: 'Разрешить один раз',
+    dangerDeny: 'Запретить',
+    dangerBlocked: 'Заблокировано: команда помечена как потенциально опасная, пользователь отказал. НЕ повторяйте ту же команду. Объясните пользователю, что вы хотели сделать, и предложите безопасную альтернативу.',
+    blockedOutsideWs: 'Заблокировано: путь вне рабочей области, доступ не подтверждён.',
+    pathOutsideWsConfirm: 'Deep Copilot хочет получить доступ к пути вне рабочей области:',
+    deniedReadonly: 'Отказано: активен режим «только чтение».',
+    writeFileLabel: 'Запись файла: ',
+    runCmdLabel: 'Выполнить: ',
+    createSkillLabel: 'Создать навык: ',
+    insertNoEditor: 'Сначала откройте файл в редакторе.',
+    inserted: 'Код вставлен в редактор.',
+    copied: 'Скопировано в буфер обмена.',
+    feedbackUp: 'Отзыв записан.',
+    feedbackDown: 'Отзыв записан.',
+    sessionUntitled: 'Без названия',
+    errTitle: 'Ошибка запроса',
+    errTitle401: 'Неверный или просроченный API-ключ',
+    errTip401: 'Нажмите 🔑 и задайте ключ заново. Убедитесь, что ключ не истёк и не отключён.',
+    errTitle402: 'Недостаточно средств на счёте',
+    errTip402: 'Пополните баланс и повторите.',
+    errTitle429: 'Превышен лимит запросов',
+    errTip429: 'Сработало ограничение частоты. Подождите несколько секунд и нажмите «Повторить».',
+    errTitle400: 'Неверный запрос',
+    errTip400: 'Возможно, слишком длинный контекст или некорректный формат сообщения. Попробуйте очистить сессию (Ctrl+K) и повторить.',
+    errTitle5xx: 'Ошибка сервера',
+    errNetwork: 'Сетевая ошибка',
+    errTipNetwork: 'Не удалось подключиться к API. Проверьте сеть, прокси и брандмауэр.',
+    errAborted: 'Генерация остановлена',
+    errTipAborted: 'Генерация прервана пользователем.',
+    wvWelcomeSub:       'Открытый, честный и доступный AI для всех',
+    wvWelcomeHint:      'Введите сообщение и нажмите Enter',
+    wvSessions:         'Сессии',
+    wvWorkspace:        'Рабочая область',
+    wvWorkspaceTitle:   'Показывать только сессии текущей рабочей области',
+    wvAll:              'Все',
+    wvSearchPlaceholder:'Поиск сессий...',
+    wvNewSession:       'Новая сессия',
+    wvNoSessions:       'Нет сессий',
+    wvThinking:         '● ● ● Думаю...',
+    wvInputPlaceholder: 'Опишите, что нужно сделать',
+    wvSend:             'Отправить',
+    wvApiTitle:         'Настройки API · DeepSeek / Tavily / Base URL',
+    wvCacheTitle:       'Попадание в кэш промпта (чем выше, тем дешевле)',
+    wvSwitchModel:      'Сменить модель',
+    wvApprovalMode:     'Режим подтверждения',
+    wvInteractionMode:  'Режим взаимодействия',
+    wvBalanceTitle:     'Баланс (нажмите для обновления)',
+    wvBalanceInit:      '💰 Проверка...',
+
+    // Pending-edits panel
+    wvPendingEditsTitle:      'Правки на проверке',
+    wvPendingEditsKeep:       'Оставить',
+    wvPendingEditsKeepAll:    'Оставить все',
+    wvPendingEditsDiscard:    'Отменить',
+    wvPendingEditsDiscardAll: 'Отменить все',
+    wvPendingEditsNew:        'новый',
+    wvPendingEditsDeleted:    'удалён',
+    wvPendingEditsBinary:     'двоичный',
+
+    // Sidebar launcher hint page
+    sidebarHintLead:    'Для удобства откройте Deep Copilot как вкладку редактора',
+    sidebarHintBenefit1:'Больше места для чата',
+    sidebarHintBenefit2:'Боковая панель свободна для проводника, Git и пр.',
+    sidebarHintButton:  'Открыть сейчас',
+    sidebarHintFooter:  '⊙ Или нажмите Deep Copilot в строке состояния',
+
+    // run_shell stall/timeout diagnostics — issue #69
+    shellNoOutput:      '[Note: no output for last {sec}s] (процесс работает, нет вывода {sec} с)',
+    shellSilentTimeout: '[Note: process was silent for last {sec}s before timeout — likely hung] (тишина {sec} с до таймаута — вероятно, завис: порт занят / ждёт ввода / блокировка. Не повторяйте вслепую, сообщите пользователю.)',
+
+    // Session archive → Markdown export (issue #165)
+    archiveSaved:         'Сессия сохранена в {path}',
+    archiveFailed:        'Deep Copilot: не удалось сохранить сессию — {msg}',
+    archiveOpenFile:      'Открыть файл',
+    archiveRevealInOS:    'Показать в проводнике',
+    archiveSaveLabel:     'Сохранить архив',
+    archivePickWorkspace: 'Выберите папку для сохранения архива',
+    archiveErrEscape:     'Отказано: путь вне рабочей области.',
+    archiveOpenFailed:    'Не удалось открыть файл — {msg}',
+    archiveRoleUser:      'Пользователь',
+    archiveRoleAssistant: 'Ассистент',
+    archiveThoughtsLabel: 'Рассуждения',
+};
+
 function t(key) {
-    const bundle = isZh() ? ZH : EN;
+    const bundle = isRu() ? RU : isZh() ? ZH : EN;
     return bundle[key] != null ? bundle[key] : (EN[key] != null ? EN[key] : key);
 }
 
@@ -264,4 +386,4 @@ function tf(key, params) {
     return s;
 }
 
-module.exports = { t, tf, isZh };
+module.exports = { t, tf, isZh, isRu };

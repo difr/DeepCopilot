@@ -1,4 +1,4 @@
-﻿// ChatViewProvider: thin coordinator that wires SessionStore, ToolExecutor,
+// ChatViewProvider: thin coordinator that wires SessionStore, ToolExecutor,
 // and AgentLoop together and owns the VS Code webview/panel binding.
 //
 // Architecture (hot-pluggable, DI-style):
@@ -17,7 +17,6 @@ const fs     = require('fs');
 
 const { Logger }           = require('../logger');
 const { wsRoot, resolvePath, findContainingFolder } = require('../utils/paths');
-const { isZh }             = require('../utils/i18n');
 const { openFile }         = require('./openFile');
 const { buildWebviewHtml, buildSidebarHintHtml } = require('../webview/html');
 const { mcpManager }       = require('../mcp');
@@ -581,7 +580,7 @@ class ChatViewProvider {
             case 'runTerminal':    this._sendToTerminal(msg.code, true); break;
             case 'copy':
                 vscode.env.clipboard.writeText(msg.code)
-                    .then(() => vscode.window.setStatusBarMessage('已复制到剪贴板', 2000));
+                    .then(() => vscode.window.setStatusBarMessage('Copied to clipboard', 2000));
                 break;
             case 'codeBlockApply':  await this._applyCodeBlock(msg.code, msg.lang); break;
             case 'codeBlockCreate': await this._createFileFromCodeBlock(msg.code, msg.lang); break;
@@ -590,7 +589,7 @@ class ChatViewProvider {
             case 'editUserMessage': this._handleEditUserMessage(msg); break;
             case 'editUserSubmit':  await this._handleEditUserSubmit(msg); break;
             case 'feedback':
-                vscode.window.setStatusBarMessage(msg.value === 'up' ? '👍 已记录' : '👎 已记录', 1500);
+                vscode.window.setStatusBarMessage((msg.value === 'up' ? '👍 Recorded' : '👎 Recorded'), 1500);
                 break;
             case 'fileSearch': {
                 const q = String(msg.query || '').toLowerCase();
@@ -631,7 +630,7 @@ class ChatViewProvider {
                         .filter(p => !openSet.has(p.fsPath));
 
                     const picked = await vscode.window.showQuickPick([...openItems, ...wsItems], {
-                        placeHolder: isZh() ? '搜索并选择文件…' : 'Search and select a file…',
+                        placeHolder: 'Search and select a file…',
                         matchOnDescription: false,
                     });
                     // Send fsPath — avoids multi-root ambiguity; resolvePath handles absolute paths.
@@ -740,16 +739,16 @@ class ChatViewProvider {
     async _handleCompactCommand(focus) {
         const sid = this._store.sessionId;
         if (!sid) {
-            this._post({ type: 'status', text: '没有活动会话可压缩 / No active session to compact' });
+            this._post({ type: 'status', text: 'No active session to compact' });
             return;
         }
         const run = this._activeRun();
         if (!run || !Array.isArray(run.messages) || run.messages.length === 0) {
-            this._post({ type: 'status', text: '当前会话尚无可压缩内容 / Nothing to compact yet' });
+            this._post({ type: 'status', text: 'Nothing to compact yet' });
             return;
         }
         if (run.busy) {
-            this._post({ type: 'status', text: '请等待当前回复结束再压缩 / Wait for the current reply to finish' });
+            this._post({ type: 'status', text: 'Wait for the current reply to finish' });
             return;
         }
 
@@ -789,7 +788,7 @@ class ChatViewProvider {
         // Force compaction by setting a budget well below the current size.
         const budget = Math.max(2000, Math.floor(before * (focus ? 0.3 : 0.4)));
 
-        this._post({ type: 'status', text: '🗜 正在压缩历史… / Compacting…' });
+        this._post({ type: 'status', text: '🗜 Compacting…' });
         try {
             const res = await autoCompactIfNeeded(run.messages, budget, 6, apiConfig);
             if (res && res.compacted) {
@@ -802,10 +801,10 @@ class ChatViewProvider {
                 } catch (_e) { /* persistence best-effort */ }
                 this._post({
                     type: 'status',
-                    text: `✅ 已压缩 ${Math.round(before / 1000)}K → ${Math.round(after / 1000)}K tokens`,
+                    text: `✅  Compacted ${Math.round(before / 1000)}K → ${Math.round(after / 1000)}K tokens`,
                 });
             } else {
-                this._post({ type: 'status', text: '历史已足够紧凑 / History already compact' });
+                this._post({ type: 'status', text: 'History already compact' });
             }
         } catch (e) {
             this._post({ type: 'error', text: `Compact failed: ${e.message}` });
@@ -871,13 +870,13 @@ class ChatViewProvider {
     async _handleForkCommand(title) {
         const sid = this._store.sessionId;
         if (!sid) {
-            this._post({ type: 'status', text: '没有可分叉的会话 / Nothing to fork' });
+            this._post({ type: 'status', text: 'Nothing to fork' });
             return;
         }
         try {
             const newId = await this._store.fork(sid, title);
             if (newId) {
-                this._post({ type: 'status', text: `🌿 已分叉到新会话 / Forked to new session` });
+                this._post({ type: 'status', text: '🌿 Forked to new session' });
             }
         } catch (e) {
             this._post({ type: 'error', text: `/fork failed: ${e.message}` });
@@ -1048,7 +1047,7 @@ class ChatViewProvider {
             const loc = this._resolveDocLocation(doc);
             if (!loc) return;
             let content = doc.getText();
-            if (content.length > MAX_FILE_ATTACH_BYTES) content = content.slice(0, MAX_FILE_ATTACH_BYTES) + '\n... [截断]';
+            if (content.length > MAX_FILE_ATTACH_BYTES) content = content.slice(0, MAX_FILE_ATTACH_BYTES) + '\n... [truncated]';
             this._post({
                 type: 'addAttachment',
                 payload: { path: loc.rel, content, lang: doc.languageId, external: loc.external },
@@ -1133,7 +1132,7 @@ class ChatViewProvider {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showWarningMessage(
-                isZh() ? 'Deep Copilot: 请先在编辑器中打开一个文件' : 'Deep Copilot: Open a file in the editor first'
+                'Deep Copilot: Open a file in the editor first'
             );
             return;
         }
@@ -1149,10 +1148,10 @@ class ChatViewProvider {
             content   = doc.getText(sel);
             startLine = sel.start.line + 1;  // convert to 1-based
             endLine   = sel.end.line + 1;
-            if (content.length > 12000) content = content.slice(0, 12000) + '\n... [截断]';
+            if (content.length > 12000) content = content.slice(0, 12000) + '\n... [truncated]';
         } else {
             content = doc.getText();
-            if (content.length > 65536) content = content.slice(0, 65536) + '\n... [截断]';
+            if (content.length > 65536) content = content.slice(0, 65536) + '\n... [truncated]';
         }
 
         // Issue #97: for explicit user-driven attach (right-click / command),
@@ -1194,7 +1193,7 @@ class ChatViewProvider {
             let content = doc.getText(sel);
             const startLine = sel.start.line + 1;
             const endLine   = sel.end.line + 1;
-            if (content.length > 12000) content = content.slice(0, 12000) + (isZh() ? '\n... [截断]' : '\n... [truncated]');
+            if (content.length > 12000) content = content.slice(0, 12000) + '\n... [truncated]';
             this._post({
                 type: 'setLiveSelection',
                 payload: { path: loc.rel, content, startLine, endLine, lang, external: loc.external },
@@ -1205,7 +1204,7 @@ class ChatViewProvider {
             const FILE_CAP = 60 * 1024; // 60KB cap to keep payload reasonable
             let content = doc.getText();
             const truncated = content.length > FILE_CAP;
-            if (truncated) content = content.slice(0, FILE_CAP) + (isZh() ? '\n... [文件超出 60KB 已截断]' : '\n... [file exceeded 60KB and was truncated]');
+            if (truncated) content = content.slice(0, FILE_CAP) + '\n... [file exceeded 60KB and was truncated]';
             this._post({
                 type: 'setLiveSelection',
                 payload: { path: loc.rel, content, lang, external: loc.external },
@@ -1247,9 +1246,9 @@ class ChatViewProvider {
 
     _insertToEditor(code) {
         const editor = vscode.window.activeTextEditor;
-        if (!editor) { vscode.window.showWarningMessage('请先在编辑器中打开一个文件'); return; }
+        if (!editor) { vscode.window.showWarningMessage('Open a file in the editor first'); return; }
         editor.edit(b => b.replace(editor.selection, code));
-        vscode.window.setStatusBarMessage('✓ 代码已插入编辑器', 2500);
+        vscode.window.setStatusBarMessage('✓ Code inserted into editor', 2500);
     }
 
     _sendToTerminal(code, execute) {
@@ -1264,11 +1263,11 @@ class ChatViewProvider {
 
     async _applyCodeBlock(code, lang) {
         const editor = vscode.window.activeTextEditor;
-        if (!editor) { vscode.window.showWarningMessage('请先在编辑器中打开目标文件'); return; }
+        if (!editor) { vscode.window.showWarningMessage('Open a target file in the editor first'); return; }
         if (/^---\s/m.test(code) && /^\+\+\+\s/m.test(code)) {
             const { toolApplyPatch } = require('../tools/exec');
             const result = await toolApplyPatch({ patch: code });
-            vscode.window.setStatusBarMessage(result.success ? '✓ Patch 已应用' : '✗ Patch 应用失败', 3000);
+            vscode.window.setStatusBarMessage(result.success ? '✓ Patch applied' : '✗ Patch failed', 3000);
             return;
         }
         const sel = editor.selection;
@@ -1281,33 +1280,33 @@ class ChatViewProvider {
         } else {
             editor.edit(b => b.replace(sel, code));
         }
-        vscode.window.setStatusBarMessage('✓ 代码已应用到编辑器', 2500);
+        vscode.window.setStatusBarMessage('✓ Code applied to editor', 2500);
     }
 
     async _createFileFromCodeBlock(code, lang) {
         const langMap = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'shellscript', bash: 'shellscript', css: 'css', html: 'html', json: 'json', md: 'markdown', yaml: 'yaml', yml: 'yaml', c: 'c', cpp: 'cpp', java: 'java', go: 'go', rs: 'rust' };
         const doc = await vscode.workspace.openTextDocument({ content: code, language: langMap[lang] || lang || 'plaintext' });
         await vscode.window.showTextDocument(doc);
-        vscode.window.setStatusBarMessage('✓ 已在新文件中打开代码', 2500);
+        vscode.window.setStatusBarMessage('✓ Code opened in new file', 2500);
     }
 
     async revertLastTurn() {
         const run = this._activeRun();
         if (!run || !run.turnSnapshots || run.turnSnapshots.size === 0) {
             vscode.window.showInformationMessage(
-                isZh() ? 'Deep Copilot：本轮没有可回滚的文件修改。'
-                       : 'Deep Copilot: No file changes to revert in this turn.'
+                //
+                'Deep Copilot: No file changes to revert in this turn.'
             );
             return;
         }
         const count = run.turnSnapshots.size;
         const ok = await vscode.window.showWarningMessage(
-            isZh() ? `回滚本轮 Agent 对 ${count} 个文件的修改？`
-                   : `Revert ${count} file change(s) from this agent turn?`,
+            //
+            `Revert ${count} file change(s) from this agent turn?`,
             { modal: true },
-            isZh() ? '确认回滚' : 'Revert All',
+            'Revert All',
         );
-        if (ok !== (isZh() ? '确认回滚' : 'Revert All')) return;
+        if (ok !== 'Revert All') return;
         const reverted = [], failed = [];
         for (const [absPath, original] of run.turnSnapshots) {
             try {
@@ -1321,11 +1320,11 @@ class ChatViewProvider {
             run.pendingEdits.clear();
             this._runPost(run, { type: 'pendingEdits', items: [] });
         }
-        const msg = isZh()
-            ? `已回滚 ${reverted.length} 个文件：${reverted.join('、')}`
-            : `Reverted ${reverted.length} file(s): ${reverted.join(', ')}`;
+        const msg =
+            //
+            `Reverted ${reverted.length} file(s): ${reverted.join(', ')}`;
         failed.length
-            ? vscode.window.showWarningMessage(msg + (isZh() ? `；失败：${failed.join('、')}` : `; Failed: ${failed.join(', ')}`))
+            ? vscode.window.showWarningMessage(msg + `; Failed: ${failed.join(', ')}`)
             : vscode.window.showInformationMessage(msg);
     }
 
@@ -1376,7 +1375,7 @@ class ChatViewProvider {
         }
         if (failed.length) {
             vscode.window.showWarningMessage(
-                (isZh() ? 'Deep Copilot：部分文件回退失败：' : 'Deep Copilot: some files failed to revert: ')
+                'Deep Copilot: some files failed to revert: '
                 + failed.join('; ')
             );
         }
@@ -1424,16 +1423,16 @@ class ChatViewProvider {
             );
             try { this._invalidatePendingBefore && this._invalidatePendingBefore(beforeUri); } catch {}
             const afterUri  = vscode.Uri.file(targetPath);
-            const title     = isZh()
-                ? `Deep Copilot 待审阅: ${path.basename(targetPath)}`
-                : `Deep Copilot pending: ${path.basename(targetPath)}`;
+            const title     =
+            //
+                `Deep Copilot pending: ${path.basename(targetPath)}`;
             // Drop `preview: true` so the diff tab survives the next click;
             // otherwise repeated clicks can replace and instantly close it.
             await vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, title);
         } catch (e) {
             Logger.info('OPEN_EDIT_DIFF_ERROR', { message: e.message });
             vscode.window.showWarningMessage(
-                (isZh() ? '无法打开差异视图: ' : 'Cannot open diff view: ') + e.message
+                'Cannot open diff view: ' + e.message
             );
         }
     }
