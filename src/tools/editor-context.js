@@ -12,7 +12,7 @@ const { wsRoot } = require('../utils/paths');
  *   active_file, language, cursor_line/col, selected_text, open_files.
  */
 async function toolGetEditorContext() {
-    const editor = vscode.window.activeTextEditor;
+    const editor = vscode.window.activeTextEditor || vscode.window.visibleTextEditors[0];
     const out    = {};
 
     if (editor) {

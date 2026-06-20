@@ -1245,7 +1245,7 @@ class ChatViewProvider {
     }
 
     _insertToEditor(code) {
-        const editor = vscode.window.activeTextEditor;
+        const editor = vscode.window.activeTextEditor || vscode.window.visibleTextEditors[0];
         if (!editor) { vscode.window.showWarningMessage('Open a file in the editor first'); return; }
         editor.edit(b => b.replace(editor.selection, code));
         vscode.window.setStatusBarMessage('✓ Code inserted into editor', 2500);
@@ -1262,7 +1262,7 @@ class ChatViewProvider {
     }
 
     async _applyCodeBlock(code, lang) {
-        const editor = vscode.window.activeTextEditor;
+        const editor = vscode.window.activeTextEditor || vscode.window.visibleTextEditors[0];
         if (!editor) { vscode.window.showWarningMessage('Open a target file in the editor first'); return; }
         if (/^---\s/m.test(code) && /^\+\+\+\s/m.test(code)) {
             const { toolApplyPatch } = require('../tools/exec');

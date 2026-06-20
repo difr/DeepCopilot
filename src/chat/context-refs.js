@@ -50,7 +50,7 @@ function wsRelLabel(abs) {
 // ── selection / editor ────────────────────────────────────────────────
 
 function resolveSelection() {
-    const editor = vscode.window.activeTextEditor;
+    const editor = vscode.window.activeTextEditor || vscode.window.visibleTextEditors[0];
     if (!editor) return { error: 'No active editor' };
     const doc = editor.document;
     const sel = editor.selection;
@@ -80,7 +80,7 @@ function resolveSelection() {
 }
 
 function resolveEditor() {
-    const editor = vscode.window.activeTextEditor;
+    const editor = vscode.window.activeTextEditor || vscode.window.visibleTextEditors[0];
     if (!editor) return { error: 'No active editor' };
     const doc = editor.document;
     // Untitled / virtual documents: never expose fileName as a path; use a
