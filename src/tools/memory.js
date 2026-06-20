@@ -47,20 +47,36 @@ async function toolMemoryWrite(args) {
     try { existing = fs.readFileSync(p, 'utf8'); } catch { /* file does not exist yet */ }
 
     const header   = `## ${args.section}`;
-    const newBlock = `${header}\n\n${String(args.content).trim()}\n`;
+    const newBody  = String(args.content).trim();
 
     // Replace existing section if present, otherwise append
-    const escaped  = args.section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const sectionRe = new RegExp(
-        `## ${escaped}(?:[\\s\\S]*?)(?=(?:\\n## )|$)`, 'm'
-    );
-
     let updated;
-    if (sectionRe.test(existing)) {
-        updated = existing.replace(sectionRe, newBlock.trimEnd());
+    if (existing) {
+        const lines = existing.split('\n');
+        let sectionStart = -1;
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].trim() === header) { sectionStart = i; break; }
+        }
+
+        if (sectionStart >= 0) {
+            // Find next section header (or EOF)
+            let sectionEnd = lines.length;
+            for (let i = sectionStart + 1; i < lines.length; i++) {
+                if (/^## /.test(lines[i])) { sectionEnd = i; break; }
+            }
+            // Remove old body
+            lines.splice(sectionStart + 1, sectionEnd - sectionStart - 1);
+            // Insert new content with blank-line separator
+            const insert = ['', newBody];
+            if (sectionEnd < lines.length) insert.push(''); // trailing blank before next section
+            lines.splice(sectionStart + 1, 0, ...insert);
+            updated = lines.join('\n');
+        } else {
+            const base = existing.trimEnd();
+            updated = (base ? base + '\n\n' : '# Project Memory\n\n') + header + '\n\n' + newBody + '\n';
+        }
     } else {
-        const base = existing.trimEnd();
-        updated    = (base ? base + '\n\n' : '# Project Memory\n\n') + newBlock;
+        updated = '# Project Memory\n\n' + header + '\n\n' + newBody + '\n';
     }
 
     try {
