@@ -9,6 +9,32 @@ const { t, tf }      = require('../utils/i18n');
 const { truncate } = require('./utils');
 const { Logger }   = require('../logger');
 
+// ─── Windows codepage detection (for non-UTF-8 shell output) ────────────────
+let _winCodepage = null;
+function _detectWinCodepage() {
+    if (process.platform !== 'win32') return null;
+    if (_winCodepage !== null) return _winCodepage;
+    try {
+        const out = cp.execSync('chcp', { encoding: 'utf8', timeout: 3000, windowsHide: true });
+        const m = out.match(/(\d+)/);
+        if (m && m[1] !== '65001') {
+            _winCodepage = 'cp' + m[1];
+            try { Logger.info('SHELL_CODEPAGE_DETECTED', { codepage: _winCodepage }); } catch {}
+            return _winCodepage;
+        }
+    } catch {}
+    _winCodepage = null;
+    return null;
+}
+function _decodeShellChunk(chunk) {
+    const cp = _detectWinCodepage();
+    if (!cp) return chunk.toString('utf8');
+    try {
+        const iconv = require('iconv-lite');
+        return iconv.decode(chunk, cp);
+    } catch { return chunk.toString('utf8'); }
+}
+
 // Issue #89: Cache normalized danger-command approvals for the current
 // extension session. Once the user grants "Allow once" (or `auto-edit`
 // implicitly approves via this cache), the same command will not re-prompt
@@ -464,7 +490,7 @@ async function toolRunShell(args, ctx = {}) {
         }
 
         const append = (which, chunk) => {
-            const txt = chunk.toString('utf8');
+            const txt = _decodeShellChunk(chunk);
             // After settle() (e.g. timeout handed back control), drain the pipe
             // to prevent backpressure but stop buffering and streaming.
             if (settled) return;

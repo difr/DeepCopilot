@@ -319,6 +319,14 @@
           "minimum": 0,
           "maximum": 2000,
           "description": "Idle delay (ms) after the last keystroke before requesting an inline completion. Lower = snappier but more API calls."
+        },
+        "deepseekAgent.fileEncoding": {
+          "type": "object",
+          "default": {},
+          "patternProperties": {
+            ".*": { "type": "string" }
+          },
+          "markdownDescription": "File encoding by glob pattern, relative to workspace root. The `*` key (reserved — not a valid filename) sets the project-wide default. Example: `{ \"*\": \"utf8\", \"trunk/**\": \"cp1251\", \"*.rc\": \"cp866\" }`. Workspace-level — put in `.vscode/settings.json`."
         }
       }
     },
@@ -384,6 +392,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
+    "iconv-lite": "^0.6.3",
     "js-tiktoken": "^1.0.21",
     "openai": "^6.38.0"
   },

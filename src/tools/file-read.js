@@ -11,6 +11,7 @@ const vscode   = require('vscode');
 const { wsRoot, resolvePath } = require('../utils/paths');
 const { t }                   = require('../utils/i18n');
 const { truncate, ensurePathAllowed } = require('./utils');
+const { readFileText, createDecodedStream, decodeBuf, resolveEncoding } = require('../utils/encoding');
 
 // ─── ripgrep detection ───────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ function readLineRangeStreamed(fp, startLine, endLine) {
 
     return new Promise((resolve, reject) => {
         let stream;
-        try { stream = fs.createReadStream(fp, { encoding: 'utf8' }); }
+        try { stream = createDecodedStream(fp).stream; }
         catch (err) { return reject(err); }
 
         const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -106,7 +107,7 @@ function estimateLineCount(fp, fileSize) {
         if (n === 0) return { lines: 0, binary: false };
         // Binary detection: any null byte in the sample
         for (let i = 0; i < n; i++) if (buf[i] === 0) return { lines: null, binary: true };
-        const sample  = buf.slice(0, n).toString('utf8');
+        const sample  = decodeBuf(buf.slice(0, n), resolveEncoding(fp));
         const nlCount = (sample.match(/\n/g) || []).length;
         if (nlCount === 0) return { lines: 1, binary: false }; // no newlines found
         const avgLineBytes = n / nlCount;
@@ -179,7 +180,7 @@ async function toolReadFile(args) {
         }
 
         // ── Normal path (file ≤ 10 MB) ────────────────────────────────────
-        const text = fs.readFileSync(fp, 'utf8');
+        const { text } = readFileText(fp);
         if (args.start_line || args.end_line) {
             const lines = text.split('\n');
             const s = Math.max(0, (args.start_line || 1) - 1);

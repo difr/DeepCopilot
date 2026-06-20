@@ -8,6 +8,7 @@ const path = require('path');
 const { resolvePath }              = require('../utils/paths');
 const { t }                        = require('../utils/i18n');
 const { truncate, ensurePathAllowed } = require('./utils');
+const { readFileText, writeFileText } = require('../utils/encoding');
 
 // ─── write_file ──────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ async function toolWriteFile(args) {
         const fp = resolvePath(args.path);
         if (!await ensurePathAllowed(fp, 'write')) return t('blockedOutsideWs');
         fs.mkdirSync(path.dirname(fp), { recursive: true });
-        fs.writeFileSync(fp, args.content, 'utf8');
+        writeFileText(fp, args.content, args.encoding);
         return `OK: wrote ${args.content.length} chars to ${args.path}`;
     } catch (e) { return `Error: ${e.message}`; }
 }
@@ -30,15 +31,22 @@ async function toolStrReplaceInFile(args) {
         const oldStr = String(args.old_string ?? '');
         const newStr = String(args.new_string ?? '');
         if (!oldStr) return 'Error: old_string is required and must not be empty.';
-        const text     = fs.readFileSync(fp, 'utf8');
+        const { text: rawText, encoding } = readFileText(fp);
         const expected = Math.max(1, Number(args.expected_replacements) || 1);
+
+        // Normalise CRLF → LF for matching (same policy as apply_patch).
+        // Both the file content and old_string are normalised so that
+        // the agent never needs to guess the file's line-ending style.
+        const hasCRLF = rawText.includes('\r\n');
+        const text   = hasCRLF ? rawText.replace(/\r\n/g, '\n') : rawText;
+        const oldStrNorm = hasCRLF ? oldStr.replace(/\r\n/g, '\n') : oldStr;
 
         let count = 0, idx = 0;
         const indices = [];
-        while ((idx = text.indexOf(oldStr, idx)) !== -1) {
+        while ((idx = text.indexOf(oldStrNorm, idx)) !== -1) {
             indices.push(idx);
             count++;
-            idx += oldStr.length;
+            idx += oldStrNorm.length;
             if (count > 1000) break;
         }
         if (count === 0) {
@@ -50,10 +58,10 @@ async function toolStrReplaceInFile(args) {
 
         let updated = '';
         let cursor = 0;
-        for (const at of indices) { updated += text.slice(cursor, at) + newStr; cursor = at + oldStr.length; }
+        for (const at of indices) { updated += text.slice(cursor, at) + newStr; cursor = at + oldStrNorm.length; }
         updated += text.slice(cursor);
 
-        fs.writeFileSync(fp, updated, 'utf8');
+        writeFileText(fp, hasCRLF ? updated.replace(/\n/g, '\r\n') : updated, args.encoding || encoding);
         return `OK: ${count} replacement(s) in ${args.path} (${updated.length - text.length >= 0 ? '+' : ''}${updated.length - text.length} chars).`;
     } catch (e) { return `Error: ${e.message}`; }
 }
@@ -173,9 +181,14 @@ async function toolApplyPatch(args) {
 
         let originalText = '';
         let hasCRLF = false;
+        let patchEncoding = 'utf8';
         const isNewFile = !fs.existsSync(absPath);
         if (!isNewFile) {
-            try { originalText = fs.readFileSync(absPath, 'utf8'); }
+            try {
+                const { text, encoding } = readFileText(absPath);
+                originalText = text;
+                patchEncoding = encoding;
+            }
             catch (e) { report.push(`❌ ${relPath}: read error — ${e.message}`); anyFailed = true; continue; }
         }
         const norm = _normalizeLines(originalText);
@@ -209,7 +222,7 @@ async function toolApplyPatch(args) {
             const trailingNewline = originalText.endsWith('\n') || isNewFile;
             let output = _restoreEndings(lines, hasCRLF);
             if (trailingNewline && !output.endsWith(hasCRLF ? '\r\n' : '\n')) output += hasCRLF ? '\r\n' : '\n';
-            fs.writeFileSync(absPath, output, 'utf8');
+            writeFileText(absPath, output, patchEncoding);
             report.push(`✓ ${relPath}: ${fileDiff.hunks.length} hunk(s) applied`);
             report.push(...hunkReports);
         } catch (e) { report.push(`❌ ${relPath}: write error — ${e.message}`); anyFailed = true; }

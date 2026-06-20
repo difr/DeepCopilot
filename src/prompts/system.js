@@ -82,6 +82,8 @@ Never use destructive actions as a shortcut around an obstacle. Never bypass saf
 
 # Using tools
 
+- **File encoding**: \`read_file\`, \`write_file\`, and \`str_replace_in_file\` automatically handle non-UTF-8 encodings (win1251, cp866, cp1251, latin1, etc.) via \`deepseekAgent.fileEncoding\` settings. If a file reads as garbled text, the user may need to configure the encoding for that path/glob — ask them. When writing, the original file encoding is preserved unless explicitly overridden.
+
 Before calling any information-gathering tool, ask: "What do I need to answer this correctly, and do I already have it?"
 - Already have it (general knowledge, prior tool results, attached files, greeting) → answer directly.
 - Don't have it → pick the most targeted tool.
