@@ -883,12 +883,23 @@
   var ICO_REGEN = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89M13.5 2.5v3h-3"/></svg>';
   var ICO_UP    = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M6 13.5H3.5v-6H6m0 6 2.2 0a1.5 1.5 0 0 0 1.48-1.24l.6-3.3A1 1 0 0 0 9.3 7.75H6.8l.55-2.6A1.4 1.4 0 0 0 5.98 3.5L6 7.5v6Z"/></svg>';
   var ICO_DOWN  = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M6 2.5H3.5v6H6m0-6 2.2 0a1.5 1.5 0 0 1 1.48 1.24l.6 3.3A1 1 0 0 1 9.3 8.25H6.8l.55 2.6A1.4 1.4 0 0 1 5.98 12.5L6 8.5v-6Z"/></svg>';
+  var _msgTimeFmt = new Intl.DateTimeFormat(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  var _msgTimeFullFmt = new Intl.DateTimeFormat(undefined, { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  function timeHtml(){
+    var d = new Date();
+    var iso = d.toISOString();
+    var short = _msgTimeFmt.format(d);
+    var full = _msgTimeFullFmt.format(d);
+    return "<time class=\"msgTime\" datetime=\"" + iso + "\" title=\"" + escHtml(full) + "\">" + escHtml(short) + "</time>";
+  }
+
   function actionBarHtml(){
     return "<div class=\"msgActs\">" +
       "<button class=\"ma ma-copy\" title=\"Copy\" aria-label=\"Copy\">" + ICO_COPY + "</button>" +
       "<button class=\"ma ma-regen\" title=\"Regenerate\" aria-label=\"Regenerate\">" + ICO_REGEN + "</button>" +
       "<button class=\"ma ma-up\" title=\"Useful\" aria-label=\"Useful\">" + ICO_UP + "</button>" +
       "<button class=\"ma ma-down\" title=\"Not useful\" aria-label=\"Not useful\">" + ICO_DOWN + "</button>" +
+      (_replaying ? "" : timeHtml()) +
     "</div>";
   }
 
@@ -3042,6 +3053,8 @@
          until replyEnd/stopped fires and can clean it up with the correct id. */
       setBusy(false, true);
       sb.style.display = "none";
+      var _prevReplaying = _replaying;
+      _replaying = true;
       var msgsArr = m.messages || [];
       for (var k=0; k<msgsArr.length; k++){
         var mm = msgsArr[k];
@@ -3058,6 +3071,7 @@
           if (k === msgsArr.length - 1) d.insertAdjacentHTML("beforeend", actionBarHtml());
         }
       }
+      _replaying = _prevReplaying;
       /* Restore timer if this session was mid-run when we switched away.
          Call setBusy(true) first so it creates the spinner and starts the
          interval; then override _busyStartTs with the real start time so

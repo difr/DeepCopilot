@@ -495,6 +495,15 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
   content:"\2713"; font-size:14px; font-weight:600; line-height:1;
 }
 
+/* ── Message timestamp (action bar only) ── */
+.msgTime{
+  font-size:10px; color:var(--vscode-descriptionForeground);
+  opacity:.65; white-space:nowrap;
+  font-feature-settings:"tnum"; font-variant-numeric:tabular-nums;
+  align-self:center;
+}
+.msgActs .msgTime{ margin-left:auto; padding-left:8px; }
+
 /* ── #7 Phase 5: slash / @ command popover ── */
 #ia { position: relative }
 #pop.pop{
