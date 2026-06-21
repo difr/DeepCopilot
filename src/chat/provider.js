@@ -772,11 +772,16 @@ class ChatViewProvider {
             return;
         }
         const run = this._activeRun();
-        if (!run || !Array.isArray(run.messages) || run.messages.length === 0) {
+        // Fallback with priority: live run.messages → persisted store → empty array.
+        // Between turns the run is deleted (agent-loop.js L1210), so we
+        // fall back to the store which always has the last persisted state.
+        const messages = (run && Array.isArray(run.messages) && run.messages.length > 0)
+            ? run.messages : this._store.loadApiMessages(sid);
+        if (!Array.isArray(messages) || messages.length === 0) {
             this._post({ type: 'status', text: 'Nothing to compact yet' });
             return;
         }
-        if (run.busy) {
+        if (run && run.busy) {
             this._post({ type: 'status', text: 'Wait for the current reply to finish' });
             return;
         }
@@ -813,20 +818,20 @@ class ChatViewProvider {
         } catch { /* best effort */ }
         const apiConfig = { apiKey, baseUrl, model, provider, focus: effectiveFocus };
 
-        const before = estimateMessagesTokens(run.messages);
+        const before = estimateMessagesTokens(messages);
         // Force compaction by setting a budget well below the current size.
         const budget = Math.max(2000, Math.floor(before * (focus ? 0.3 : 0.4)));
 
         this._post({ type: 'status', text: '🗜 Compacting…' });
         try {
-            const res = await autoCompactIfNeeded(run.messages, budget, 6, apiConfig);
+            const res = await autoCompactIfNeeded(messages, budget, 6, apiConfig);
             if (res && res.compacted) {
-                run.messages = res.messages;
-                const after = estimateMessagesTokens(run.messages);
+                if (run) run.messages = res.messages;
+                const after = estimateMessagesTokens(res.messages);
                 // Persist the compacted state — no userText / asstText so
                 // append() only updates apiMessages.
                 try {
-                    await this._store.append(sid, '', '', '', null, run.messages);
+                    await this._store.append(sid, '', '', '', null, res.messages);
                 } catch (_e) { /* persistence best-effort */ }
                 this._post({
                     type: 'status',
@@ -878,7 +883,13 @@ class ChatViewProvider {
             } catch { /* fallback */ }
             const window = modelCfg.contextWindow || 65536;
 
-            const msgs = run?.messages || [];
+            const sid  = this._store.sessionId;
+            // Fallback with priority: live run.messages → persisted store → empty array.
+            // Between turns the run is deleted (agent-loop.js L1210), so we
+            // fall back to the store which always has the last persisted state.
+            const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
+                ? run.messages
+                : (sid ? this._store.loadApiMessages(sid) : []);
             const historyTok = estimateMessagesTokens(msgs);
             // Rough estimate for system prompt — uses the default builder.
             let sysTok = 0;
