@@ -1677,7 +1677,10 @@
     { name: "/tests",    desc: "Write unit tests",                 expand: "Write comprehensive unit tests for the following code, covering normal paths and edge cases:\n\n" },
     { name: "/doc",      desc: "Add documentation / comments",     expand: "Add documentation comments (JSDoc/docstring etc., per language conventions) to the following code:\n\n" },
     { name: "/refactor", desc: "Refactor for clarity/performance", expand: "Refactor the following code to improve readability, modularity, and performance. Explain each change:\n\n" },
-    { name: "/clear",    desc: "Clear the current session",        expand: "__CLEAR__" },
+    { name: "/context",  desc: "Detailed token breakdown",         expand: "/context" },
+    { name: "/compact",  desc: "Summarise conversation history",   expand: "/compact " },
+    { name: "/fork",     desc: "Branch this session",              expand: "/fork " },
+    { name: "/clear",    desc: "Clear the current session",         expand: "__CLEAR__" },
   ];
   var AT_CMDS = [
     { name: "@file",      desc: "Attach active editor file",      action: "refEditor" },
