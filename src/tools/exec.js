@@ -1,4 +1,4 @@
-﻿// Barrel re-export 鈥?keeps backward-compatible imports while the real
+// Barrel re-export 鈥?keeps backward-compatible imports while the real
 // implementations live in focused sub-modules:
 //
 //   src/tools/file-read.js   鈥?read_file, list_dir, grep_search, find_files
@@ -23,6 +23,7 @@ const { toolSavePlan }                                            = require('./s
 const { truncate }                                                = require('./utils');
 const { toolGetEditorContext }                                    = require('./editor-context');
 const { toolGitStatus, toolGitDiff, toolGitLog }                  = require('./git');
+const { toolDiffFiles }                                          = require('./diff-files');
 const { toolFindReferences, toolGoToDefinition }                  = require('./lsp');
 const { toolMemoryRead, toolMemoryWrite }                         = require('./memory');
 
@@ -47,6 +48,7 @@ module.exports = {
     toolGitStatus,
     toolGitDiff,
     toolGitLog,
+    toolDiffFiles,
     toolFindReferences,
     toolGoToDefinition,
     toolMemoryRead,

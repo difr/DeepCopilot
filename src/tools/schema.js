@@ -432,6 +432,36 @@ const TOOL_DEFS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'diff_files',
+            description:
+                'Compare two files or directories using unified diff (git diff --no-index). ' +
+                'Use to see what changed between two versions of a file, or between two ' +
+                'directories, without needing git history. Both paths must be inside the ' +
+                'workspace. For folders, returns a compact --stat summary (+N/-M per file) ' +
+                'instead of full diffs. For two files, returns the full unified diff.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path_a: {
+                        type: 'string',
+                        description: 'First file or directory path (required).',
+                    },
+                    path_b: {
+                        type: 'string',
+                        description: 'Second file or directory path (required).',
+                    },
+                    max_files: {
+                        type: 'integer',
+                        description: 'Max files to diff when comparing directories (default 20, max 20).',
+                    },
+                },
+                required: ['path_a', 'path_b'],
+            },
+        },
+    },
     // ─── symbol navigation (LSP) ─────────────────────────────────────────
     {
         type: 'function',

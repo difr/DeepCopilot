@@ -26,6 +26,7 @@ const {
     toolSavePlan,
     toolGetDiagnostics, toolGetEditorContext,
     toolGitStatus, toolGitDiff, toolGitLog,
+    toolDiffFiles,
     toolFindReferences, toolGoToDefinition,
     toolMemoryRead, toolMemoryWrite,
 } = require('../tools/exec');
@@ -33,7 +34,7 @@ const { skillInvoke, skillCreate } = require('../tools/skill-tools');
 
 class ToolExecutor {
     // Read-only tools whose results can be cached until workspace changes.
-    static CACHEABLE = new Set(['read_file', 'grep_search', 'find_files', 'list_dir', 'web_search', 'web_fetch']);
+    static CACHEABLE = new Set(['read_file', 'grep_search', 'find_files', 'list_dir', 'web_search', 'web_fetch', 'diff_files']);
     // Mutating tools that invalidate the file cache after execution.
     static MUTATING  = new Set(['write_file', 'str_replace_in_file', 'apply_patch', 'run_shell', 'run_shell_bg', 'skill_create', 'memory_write']);
     // Maximum cached entries per run; oldest entry is evicted on overflow (insertion-order LRU).
@@ -77,6 +78,7 @@ class ToolExecutor {
             ['git_status',          ()          => toolGitStatus()],
             ['git_diff',            (args)      => toolGitDiff(args)],
             ['git_log',             (args)      => toolGitLog(args)],
+            ['diff_files',          (args)      => toolDiffFiles(args)],
             ['find_references',     (args)      => toolFindReferences(args)],
             ['go_to_definition',    (args)      => toolGoToDefinition(args)],
             ['memory_read',         ()          => toolMemoryRead()],
@@ -407,7 +409,7 @@ class ToolExecutor {
         // we still guard the executor in case the model ignores the prompt.
         const interactionMode = cfg.get('interactionMode') || 'agent';
         if (interactionMode === 'plan' && isMutating) {
-            return `PLAN_MODE_FORBIDDEN: ${name} is a write/exec tool and is disabled in Plan mode. Stay read-only (read_file, grep_search, list_dir, find_files, web_search, web_fetch, update_plan) and produce a plan for the user to review. The user can switch to Agent mode to execute it.`;
+            return `PLAN_MODE_FORBIDDEN: ${name} is a write/exec tool and is disabled in Plan mode. Stay read-only (read_file, grep_search, list_dir, find_files, diff_files, web_search, web_fetch, update_plan) and produce a plan for the user to review. The user can switch to Agent mode to execute it.`;
         }
 
         const skipApproval = autoApprove.includes(name);

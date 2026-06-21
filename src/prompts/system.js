@@ -440,7 +440,7 @@ function buildSystemPrompt(opts = {}) {
     if (opts.mode === 'plan') {
         dynamicParts.push(
             '# Plan mode (do NOT edit, do NOT execute)\n' +
-            'You are in Plan mode. You MAY use read-only tools (read_file, grep_search, list_dir, find_files, web_search, web_fetch) to investigate the task. ' +
+            'You are in Plan mode. You MAY use read-only tools (read_file, grep_search, list_dir, find_files, diff_files, web_search, web_fetch) to investigate the task. ' +
             'You MUST NOT use write_file, str_replace_in_file, apply_patch, run_shell, memory_write, or skill_create — these are blocked at the executor level and will return PLAN_MODE_FORBIDDEN.\n\n' +
             'Your single goal this turn is to produce a clear, actionable plan for the user to review:\n' +
             '0. Write the plan in the same language the user communicates in.\n' +
