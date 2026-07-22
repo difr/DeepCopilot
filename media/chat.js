@@ -3203,13 +3203,14 @@
   /* ─── Sessions list rendering ──────────────────────────────────── */
   function relTime(ts){
     if (!ts) return "";
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     var d = Date.now() - ts;
     if (d < 60000) return "Just now";
     if (d < 3600000) return Math.floor(d/60000) + " min ago";
     if (d < 86400000) return Math.floor(d/3600000) + " hr ago";
     if (d < 7*86400000) return Math.floor(d/86400000) + " days ago";
     var dt = new Date(ts);
-    return (dt.getMonth()+1) + "/" + dt.getDate();
+    return MONTHS[dt.getMonth()] + ' ' + dt.getDate();
   }
   function dayBucket(ts){
     var now = new Date();
@@ -3221,6 +3222,13 @@
     if (ts >= weekStart) return "This week";
     return "Older";
   }
+
+  function _wsName(p) {
+    var s = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    var i = s.lastIndexOf('/');
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+
   function renderSessions(){
     var q = (dsearch && dsearch.value || "").trim().toLowerCase();
     var list = sessions.slice();
@@ -3242,6 +3250,9 @@
           (s.busy ? '<span class="busy-dot" title="Thinking…"></span>' : '') +
           (s.unread ? '<span class="unread-dot"></span>' : '') +
           escHtml(s.title || "Untitled") +
+          (s.ws
+            ? '<span class="ws-badge" title="' + escHtml(s.ws) + '">' + escHtml(_wsName(s.ws)) + '</span>'
+            : '<span class="ws-badge" title="no workspace">&mdash;</span>') +
         '</div>' +
         '<div class="si-time">' + escHtml(relTime(s.updatedAt || s.createdAt || 0)) + '</div>' +
         '<div class="ops">' +
