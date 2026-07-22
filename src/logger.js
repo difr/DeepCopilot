@@ -65,15 +65,16 @@ const Logger = {
         if (!channel) channel = vscode.window.createOutputChannel('Deep Copilot Debug');
 
         try {
+            const dirs = new Set();
             const folders = vscode.workspace.workspaceFolders;
-            const root = (folders && folders[0] && folders[0].uri.fsPath)
-                || (context && context.globalStorageUri && context.globalStorageUri.fsPath)
-                || os.tmpdir();
-            const dir = path.join(root, '.deep-copilot', 'logs');
-            fs.mkdirSync(dir, { recursive: true });
-            _cleanOldLogs(dir);
+            if (folders && folders[0]) dirs.add(path.join(folders[0].uri.fsPath, '.deep-copilot', 'logs'));
+            if (context && context.globalStorageUri) dirs.add(path.join(context.globalStorageUri.fsPath, '.deep-copilot', 'logs'));
+            dirs.add(path.join(os.tmpdir(), '.deep-copilot', 'logs'));
+            const logDirs = [...dirs];
+            fs.mkdirSync(logDirs[0], { recursive: true });
+            logDirs.forEach(_cleanOldLogs);
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-            filePath = path.join(dir, `session-${stamp}.log`);
+            filePath = path.join(logDirs[0], `session-${stamp}.log`);
             stream = fs.createWriteStream(filePath, { flags: 'a' });
             _writeRaw(`[${ts()}] [INIT] Deep Copilot debug log started. file=${filePath}`);
         } catch (e) {
