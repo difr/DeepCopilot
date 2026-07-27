@@ -364,6 +364,7 @@ class SessionStore {
         clone.id = `s_${Date.now().toString(36)}_${_rand4}`;
         clone.title = String(title || `${src.title || 'Fork'} (fork)`).slice(0, 80);
         clone.createdAt = Date.now();
+        clone.ws = this._getCurrentWs();
         clone.updatedAt = Date.now();
         clone.pinned = false;
         delete clone.busy;
