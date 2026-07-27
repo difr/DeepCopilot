@@ -3250,9 +3250,9 @@
           (s.busy ? '<span class="busy-dot" title="Thinking…"></span>' : '') +
           (s.unread ? '<span class="unread-dot"></span>' : '') +
           escHtml(s.title || "Untitled") +
-          (s.ws
-            ? '<span class="ws-badge" title="' + escHtml(s.ws) + '">' + escHtml(_wsName(s.ws)) + '</span>'
-            : '<span class="ws-badge" title="no workspace">&mdash;</span>') +
+          (s.ws === currentWs
+            ? ''
+            : '<span class="ws-badge" title="' + escHtml(s.ws || 'no workspace') + '">' + (s.ws ? escHtml(_wsName(s.ws)) : '&mdash;') + '</span>') +
         '</div>' +
         '<div class="si-time">' + escHtml(relTime(s.updatedAt || s.createdAt || 0)) + '</div>' +
         '<div class="ops">' +
