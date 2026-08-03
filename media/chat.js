@@ -407,7 +407,7 @@
        After renderMd() pre-parks math as \u0000MATHn\u0000, this fallback
        handles any $...$ that still reaches renderInline() directly. */
     var mathStash = [];
-    t = String(t||"").replace(/(?<!\$)\$([^\$\n]{1,200})\$(?!\$)/g, function(_, tex){
+    t = String(t||"").replace(/(?<!\$)\$(?!\s)([^\$\n]{1,200})(?<!\s)\$(?!\$)/g, function(_, tex){
       mathStash.push(tex);
       return "\u0002M" + (mathStash.length - 1) + "\u0002";
     });
@@ -649,7 +649,7 @@
              column splitting in splitRow(); and
          (b) raw TeX reaches KaTeX before any escHtml() call, so > is never
              corrupted into &gt; which KaTeX cannot parse. */
-      .replace(/(?<!\$)\$([^\$\n]{1,200})\$(?!\$)/g, function(_, tex){ return parkMath(tex, false); });
+      .replace(/(?<!\$)\$(?!\s)([^\$\n]{1,200})(?<!\s)\$(?!\$)/g, function(_, tex){ return parkMath(tex, false); });
     /* Step 1: extract fenced code blocks as placeholders */
     var codes = [];
     var src = String(src0||"").replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, function(_, lang, code){
