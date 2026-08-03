@@ -402,36 +402,50 @@
   }
 
   function renderInline(t){
-    /* Park inline $...$ BEFORE escHtml so raw TeX is never HTML-entity-encoded.
-       Critical: without this, > in math becomes &gt; which KaTeX rejects.
-       After renderMd() pre-parks math as \u0000MATHn\u0000, this fallback
-       handles any $...$ that still reaches renderInline() directly. */
+    /* Step 0: extract backtick-wrapped text FIRST so $ inside backticks
+       never crosses backtick boundaries and triggers false math matches. */
+    var codeStash = [];
+    var inlineFileRe = new RegExp("^(" + FILE_LINK_PATH_RE + ")(?::(\\d+)(?::(\\d+))?)?$");
+    t = String(t||"").replace(/``([\s\S]*)``/g, function(_, code){
+      var esc = escHtml(code);
+      var fm = esc.match(inlineFileRe);
+      codeStash.push(fm ? makeFileLink(fm[1], fm[2], fm[3]) : "<code class=\"ic\">" + esc + "</code>");
+      return "\u0003C" + (codeStash.length - 1) + "\u0003";
+    });
+    t = t.replace(/`([^`\n]+)`/g, function(_, code){
+      var esc = escHtml(code);
+      var fm = esc.match(inlineFileRe);
+      codeStash.push(fm ? makeFileLink(fm[1], fm[2], fm[3]) : "<code class=\"ic\">" + esc + "</code>");
+      return "\u0003C" + (codeStash.length - 1) + "\u0003";
+    });
+
+    /* Step 1: park inline $...$ BEFORE escHtml so raw TeX is never
+       HTML-entity-encoded (critical: > in math becomes &gt;). */
     var mathStash = [];
-    t = String(t||"").replace(/(?<!\$)\$(?!\s)([^\$\n]{1,200})(?<!\s)\$(?!\$)/g, function(_, tex){
+    t = String(t||"").replace(/(?<![\$\w])\$(?!\s)(?!\{)([^\$\n]{1,200})(?<!\s)\$(?![\$\w\{])/g, function(_, tex){
       mathStash.push(tex);
       return "\u0002M" + (mathStash.length - 1) + "\u0002";
     });
+
+    /* Step 2: escHtml + bare file links + bold */
     var x = escHtml(t);
     var stash = [];
     function park(html){ stash.push(html); return "\u0001FL" + (stash.length - 1) + "\u0001"; }
-    /* Step A: detect file paths INSIDE inline backticks first, so `foo.csv` becomes
-       a clickable flink instead of a gray non-clickable <code>. Park as placeholder
-       so later passes won't re-match the generated <a> tag. */
-    var inlineFileRe = new RegExp("`(" + FILE_LINK_PATH_RE + ")(?::(\\d+)(?::(\\d+))?)?`", "g");
-    x = x.replace(inlineFileRe, function(_, p, line, col){ return park(makeFileLink(p, line, col)); });
-    /* Step B: bare file paths in still-plain text. Park each as a placeholder. */
     var bareFileRe = new RegExp("(^|[\\s(\\[\\\"'`>|])(" + FILE_LINK_PATH_RE + ")(?::(\\d+)(?::(\\d+))?)?(?=[\\s,);:.!?\\]\\\"'`<|]|$)", "g");
     x = x.replace(bareFileRe, function(_, pre, p, line, col){
       return pre + park(makeFileLink(p, line, col));
     });
-    /* Step C: remaining backticks → inline code; bold; etc. */
-    x = x.replace(/`([^`\n]+)`/g, "<code class=\"ic\">$1</code>");
+
+    /* Step 3: bold */
     x = x.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-    /* Step D: restore inline math with original (pre-escHtml) TeX. */
+
+    /* Step 4: restore math + code spans + file links */
     x = x.replace(/\u0002M(\d+)\u0002/g, function(_, i){
       return renderMathSafe(mathStash[+i], false);
     });
-    /* Step E: restore parked file-link HTML. */
+    x = x.replace(/\u0003C(\d+)\u0003/g, function(_, i){
+      return codeStash[+i];
+    });
     x = x.replace(/\u0001FL(\d+)\u0001/g, function(_, i){ return stash[+i]; });
     return x;
   }
@@ -643,13 +657,6 @@
       .replace(/\\\[([\s\S]*?)\\\]/g, function(_, tex){ return parkMath(tex, true); })
       /* inline: \(...\) */
       .replace(/\\\(([\s\S]*?)\\\)/g, function(_, tex){ return parkMath(tex, false); })
-      /* inline: $...$ — must come AFTER $$...$$ so double-dollar is already gone.
-         Parking here (before table/paragraph/renderInline) fixes two bugs:
-         (a) | inside math (e.g. |\boldsymbol{\xi}|) no longer breaks table
-             column splitting in splitRow(); and
-         (b) raw TeX reaches KaTeX before any escHtml() call, so > is never
-             corrupted into &gt; which KaTeX cannot parse. */
-      .replace(/(?<!\$)\$(?!\s)([^\$\n]{1,200})(?<!\s)\$(?!\$)/g, function(_, tex){ return parkMath(tex, false); });
     /* Step 1: extract fenced code blocks as placeholders */
     var codes = [];
     var src = String(src0||"").replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, function(_, lang, code){
@@ -857,6 +864,17 @@
     _renderRafId = 0;
     _renderLastTs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
     if (cur && cur.classList && cur.classList.contains("seg")){
+      /* DEBUG: uncomment to trace rendering
+      try {
+        var out2 = renderMd(curText);
+        if (curText.indexOf('`') >= 0 || curText.indexOf('$') >= 0) {
+          console.log('[DEBUG render v2] IN:', JSON.stringify(curText), 'OUT:', JSON.stringify(out2));
+        }
+        }
+        cur.innerHTML = out2;
+      } catch(e){
+        console.error('[DEBUG render] error:', e);
+      } */
       try { cur.innerHTML = renderMd(curText); } catch(e){}
     }
   }
