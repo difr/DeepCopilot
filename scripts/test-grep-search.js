@@ -36,7 +36,7 @@ Module._resolveFilename = function (request, parent, ...rest) {
 };
 
 const assert = require('assert');
-const { toolGrepSearch } = require(path.join('..', 'src', 'tools', 'file-read.js'));
+const { toolGrepSearch, _gitGrepUsable } = require(path.join('..', 'src', 'tools', 'file-read.js'));
 
 let passed = 0;
 const _tests = [];
@@ -56,10 +56,48 @@ async function _runAll() {
     console.log(`\nAll ${passed} grep-search tests passed.`);
 }
 
-test('grep by FILE path finds matches (Windows mask regression)', async () => {
+// ─── engine selection ────────────────────────────────────────────────────
+test('git grep is usable for a tracked file', () => {
+    assert.ok(_gitGrepUsable(path.join(repoRoot, 'src', 'tools', 'utils.js')));
+});
+
+test('git grep is NOT usable for an untracked file', () => {
+    const probe = path.join(repoRoot, '_grep_probe_untracked.js');
+    fs.writeFileSync(probe, '// probe\n');
+    try {
+        assert.ok(!_gitGrepUsable(probe));
+    } finally { fs.unlinkSync(probe); }
+});
+
+test('git grep is NOT usable for a dir with untracked files', () => {
+    const dir = path.join(repoRoot, 'tmp');
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '_grep_probe_untracked.js');
+    fs.writeFileSync(probe, '// probe\n');
+    try {
+        assert.ok(!_gitGrepUsable(dir));
+    } finally { fs.unlinkSync(probe); }
+});
+
+test('git grep is usable for a dir with only tracked files', () => {
+    assert.ok(_gitGrepUsable(path.join(repoRoot, 'src')));
+});
+
+// ─── end-to-end through the engine chain ────────────────────────────────
+test('grep by FILE path finds matches (tracked → git grep)', async () => {
     const out = await toolGrepSearch({ path: 'src/tools/utils.js', pattern: 'function truncate' });
     assert.ok(!out.startsWith('(no matches)'), `expected matches, got: ${out}`);
     assert.ok(out.includes('function truncate'), `missing match line: ${out}`);
+});
+
+test('grep by untracked FILE falls back to findstr (Windows mask regression)', async () => {
+    const probe = path.join(repoRoot, '_grep_probe_findstr.js');
+    fs.writeFileSync(probe, '// probe token_alpha_1\n');
+    try {
+        const out = await toolGrepSearch({ path: '_grep_probe_findstr.js', pattern: 'token_alpha_1' });
+        assert.ok(!out.startsWith('(no matches)'), `expected findstr match, got: ${out}`);
+        assert.ok(out.includes('token_alpha_1'), `missing match line: ${out}`);
+    } finally { fs.unlinkSync(probe); }
 });
 
 test('grep by DIRECTORY path still works', async () => {

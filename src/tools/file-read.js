@@ -13,19 +13,78 @@ const { t }                   = require('../utils/i18n');
 const { truncate, ensurePathAllowed } = require('./utils');
 const { readFileText, createDecodedStream, decodeBuf, resolveEncoding } = require('../utils/encoding');
 
-// ─── ripgrep detection ───────────────────────────────────────────────────────
+// ─── Search engine detection ─────────────────────────────────────────────────
+// Prefer, in order:
+//   1. ripgrep from PATH (user-installed) — fast, .gitignore-aware, sees
+//      untracked files.
+//   2. ripgrep bundled with VS Code itself (vscode-ripgrep) — present on
+//      every install, no PATH setup needed.
+//   3. `git grep` — fast, .gitignore-aware (node_modules/tmp excluded), but
+//      ONLY searches tracked files, so it is skipped for untracked targets.
+//   4. findstr / grep — last resort; no .gitignore support (slow on trees
+//      like node_modules).
 
 function detectRipgrep() {
     try {
         const probe = process.platform === 'win32' ? 'where' : 'which';
         cp.execFileSync(probe, ['rg'], { stdio: 'pipe' });
         return 'rg';
-    } catch { return null; }
+    } catch { /* not on PATH — try VS Code's bundled copy */ }
+    try {
+        const exe = process.platform === 'win32' ? 'rg.exe' : 'rg';
+        const appRoot = vscode.env && vscode.env.appRoot;
+        if (!appRoot) return null;
+        // VS Code ships ripgrep under several layouts depending on version:
+        //   node_modules/@vscode/ripgrep/bin/<exe>
+        //   node_modules/@vscode/ripgrep-universal/bin/<platform>/<exe>   (recent)
+        //   node_modules.asar.unpacked/... (older builds unpack the asar)
+        // Plus GitHub Copilot's bundled copy as a final convenience.
+        const platformDir = `${process.platform}-${process.arch}`; // e.g. win32-x64
+        const bases = [
+            path.join(appRoot, 'node_modules'),
+            path.join(appRoot, 'node_modules.asar.unpacked'),
+            path.join(appRoot, 'resources', 'app', 'node_modules'),
+            path.join(appRoot, 'resources', 'app', 'node_modules.asar.unpacked'),
+        ];
+        const candidates = [];
+        for (const base of bases) {
+            candidates.push(path.join(base, 'vscode-ripgrep', 'bin', exe));
+            candidates.push(path.join(base, '@vscode', 'ripgrep', 'bin', exe));
+            candidates.push(path.join(base, '@vscode', 'ripgrep', 'bin', platformDir, exe));
+            candidates.push(path.join(base, '@vscode', 'ripgrep-universal', 'bin', platformDir, exe));
+        }
+        // GitHub Copilot extension bundles its own rg under the SDK dir.
+        candidates.push(path.join(appRoot, 'resources', 'app', 'extensions', 'copilot',
+            'node_modules', '@github', 'copilot', 'sdk', 'ripgrep', 'bin', platformDir, exe));
+        for (const c of candidates) {
+            if (fs.existsSync(c)) return c;
+        }
+    } catch { /* fall through */ }
+    return null;
 }
 let _RG_CACHE = null;
 function rgPath() {
     if (_RG_CACHE === null) _RG_CACHE = detectRipgrep() || '';
     return _RG_CACHE || null;
+}
+
+/**
+ * Whether `git grep` can fully answer a search for `root` (absolute path).
+ * git grep searches the index — it silently misses untracked files, so we
+ * use it only when the target is a tracked file, or a directory containing
+ * tracked files and no untracked ones.
+ */
+function _gitGrepUsable(root) {
+    try {
+        if (fs.statSync(root).isFile()) {
+            const r = runArgv('git', ['ls-files', '--error-unmatch', root]);
+            return !r.error && r.status === 0;
+        }
+        const tracked = runArgv('git', ['ls-files', root]);
+        if (tracked.error || (tracked.stdout || '').trim() === '') return false;
+        const untracked = runArgv('git', ['ls-files', '--others', '--exclude-standard', root]);
+        return !untracked.error && (untracked.stdout || '').trim() === '';
+    } catch { return false; }
 }
 
 function runArgv(file, argv, opts = {}) {
@@ -228,6 +287,15 @@ async function toolGrepSearch(args) {
             if (args.include) argv.push('--glob', String(args.include));
             argv.push('--', pattern, root);
             r = runArgv(rg, argv);
+        } else if (!args.include && _gitGrepUsable(root)) {
+            // git grep: .gitignore-aware and fast, but only tracks committed
+            // files (guarded by _gitGrepUsable). Same path:line:text output
+            // shape as ripgrep, so no extra formatting is needed.
+            const argv = ['grep', '--line-number', '--max-count', '10'];
+            if (!args.is_regex) argv.push('--fixed-strings');
+            else argv.push('--extended-regexp'); // BRE treats \( as a group — use ERE to match findstr /r semantics
+            argv.push('--', pattern, root);
+            r = runArgv('git', argv);
         } else if (process.platform === 'win32') {
             // findstr takes a file mask, not a bare path. Masks are resolved
             // against the cwd (wsRoot, set by runArgv), so relative masks keep
@@ -255,7 +323,7 @@ async function toolGrepSearch(args) {
             if (args.is_regex) flags.push('/r');
             r = runArgv('findstr', flags.concat([`/c:${pattern}`, mask]));
         } else {
-            const argv = ['-rn', '--max-count=3'];
+            const argv = ['-rn', '--max-count=10']; // per-file cap matches rg / git grep
             if (!args.is_regex) argv.push('-F');
             if (args.include) argv.push(`--include=${args.include}`);
             argv.push('--', pattern, root);
@@ -340,4 +408,4 @@ async function toolGetDiagnostics(args) {
     return [`diagnostics: ${totalErr} error(s), ${totalWarn} warning(s)`, ...lines].join('\n');
 }
 
-module.exports = { toolReadFile, toolListDir, toolGrepSearch, toolFindFiles, toolGetDiagnostics };
+module.exports = { toolReadFile, toolListDir, toolGrepSearch, toolFindFiles, toolGetDiagnostics, _gitGrepUsable, rgPath };
