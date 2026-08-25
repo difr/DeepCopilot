@@ -229,8 +229,31 @@ async function toolGrepSearch(args) {
             argv.push('--', pattern, root);
             r = runArgv(rg, argv);
         } else if (process.platform === 'win32') {
-            const flags = args.is_regex ? ['/s', '/n', '/i', '/r'] : ['/s', '/n', '/i'];
-            r = runArgv('findstr', flags.concat([`/c:${pattern}`, path.join(root, '*')]));
+            // findstr takes a file mask, not a bare path. Masks are resolved
+            // against the cwd (wsRoot, set by runArgv), so relative masks keep
+            // output paths consistent with the rg / git-grep branches. No /i:
+            // findstr is then case-sensitive, matching rg and grep.
+            const rel = path.relative(wsRoot(), root);
+            const flags = ['/n'];
+            let isDir = false;
+            try { isDir = fs.statSync(root).isDirectory(); } catch { /* missing → bare mask below */ }
+            let mask;
+            if (isDir) {
+                flags.push('/s'); // recursion only makes sense for a directory
+                // findstr masks are per-directory globs (no **); /s recurses.
+                mask = args.include ? path.join(rel, String(args.include)) : path.join(rel, '*');
+            } else {
+                // A single file must be passed as-is — the naive
+                // path.join(root, '*') yields "file.js\*" that findstr cannot
+                // open → silent "(no matches)". No /s either: recursion would
+                // match same-named files in subdirectories.
+                // A missing path also lands here: findstr errors to stderr,
+                // stdout stays empty → "(no matches)" (searching the parent
+                // dir would silently return unrelated hits instead).
+                mask = rel;
+            }
+            if (args.is_regex) flags.push('/r');
+            r = runArgv('findstr', flags.concat([`/c:${pattern}`, mask]));
         } else {
             const argv = ['-rn', '--max-count=3'];
             if (!args.is_regex) argv.push('-F');
