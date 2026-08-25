@@ -28,6 +28,8 @@ const {
     _isChallengePage,
     _runSearchChain,
     _formatResults,
+    formatDeepFetchContent,
+    _deepFetchPages,
     _parseBingRss,
 } = require(path.join('..', 'src', 'tools', 'web-search.js'));
 const { rankSearchResults, extractSearchSignals } =
@@ -427,6 +429,78 @@ test('format includes synthesized answer when provided', () => {
     const md = _formatResults('q', [{ title: 'A', url: 'https://a.com', snippet: 's' }], 'Tavily', 'an answer');
     assert.ok(md.includes('## Synthesized answer'));
     assert.ok(md.includes('an answer'));
+});
+
+// ─── deep fetch (ported from bds search-reader.test.js) ──────────────────
+test('formatDeepFetchContent produces the bds appendix shape', () => {
+    const out = formatDeepFetchContent('My Page', 'https://example.com', '# Content\n\nHello');
+    assert.ok(out.startsWith('\n' + '='.repeat(64)));
+    assert.ok(out.includes('## Page Content: My Page'));
+    assert.ok(out.includes('**Source:** https://example.com'));
+    assert.ok(out.includes('# Content\n\nHello'));
+    assert.ok(out.trimEnd().endsWith('---'));
+});
+
+test('formatDeepFetchContent handles empty content', () => {
+    const out = formatDeepFetchContent('Empty', 'https://x.com', '');
+    assert.ok(out.includes('## Page Content: Empty'));
+    assert.ok(out.includes('**Source:** https://x.com'));
+});
+
+test('deepFetch reads top N pages', async () => {
+    const results = [
+        { title: 'A', url: 'https://a.com', snippet: 'a' },
+        { title: 'B', url: 'https://b.com', snippet: 'b' },
+        { title: 'C', url: 'https://c.com', snippet: 'c' },
+    ];
+    const calls = [];
+    const out = await _deepFetchPages(results, 2, async (url) => {
+        calls.push(url);
+        return `# Deep content of ${url}`;
+    });
+    assert.deepStrictEqual(calls, ['https://a.com', 'https://b.com']);
+    assert.ok(out.includes('## Page Content: A'));
+    assert.ok(out.includes('## Page Content: B'));
+    assert.ok(!out.includes('## Page Content: C'));
+});
+
+test('deepFetch follows ranked result order (input order is the ranked order)', async () => {
+    const results = [
+        { title: 'Weak overview', url: 'https://example.com/overview', snippet: 'general' },
+        { title: 'Exact match 2025', url: 'https://example.com/exact-2025', snippet: 'exact data' },
+    ];
+    const calls = [];
+    await _deepFetchPages(results, 1, async (url) => { calls.push(url); return 'x'; });
+    assert.deepStrictEqual(calls, ['https://example.com/overview']);
+    const calls2 = [];
+    await _deepFetchPages(results.slice().reverse(), 1, async (url) => { calls2.push(url); return 'x'; });
+    assert.deepStrictEqual(calls2, ['https://example.com/exact-2025']);
+});
+
+test('deepFetch clamps to the requested count', async () => {
+    const results = Array.from({ length: 10 }, (_, i) => ({
+        title: `R${i}`, url: `https://r${i}.com`, snippet: `snippet ${i}`,
+    }));
+    let count = 0;
+    const out = await _deepFetchPages(results, 5, async () => { count++; return 'x'; });
+    assert.strictEqual(count, 5);
+    assert.ok(out.includes('## Page Content: R4'));
+    assert.ok(!out.includes('## Page Content: R5'));
+});
+
+test('deepFetch handles per-page fetch failure gracefully', async () => {
+    const results = [
+        { title: 'Good', url: 'https://good.com', snippet: 'good' },
+        { title: 'Bad', url: 'https://bad.com', snippet: 'bad' },
+    ];
+    const out = await _deepFetchPages(results, 2, async (url) => {
+        if (url === 'https://bad.com') throw new Error('page error');
+        return '# Good content';
+    });
+    assert.ok(out.includes('## Page Content: Good'));
+    assert.ok(out.includes('# Good content'));
+    assert.ok(out.includes('## Page Content: Bad'));
+    assert.ok(out.includes('*(Failed to fetch page content: page error)*'));
 });
 
 _runAll();

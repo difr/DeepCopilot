@@ -5,6 +5,7 @@
 //   src/tools/file-write.js  鈥?write_file, str_replace_in_file, apply_patch
 //   src/tools/shell.js       鈥?run_shell
 //   src/tools/web-search.js  鈥?web_search
+//   src/tools/fetch-top.js   鈥?fetch_top
 //   src/tools/utils.js       鈥?truncate, ensurePathAllowed (shared helpers)
 //
 // To add a new tool: create a new sub-module and re-export it here, then
@@ -19,6 +20,7 @@ const { toolRunShellBg }                                          = require('./b
 const { toolReadTerminal }                                        = require('./read-terminal');
 const { toolWebSearch }                                           = require('./web-search');
 const { toolWebFetch }                                            = require('./web-fetch');
+const { toolFetchTop }                                            = require('./fetch-top');
 const { toolSavePlan }                                            = require('./save-plan');
 const { truncate }                                                = require('./utils');
 const { toolGetEditorContext }                                    = require('./editor-context');
@@ -41,6 +43,7 @@ module.exports = {
     toolReadTerminal,
     toolWebSearch,
     toolWebFetch,
+    toolFetchTop,
     toolSavePlan,
     truncate,
     isDangerous,
@@ -54,4 +57,3 @@ module.exports = {
     toolMemoryRead,
     toolMemoryWrite,
 };
-

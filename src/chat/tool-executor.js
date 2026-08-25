@@ -22,7 +22,7 @@ const { lineDiffStats } = require('./diff-utils');
 
 const {
     toolReadFile, toolListDir, toolGrepSearch, toolFindFiles,
-    toolWriteFile, toolStrReplaceInFile, toolApplyPatch, toolRunShell, toolRunShellBg, toolReadTerminal, toolWebSearch, toolWebFetch,
+    toolWriteFile, toolStrReplaceInFile, toolApplyPatch, toolRunShell, toolRunShellBg, toolReadTerminal, toolWebSearch, toolWebFetch, toolFetchTop,
     toolSavePlan,
     toolGetDiagnostics, toolGetEditorContext,
     toolGitStatus, toolGitDiff, toolGitLog,
@@ -34,7 +34,7 @@ const { skillInvoke, skillCreate } = require('../tools/skill-tools');
 
 class ToolExecutor {
     // Read-only tools whose results can be cached until workspace changes.
-    static CACHEABLE = new Set(['read_file', 'grep_search', 'find_files', 'list_dir', 'web_search', 'web_fetch', 'diff_files']);
+    static CACHEABLE = new Set(['read_file', 'grep_search', 'find_files', 'list_dir', 'web_search', 'web_fetch', 'fetch_top', 'diff_files']);
     // Mutating tools that invalidate the file cache after execution.
     static MUTATING  = new Set(['write_file', 'str_replace_in_file', 'apply_patch', 'run_shell', 'run_shell_bg', 'skill_create', 'memory_write']);
     // Maximum cached entries per run; oldest entry is evicted on overflow (insertion-order LRU).
@@ -72,6 +72,7 @@ class ToolExecutor {
             ['read_terminal',       (args, ctx) => toolReadTerminal(args, ctx)],
             ['web_search',          (args, ctx) => toolWebSearch(args, ctx)],
             ['web_fetch',           (args, ctx) => toolWebFetch(args, ctx)],
+            ['fetch_top',           (args, ctx) => toolFetchTop(args, ctx)],
             ['save_plan',           (args)      => toolSavePlan(args)],
             ['get_diagnostics',     (args)      => toolGetDiagnostics(args)],
             ['get_editor_context',  ()          => toolGetEditorContext()],
@@ -409,7 +410,7 @@ class ToolExecutor {
         // we still guard the executor in case the model ignores the prompt.
         const interactionMode = cfg.get('interactionMode') || 'agent';
         if (interactionMode === 'plan' && isMutating) {
-            return `PLAN_MODE_FORBIDDEN: ${name} is a write/exec tool and is disabled in Plan mode. Stay read-only (read_file, grep_search, list_dir, find_files, diff_files, web_search, web_fetch, update_plan) and produce a plan for the user to review. The user can switch to Agent mode to execute it.`;
+            return `PLAN_MODE_FORBIDDEN: ${name} is a write/exec tool and is disabled in Plan mode. Stay read-only (read_file, grep_search, list_dir, find_files, diff_files, web_search, web_fetch, fetch_top, update_plan) and produce a plan for the user to review. The user can switch to Agent mode to execute it.`;
         }
 
         const skipApproval = autoApprove.includes(name);

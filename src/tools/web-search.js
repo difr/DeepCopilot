@@ -469,63 +469,156 @@ function _formatResults(query, results, providerName, answer, lowConfidence) {
     return truncate(lines.join('\n'));
 }
 
+// ─── Deep fetch (adapted from better-deepseek search-reader.js @ c789a0b,
+// the same source version pinned in the header — formatDeepFetchContent +
+// the deepFetch loop of searchWeb) ───────────────────────────────────────
+// After a ranked search, fetch full content of the top N result pages and
+// append it as a markdown appendix. One call instead of web_search + N ×
+// web_fetch. A failing page degrades to an inline note — it must not fail
+// the whole search (per bds behaviour, ported as-is).
+
+function formatDeepFetchContent(title, url, markdown) {
+    const lines = [];
+    lines.push('');
+    lines.push('='.repeat(64));
+    lines.push(`## Page Content: ${title}`);
+    lines.push(`**Source:** ${url}`);
+    lines.push('='.repeat(64));
+    lines.push('');
+    lines.push(markdown);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    return lines.join('\n');
+}
+
+/**
+ * Fetch the top `top` ranked results' pages and return the deep-fetch
+ * appendix. `fetchPage(url)` must resolve to the page text or reject.
+ */
+async function _deepFetchPages(results, top, fetchPage, abortSignal = null) {
+    const urlsToFetch = (results || []).slice(0, top);
+    let output = '';
+    for (let i = 0; i < urlsToFetch.length; i++) {
+        if (abortSignal && abortSignal.aborted) throw new Error('aborted');
+        const result = urlsToFetch[i];
+        try {
+            const text = await fetchPage(result.url);
+            output += formatDeepFetchContent(result.title, result.url, text);
+        } catch (err) {
+            output += formatDeepFetchContent(
+                result.title,
+                result.url,
+                `*(Failed to fetch page content: ${err.message || String(err)})*`
+            );
+        }
+    }
+    return output;
+}
+
 // ─── Main dispatch ─────────────────────────────────────────────────────────────
+
+/**
+ * Run a web search and return structured results.
+ *
+ * Shared by toolWebSearch (web_search) and toolFetchTop (fetch_top) so the
+ * deep-fetch tool can consume raw results instead of re-parsing markdown.
+ * `deepFetch > 0` additionally fetches the top N ranked pages and returns
+ * the content appendix in `deepFetchOutput` (port of bds searchWeb deepFetch).
+ *
+ * @param {string} query
+ * @param {{ max?: number, deepFetch?: number, searchDepth?: string, includeAnswer?: boolean, ctx?: object }} opts
+ * @returns {Promise<{ results: Array<{title,url,snippet}>, providerName: string, answer?: string, lowConfidence?: boolean, deepFetchOutput?: string }>}
+ * @throws {Error} when no results / all providers fail / key missing.
+ */
+async function searchWeb(query, { max = 5, deepFetch = 0, searchDepth = 'basic', includeAnswer = true, ctx = {} } = {}) {
+    const abortSignal = ctx.abortSignal;
+
+    const vscode  = require('vscode');
+    const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
+    const setting = cfg.get('webSearchProvider') || 'auto';
+
+    if (setting === 'tavily' || setting === 'auto') {
+        const secrets = ctx.secrets;
+        const apiKey  = secrets ? await secrets.get('deepseekAgent.tavilyKey') : undefined;
+        if (setting === 'tavily' && !apiKey) {
+            throw new Error('Tavily API key not configured. Run command "Deep Copilot: Set Tavily API Key" or switch webSearchProvider to "auto"/"duckduckgo"/"bing" in settings (no key required).');
+        }
+        if (apiKey) {
+            const depth = searchDepth === 'advanced' ? 'advanced' : 'basic';
+            const { results, answer } = await _tavilySearch(query, { apiKey, max, depth, includeAnswer, abortSignal });
+            const deepFetchOutput = deepFetch > 0
+                ? await _deepFetchPages(results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
+                : '';
+            return { results, providerName: 'Tavily', answer, lowConfidence: false, deepFetchOutput };
+        }
+        // 'auto' without a key — fall through to the DDG chain.
+    }
+
+    if (setting === 'bing') {
+        const { results, providerName, answer, lowConfidence } = await _runSearchChain(query, {
+            max,
+            providers: [_bingRssProvider(query, { max, abortSignal })],
+        });
+        const deepFetchOutput = deepFetch > 0
+            ? await _deepFetchPages(results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
+            : '';
+        return { results, providerName, answer, lowConfidence, deepFetchOutput };
+    }
+
+    // 'auto' (no key) / 'duckduckgo' — DDG chain with Bing as last fallback.
+    // site: queries start with Bing (DDG ranks site: poorly).
+    const ddg = _ddgProviders(query, { abortSignal });
+    const bing = _bingRssProvider(query, { max, abortSignal });
+    const providers = extractSearchSignals(query).includeSites.length > 0
+        ? [bing, ...ddg]
+        : [...ddg, bing];
+
+    const chainResult = await _runSearchChain(query, { max, providers });
+    const deepFetchOutput = deepFetch > 0
+        ? await _deepFetchPages(chainResult.results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
+        : '';
+    return { ...chainResult, deepFetchOutput };
+}
+
+/** Fetch one page's text via web-fetch (SSRF-blocked). */
+async function _fetchPageText(url, ctx) {
+    const { fetchAndExtractText } = require('./web-fetch');
+    const res = await fetchAndExtractText({ url }, ctx);
+    if (!res.ok) throw new Error(res.error || `failed to fetch ${url}`);
+    return res.body;
+}
 
 async function toolWebSearch(args, ctx = {}) {
     try {
         const query = String(args.query || '').trim();
         if (!query) return 'Error: query is empty.';
 
-        const vscode   = require('vscode');
-        const cfg      = vscode.workspace.getConfiguration('deepseekAgent');
-        const setting  = cfg.get('webSearchProvider') || 'auto';
         const max      = Math.max(1, Math.min(10, Number.isFinite(args.max_results) ? args.max_results : 5));
-        const abortSignal = ctx && ctx.abortSignal;
-
-        if (setting === 'tavily' || setting === 'auto') {
-            const secrets = ctx && ctx.secrets;
-            const apiKey  = secrets ? await secrets.get('deepseekAgent.tavilyKey') : undefined;
-            if (setting === 'tavily' && !apiKey) {
-                return 'Error: Tavily API key not configured. Run command "Deep Copilot: Set Tavily API Key" or switch webSearchProvider to "auto"/"duckduckgo"/"bing" in settings (no key required).';
-            }
-            if (apiKey) {
-                const depth = args.search_depth === 'advanced' ? 'advanced' : 'basic';
-                const includeAnswer = args.include_answer !== false;
-                const { results, answer } = await _tavilySearch(query, { apiKey, max, depth, includeAnswer, abortSignal });
-                return _formatResults(query, results, 'Tavily', answer, false);
-            }
-            // 'auto' without a key — fall through to the DDG chain.
-        }
-
-        if (setting === 'bing') {
-            const { results, answer, lowConfidence } = await _runSearchChain(query, {
-                max,
-                providers: [_bingRssProvider(query, { max, abortSignal })],
-            });
-            return _formatResults(query, results, 'Bing', answer, lowConfidence);
-        }
-
-        // 'auto' (no key) / 'duckduckgo' — DDG chain with Bing as last fallback.
-        // site: queries start with Bing (DDG ranks site: poorly).
-        const ddg = _ddgProviders(query, { abortSignal });
-        const bing = _bingRssProvider(query, { max, abortSignal });
-        const providers = extractSearchSignals(query).includeSites.length > 0
-            ? [bing, ...ddg]
-            : [...ddg, bing];
-
-        const { results, providerName, answer, lowConfidence } = await _runSearchChain(query, { max, providers });
-        return _formatResults(query, results, providerName, answer, lowConfidence);
-
+        const deepFetch = Math.max(0, Math.min(5, Number.isFinite(args.deep_fetch) ? args.deep_fetch : 0));
+        const { results, providerName, answer, lowConfidence, deepFetchOutput } = await searchWeb(query, {
+            max,
+            deepFetch,
+            searchDepth: args.search_depth,
+            includeAnswer: args.include_answer !== false,
+            ctx,
+        });
+        const base = _formatResults(query, results, providerName, answer, lowConfidence);
+        return deepFetchOutput ? truncate(base + '\n' + deepFetchOutput) : base;
     } catch (e) { return `Error: ${e.message || String(e)}`; }
 }
 
 module.exports = {
     toolWebSearch,
-    // Exported for scripts/test-web-search.js (pure internals, no vscode).
+    searchWeb,
+    // Shared internals (also used by fetch-top.js); no vscode dependency.
+    LOW_CONFIDENCE_NOTICE,
     _parseDdgResults,
     _decodeDdgRedirect,
     _isChallengePage,
     _runSearchChain,
     _formatResults,
+    formatDeepFetchContent,
+    _deepFetchPages,
     _parseBingRss,
 };

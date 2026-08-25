@@ -220,6 +220,7 @@ const TOOL_DEFS = [
                 properties: {
                     query: { type: 'string', description: 'The search query. Be specific. Use natural language; do not include site: operators unless necessary.' },
                     max_results: { type: 'integer', description: 'Maximum number of results to return (1–10, default 5).' },
+                    deep_fetch: { type: 'integer', description: 'Also fetch full content of the top N ranked results (0–5, default 0 = snippets only). Use when you need detailed page content, not just snippets — one call instead of web_search + web_fetch per URL.' },
                     search_depth: { type: 'string', enum: ['basic', 'advanced'], description: 'basic = fast; advanced = deeper crawl, slower but higher quality. Default basic.' },
                     include_answer: { type: 'boolean', description: 'If true, ask Tavily to also return a synthesized answer paragraph (default true).' },
                 },
@@ -238,6 +239,21 @@ const TOOL_DEFS = [
                     url: { type: 'string', description: 'The full URL to fetch (http or https). Must be a public URL.' },
                 },
                 required: ['url'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'fetch_top',
+            description: 'Deep fetch: run a web search and return the extracted page content of the top N results in one call. Use ONLY when you need the actual content of several pages (compare articles, read docs across sources) and calling web_search + web_fetch repeatedly would be wasteful. Same backends/settings as web_search (Tavily if a key is configured, otherwise DuckDuckGo with Bing fallback — no API key required). Results are truncated to save tokens; the underlying URL fetches block private/internal IPs. Prefer plain web_search when snippets suffice, or web_fetch when you already have the URL.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'The search query. Be specific. Use natural language; do not include site: operators unless necessary.' },
+                    top: { type: 'integer', description: 'How many of the top results to fetch (1–5, default 3).' },
+                },
+                required: ['query'],
             },
         },
     },
