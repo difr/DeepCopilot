@@ -2331,7 +2331,7 @@
   var _stgDsKeySet = false, _stgTvKeySet = false;
   var _stgOrigBaseUrl = '';
   var _stgOrigProvider = 'deepseek';
-  var _stgOrigWsProvider = 'tavily';
+  var _stgOrigWsProvider = 'auto';
   var _stgTestTimers = {};
 
   var stgOverlay   = document.getElementById('settings-overlay');
@@ -2379,8 +2379,8 @@
     }
   }
   function _stgUpdateWsProvider(){
-    var v = stgWsProvider ? stgWsProvider.value : 'tavily';
-    if (stgTvSection) stgTvSection.style.display = v === 'tavily' ? '' : 'none';
+    var v = stgWsProvider ? stgWsProvider.value : 'auto';
+    if (stgTvSection) stgTvSection.style.display = (v === 'tavily' || v === 'auto') ? '' : 'none';
   }
   if (stgWsProvider) stgWsProvider.addEventListener('change', function(){
     _stgUpdateWsProvider();
@@ -2396,7 +2396,7 @@
     if (stgBaseUrl) stgBaseUrl.value = '';
     _stgOrigBaseUrl = '';
     _stgOrigProvider = 'deepseek';
-    _stgOrigWsProvider = 'tavily';
+    _stgOrigWsProvider = 'auto';
     _stgDsKeySet = false; _stgTvKeySet = false;
     if (stgDirtyBar) stgDirtyBar.style.display = 'none';
     _stgSetResult(stgDsResult, 'ds', '', '');
@@ -2497,7 +2497,7 @@
     var tvKey      = stgTvKey     ? stgTvKey.value.trim()     : null;
     var baseUrl    = stgBaseUrl   ? stgBaseUrl.value.trim()   : null;
     var provider   = stgProvider  ? stgProvider.value         : 'deepseek';
-    var wsProvider = stgWsProvider ? stgWsProvider.value : 'tavily';
+    var wsProvider = stgWsProvider ? stgWsProvider.value : 'auto';
     vscode.postMessage({
       type: 'saveApiSettings',
       dsKey:          dsKey   || null,
@@ -2528,7 +2528,7 @@
       if (stgDsKey) { stgDsKey.value = ''; stgDsKey.placeholder = _stgDsKeySet ? (m.dsKeyHint || '(configured)') : 'sk-...'; }
       if (stgTvKey) { stgTvKey.value = ''; stgTvKey.placeholder = _stgTvKeySet ? (m.tvKeyHint || '(configured)') : 'tvly-...'; }
       if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
-      _stgOrigWsProvider = m.webSearchProvider || 'tavily';
+      _stgOrigWsProvider = m.webSearchProvider || 'auto';
       if (stgWsProvider) {
         stgWsProvider.value = _stgOrigWsProvider;
         _stgUpdateWsProvider();

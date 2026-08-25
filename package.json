@@ -282,13 +282,15 @@
         },
         "deepseekAgent.webSearchProvider": {
           "type": "string",
-          "default": "tavily",
-          "enum": ["tavily", "bing"],
+          "default": "auto",
+          "enum": ["auto", "tavily", "duckduckgo", "bing"],
           "enumDescriptions": [
+            "Auto — Tavily when a key is set, otherwise DuckDuckGo chain or Bing as final fallback",
             "Tavily — best quality, requires API key (1000 free searches/month)",
+            "DuckDuckGo — no API key required, Lite/HTML endpoints with ranking",
             "Bing — no API key required, uses Bing RSS"
           ],
-          "description": "Web search backend. Tavily requires an API key; Bing works out of the box without an API key."
+          "description": "Web search backend. Tavily requires an API key; DuckDuckGo and Bing work out of the box without an API key. Auto uses Tavily when a key is configured and falls back to the DuckDuckGo chain otherwise."
         },
         "deepseekAgent.postEditDiagnostics": {
           "type": "boolean",

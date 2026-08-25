@@ -202,7 +202,9 @@ function buildWebviewHtml(webview, extensionUri) {
         <div class="settings-field">
           <label class="settings-label" for="s-ws-provider">Provider</label>
           <select id="s-ws-provider" class="settings-input settings-select">
+            <option value="auto">Auto (Tavily if key set, else DuckDuckGo chain or Bing as final fallback)</option>
             <option value="tavily">Tavily (needs API key, best quality)</option>
+            <option value="duckduckgo">DuckDuckGo (no API key required)</option>
             <option value="bing">Bing (no API key required)</option>
           </select>
         </div>

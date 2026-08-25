@@ -371,7 +371,7 @@ class ChatViewProvider {
                 const baseUrl   = cfg.get('apiBaseUrl') || '';
                 const provider  = cfg.get('provider') || 'deepseek';
                 const rawWsProvider = cfg.get('webSearchProvider');
-                const wsProvider = ['tavily', 'bing'].includes(rawWsProvider) ? rawWsProvider : 'tavily';
+                const wsProvider = ['auto', 'tavily', 'duckduckgo', 'bing'].includes(rawWsProvider) ? rawWsProvider : 'auto';
                 const maskKey   = (k) => k ? (k.slice(0, 6) + '...' + k.slice(-4)) : '';
                 this._post({
                     type:              'settingsLoaded',
@@ -506,7 +506,7 @@ class ChatViewProvider {
                 if (msg.provider) {
                     await cfg.update('provider', msg.provider, vscode.ConfigurationTarget.Global);
                 }
-                if (msg.webSearchProvider && ['tavily', 'bing'].includes(msg.webSearchProvider)) {
+                if (msg.webSearchProvider && ['auto', 'tavily', 'duckduckgo', 'bing'].includes(msg.webSearchProvider)) {
                     await cfg.update('webSearchProvider', msg.webSearchProvider, vscode.ConfigurationTarget.Global);
                 }
                 // If the UI sent the currently selected model alongside the provider,
