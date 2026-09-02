@@ -125,6 +125,9 @@ function readLineRangeStreamed(fp, startLine, endLine) {
         let capped   = false;
 
         const close = () => {
+            // Stop 'line' processing immediately — rl.close() alone does not
+            // prevent already-queued 'line' events from firing afterwards.
+            try { rl.removeAllListeners('line'); } catch {}
             try { if (!rl.closed) rl.close(); } catch {}
             try { if (!stream.destroyed) stream.destroy(); } catch {}
         };
@@ -354,8 +357,19 @@ async function toolFindFiles(args) {
             return truncate(lines.join('\n') || '(no matches)');
         }
         try {
-            const uris = await vscode.workspace.findFiles(pattern, '**/node_modules/**', max);
-            return truncate(uris.map(u => u.fsPath).join('\n') || '(no matches)');
+            // Without rg, scope the search to `root` via RelativePattern —
+            // vscode.workspace.findFiles(pattern) would search the whole
+            // workspace and silently ignore the requested directory.
+            // Normalize bare "*.js" to "**/*.js" (findFiles globs do not
+            // cross "/", unlike rg's gitignore-style --glob).
+            const glob = String(pattern).includes('/') || String(pattern).includes('\\')
+                ? pattern
+                : '**/' + pattern;
+            const relPattern = new vscode.RelativePattern(root, glob);
+            const uris = await vscode.workspace.findFiles(relPattern, '**/node_modules/**', max);
+            // Match rg output shape: paths relative to the workspace root.
+            const lines = uris.map(u => vscode.workspace.asRelativePath(u)).filter(Boolean).slice(0, max);
+            return truncate(lines.join('\n') || '(no matches)');
         } catch (e) { return `Error: ${e.message}`; }
     } catch (e) { return `Error: ${e.message}`; }
 }
@@ -372,34 +386,34 @@ async function toolGetDiagnostics(args) {
         try { abs = resolvePath(args.path); } catch (e) { return `Error: ${e.message}`; }
         const uri  = vscode.Uri.file(abs);
         const diags = vscode.languages.getDiagnostics(uri) || [];
-        const filt  = diags.filter(d =>
-            d.severity === vscode.DiagnosticSeverity.Error ||
-            d.severity === vscode.DiagnosticSeverity.Warning);
-        if (!filt.length) return `No errors or warnings found in ${args.path}.`;
+        const errs  = diags.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+        const warns = diags.filter(d => d.severity === vscode.DiagnosticSeverity.Warning);
+        totalErr = errs.length;
+        totalWarn = warns.length;
+        if (!totalErr && !totalWarn) return `No errors or warnings found in ${args.path}.`;
         lines.push(`- ${args.path}:`);
-        for (const d of filt) {
+        // Count over the FULL array; slice only the lines to bound context.
+        for (const d of [...errs, ...warns].slice(0, 10)) {
             const ln  = (d.range && d.range.start && d.range.start.line + 1) || '?';
             const src = d.source ? `[${d.source}] ` : '';
             const msg = String(d.message || '').replace(/\s+/g, ' ').slice(0, 200);
-            if (d.severity === vscode.DiagnosticSeverity.Error) totalErr++;
-            else totalWarn++;
             lines.push(`  L${ln} ${sevName(d.severity)}: ${src}${msg}`);
         }
     } else {
         const all = vscode.languages.getDiagnostics();
         for (const [uri, diags] of all) {
-            const filt = diags.filter(d =>
-                d.severity === vscode.DiagnosticSeverity.Error ||
-                d.severity === vscode.DiagnosticSeverity.Warning).slice(0, 10);
-            if (!filt.length) continue;
+            const errs  = diags.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+            const warns = diags.filter(d => d.severity === vscode.DiagnosticSeverity.Warning);
+            if (!errs.length && !warns.length) continue;
+            totalErr += errs.length;
+            totalWarn += warns.length;
             const rel = vscode.workspace.asRelativePath(uri);
             lines.push(`- ${rel}:`);
-            for (const d of filt) {
+            // Totals above use the full arrays; cap only the listed lines.
+            for (const d of [...errs, ...warns].slice(0, 10)) {
                 const ln  = (d.range && d.range.start && d.range.start.line + 1) || '?';
                 const src = d.source ? `[${d.source}] ` : '';
                 const msg = String(d.message || '').replace(/\s+/g, ' ').slice(0, 200);
-                if (d.severity === vscode.DiagnosticSeverity.Error) totalErr++;
-                else totalWarn++;
                 lines.push(`  L${ln} ${sevName(d.severity)}: ${src}${msg}`);
             }
         }
