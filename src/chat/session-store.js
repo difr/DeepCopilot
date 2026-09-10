@@ -11,6 +11,11 @@ const { str } = require('../utils/settings');
 const { t, tf } = require('../utils/i18n');
 const { Logger } = require('../logger');
 
+// Auto-generated session titles are capped by characters. The model names the
+// session in the language of the conversation, so the cap has to fit Cyrillic
+// and Latin words too — not just the ~10 CJK glyphs the old prompt asked for.
+const TITLE_MAX_CHARS = 40;
+
 // ─── Orphan tool_calls sanitizer ───────────────────────────────────────────
 // Removes ANY incomplete assistant{tool_calls} group from a message array,
 // regardless of position (head / middle / tail).
@@ -504,7 +509,7 @@ class SessionStore {
             };
             title = firstSentence(asstText);
             if (title.length < 8) title = firstSentence(userText);
-            title = title.slice(0, 15).trim();
+            title = title.slice(0, TITLE_MAX_CHARS).trim();
         }
 
         if (!title) return;
@@ -514,7 +519,7 @@ class SessionStore {
         this.postList();
     }
 
-    /** Fire a tiny non-streaming API call to get a ≤15-char session title. */
+    /** Fire a tiny non-streaming API call to get a short (≤ TITLE_MAX_CHARS) session title. */
     async _llmTitle(apiKey, baseUrl, userText, asstText) {
         const https = require('https');
         const http  = require('http');
@@ -530,8 +535,10 @@ class SessionStore {
             .slice(0, 300);
 
         const prompt =
-            '请用不超过10个汉字概括下方对话的主题，只输出标题，不加任何标点和解释：\n' +
-            `用户：${strip(userText)}\n助手：${strip(asstText)}`;
+            'Summarize the topic of the conversation below as a short title of at most 6 words. ' +
+            'Write the title in the same language as the conversation. ' +
+            'Output only the title, with no punctuation, no quotes and no explanation:\n' +
+            `User: ${strip(userText)}\nAssistant: ${strip(asstText)}`;
 
         const body = JSON.stringify({
             model: 'deepseek-flash',
@@ -560,8 +567,11 @@ class SessionStore {
                         const data = JSON.parse(raw);
                         const text = (data?.choices?.[0]?.message?.content || '').trim();
                         const clean = text
-                            .replace(/["""''「」『』【】《》<>（）()\[\]{}\.\!\?。！？，,、；;：:\-—\s]/g, '')
-                            .slice(0, 15);
+                            .replace(/["""''「」『』【】《》<>（）()\[\]{}\.\!\?。！？，,、；;：:\-—]/g, '')
+                            .split('\n')[0]
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                            .slice(0, TITLE_MAX_CHARS);
                         resolve(clean || null);
                     } catch (_) { resolve(null); }
                 });
