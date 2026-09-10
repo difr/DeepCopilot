@@ -17,10 +17,12 @@ const vscode = require('vscode');
 
 const { Logger } = require('../logger');
 const { fimComplete } = require('../api/deepseek');
+const { getProvider } = require('../providers');
 
 const MAX_PREFIX_CHARS = 4000;
 const MAX_SUFFIX_CHARS = 2000;
-const MAX_COMPLETION_TOKENS = 64;
+const DEFAULT_MAX_COMPLETION_TOKENS = 256;
+const FIM_HARD_CAP_TOKENS = 4096; // documented FIM output ceiling
 
 function trimToLineBoundary(text, maxLen, fromEnd) {
     if (text.length <= maxLen) return text;
@@ -63,10 +65,17 @@ function registerInlineCompletionProvider(context) {
                 const apiKey = await context.secrets.get('deepseekAgent.apiKey');
                 if (!apiKey) return null;
 
-                const baseUrl = vscode.workspace.getConfiguration('deepseekAgent').get('baseUrl')
+                // Base URL precedence: explicit FIM setting → built-in DeepSeek endpoint →
+                // official default. The chat `apiBaseUrl` is deliberately NOT consulted: FIM
+                // must not inherit chat configuration, and a proxy on a non-deepseek host
+                // would be rejected by the allow-list in fimComplete() anyway.
+                const baseUrl = (cfg.get('baseUrl') || '').trim()
+                    || getProvider('deepseek')?.baseUrl
                     || 'https://api.deepseek.com';
-                const model   = vscode.workspace.getConfiguration('deepseekAgent').get('model')
-                    || 'deepseek-chat';
+                // FIM settings are deliberately independent of the chat model/provider: FIM
+                // is documented for non-thinking mode only, and the chat model may be a
+                // thinking model.
+                const model = (cfg.get('model') || '').trim() || 'deepseek-flash';
 
                 const fullText = document.getText();
                 const offset   = document.offsetAt(position);
@@ -80,8 +89,13 @@ function registerInlineCompletionProvider(context) {
                 inFlight = { ac };
                 token.onCancellationRequested(() => { try { ac.abort(); } catch {} });
 
+                const maxTokens = Math.min(
+                    FIM_HARD_CAP_TOKENS,
+                    Math.max(16, Number(cfg.get('maxTokens')) || DEFAULT_MAX_COMPLETION_TOKENS),
+                );
+
                 const text = await fimComplete(
-                    { apiKey, baseUrl, model, prefix, suffix, maxTokens: MAX_COMPLETION_TOKENS },
+                    { apiKey, baseUrl, model, prefix, suffix, maxTokens },
                     ac.signal,
                 );
                 inFlight = null;

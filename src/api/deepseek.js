@@ -37,7 +37,7 @@ function fimComplete({ apiKey, baseUrl, model, prefix, suffix, maxTokens, temper
         const isHttps = urlObj.protocol === 'https:';
 
         const body = JSON.stringify({
-            model:       model || 'deepseek-chat',
+            model:       model || 'deepseek-flash',
             prompt:      prefix || '',
             suffix:      suffix || '',
             max_tokens:  maxTokens  || 64,

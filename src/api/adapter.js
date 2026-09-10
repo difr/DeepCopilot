@@ -28,12 +28,12 @@ function resolveProviderConfig(provider, overrideBaseUrl, overrideModel) {
     const model = resolveModel(pid, overrideModel);
     const cfg   = getModel(pid, model) || MODEL_CONFIG_DEFAULT;
     const quirks = getEffectiveQuirks(pid, model);
-    // Built-in providers (openai/anthropic/deepseek) ship their canonical baseUrl in
-    // their JSON; the global `apiBaseUrl` setting only applies when the provider has
-    // no built-in baseUrl (i.e. the `custom` provider). Otherwise a stale override
-    // from a previous provider selection would silently misroute requests.
+    // A user-set Base URL (`apiBaseUrl`) wins over the provider's built-in endpoint —
+    // this is the documented behaviour (src/providers/_schema.json) and what the 🔑
+    // dialog / README promise (e.g. mainland-China users point it at api.deepseeki.com).
+    // The provider's own baseUrl is the fallback.
     return {
-        baseUrl:                p?.baseUrl || overrideBaseUrl || 'https://api.deepseek.com',
+        baseUrl:                (overrideBaseUrl || '').trim() || p?.baseUrl || 'https://api.deepseek.com',
         model,
         noApiKey:               !!p?.noApiKey,
         streamOptions:          quirks.streamOptions !== false,
@@ -55,9 +55,9 @@ function streamChat({ provider, apiKey, baseUrl, model, messages, ...rest }, cal
     const pid        = p ? p.id : providerId;
     const effProtocol = p?.protocol || 'openai';
     const effModel    = resolveModel(pid, model);
-    // Same precedence rule as `resolveProviderConfig`: built-in baseUrl wins to
-    // prevent a stale global override from misrouting cross-provider requests.
-    const effBaseUrl  = p?.baseUrl || baseUrl || 'https://api.deepseek.com';
+    // Same precedence rule as `resolveProviderConfig`: a user-set Base URL wins over
+    // the provider's built-in endpoint; the built-in one is the fallback.
+    const effBaseUrl  = (baseUrl || '').trim() || p?.baseUrl || 'https://api.deepseek.com';
     const modelCfg    = getModel(pid, effModel) || MODEL_CONFIG_DEFAULT;
     const quirks      = getEffectiveQuirks(pid, effModel);
 

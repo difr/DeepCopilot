@@ -136,7 +136,7 @@
         "deepseekAgent.apiBaseUrl": {
           "type": "string",
           "default": "",
-          "description": "AI provider Base URL. Leave empty to use the provider's default endpoint."
+          "description": "AI provider Base URL. When set, it overrides the selected provider's built-in endpoint; leave empty to use the built-in one."
         },
         "deepseekAgent.provider": {
           "type": "string",
@@ -321,6 +321,23 @@
           "minimum": 0,
           "maximum": 2000,
           "description": "Idle delay (ms) after the last keystroke before requesting an inline completion. Lower = snappier but more API calls."
+        },
+        "deepCopilot.inlineCompletion.maxTokens": {
+          "type": "number",
+          "default": 256,
+          "minimum": 16,
+          "maximum": 4096,
+          "description": "Maximum tokens per inline completion. The FIM endpoint caps output at 4K; a lower value keeps ghost text short and cheap."
+        },
+        "deepCopilot.inlineCompletion.model": {
+          "type": "string",
+          "default": "deepseek-flash",
+          "description": "Model used for FIM (fill-in-the-middle) inline completions. DeepSeek FIM is documented for deepseek-flash and deepseek-v4-pro and runs in non-thinking mode only."
+        },
+        "deepCopilot.inlineCompletion.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API base URL for FIM completions. Leave empty to use the built-in DeepSeek base URL. For safety the API key is only ever sent to deepseek.com hosts, so a custom proxy here disables inline completions instead of leaking the key."
         },
         "deepseekAgent.fileEncoding": {
           "type": "object",
