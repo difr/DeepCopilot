@@ -42,6 +42,7 @@ const https  = require('https');
 const http   = require('http');
 const { truncate } = require('./utils');
 const { rankSearchResults, extractSearchSignals } = require('./search-quality');
+const { str } = require('../utils/settings');
 
 // Cap on a single HTTP response body to bound memory usage. Web search
 // endpoints (Tavily JSON / Bing RSS / DDG HTML) normally return well under
@@ -536,7 +537,7 @@ async function searchWeb(query, { max = 5, deepFetch = 0, searchDepth = 'basic',
 
     const vscode  = require('vscode');
     const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-    const setting = cfg.get('webSearchProvider') || 'auto';
+    const setting = str(cfg.get('webSearchProvider')) || 'auto';
 
     if (setting === 'tavily' || setting === 'auto') {
         const secrets = ctx.secrets;

@@ -8,6 +8,7 @@ const { wsRoot } = require('../utils/paths');
 const { t, tf }      = require('../utils/i18n');
 const { truncate } = require('./utils');
 const { Logger }   = require('../logger');
+const { str, arr } = require('../utils/settings');
 
 // ─── Windows codepage detection (for non-UTF-8 shell output) ────────────────
 let _winCodepage = null;
@@ -327,8 +328,8 @@ async function toolRunShell(args, ctx = {}) {
         // - session cache hit   → silently allow (don't re-prompt for the same command in the same session)
         // - otherwise           → modal confirm (existing manual / auto-edit behavior)
         const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-        const approvalMode    = cfg.get('approvalMode') || 'manual';
-        const autoApproveTools = cfg.get('autoApproveTools') || [];
+        const approvalMode    = str(cfg.get('approvalMode')) || 'manual';
+        const autoApproveTools = arr(cfg.get('autoApproveTools'));
         const cacheKey = _normCmd(command);
 
         if (approvalMode === 'autopilot') {
@@ -363,7 +364,7 @@ async function toolRunShell(args, ctx = {}) {
     //   • args.in_terminal === false  → force silent child_process
     //   • setting shellExecutionMode  → "silent" (default) or "terminal"
     const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-    const settingMode = (cfg.get('shellExecutionMode') || 'silent').toLowerCase();
+    const settingMode = (str(cfg.get('shellExecutionMode')) || 'silent').toLowerCase();
     let inTerminal;
     if (typeof args.in_terminal === 'boolean') inTerminal = args.in_terminal;
     else if (typeof args.mode === 'string')    inTerminal = args.mode.toLowerCase() === 'terminal';

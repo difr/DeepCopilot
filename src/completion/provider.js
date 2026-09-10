@@ -18,6 +18,7 @@ const vscode = require('vscode');
 const { Logger } = require('../logger');
 const { fimComplete } = require('../api/deepseek');
 const { getProvider } = require('../providers');
+const { str, bool } = require('../utils/settings');
 
 const MAX_PREFIX_CHARS = 4000;
 const MAX_SUFFIX_CHARS = 2000;
@@ -45,7 +46,7 @@ function registerInlineCompletionProvider(context) {
         async provideInlineCompletionItems(document, position, ctx, token) {
             try {
                 const cfg = vscode.workspace.getConfiguration('deepCopilot.inlineCompletion');
-                if (!cfg.get('enable')) return null;
+                if (!bool(cfg.get('enable'), false)) return null;
 
                 // Skip when user has multi-selection / non-empty selection — they are editing,
                 // not requesting completion.
@@ -69,13 +70,13 @@ function registerInlineCompletionProvider(context) {
                 // official default. The chat `apiBaseUrl` is deliberately NOT consulted: FIM
                 // must not inherit chat configuration, and a proxy on a non-deepseek host
                 // would be rejected by the allow-list in fimComplete() anyway.
-                const baseUrl = (cfg.get('baseUrl') || '').trim()
+                const baseUrl = str(cfg.get('baseUrl'))
                     || getProvider('deepseek')?.baseUrl
                     || 'https://api.deepseek.com';
                 // FIM settings are deliberately independent of the chat model/provider: FIM
                 // is documented for non-thinking mode only, and the chat model may be a
                 // thinking model.
-                const model = (cfg.get('model') || '').trim() || 'deepseek-flash';
+                const model = str(cfg.get('model')) || 'deepseek-flash';
 
                 const fullText = document.getText();
                 const offset   = document.offsetAt(position);

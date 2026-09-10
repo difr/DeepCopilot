@@ -162,37 +162,11 @@
         },
         "deepseekAgent.defaultModel": {
           "type": "string",
-          "default": "deepseek-v4-pro",
-          "enum": [
-            "deepseek-v4-pro",
-            "deepseek-v4-flash",
-            "deepseek-chat",
-            "deepseek-reasoner"
-          ],
-          "enumDescriptions": [
-            "V4 Pro — strongest, ¥3/¥6 per 1M tokens",
-            "V4 Flash — fast & cheap, ¥1/¥2 per 1M tokens",
-            "Compat alias (= v4-flash, non-thinking)",
-            "Compat alias (= v4-flash, thinking mode)"
-          ],
-          "description": "Default DeepSeek model."
+          "description": "Override for the chat model id. Leave empty to use the model declared by the selected provider (deepseekAgent.provider) — the model list itself lives in src/providers/*.json, not in this setting."
         },
         "deepseekAgent.subAgentModel": {
           "type": "string",
-          "default": "deepseek-v4-flash",
-          "enum": [
-            "deepseek-v4-flash",
-            "deepseek-v4-pro",
-            "deepseek-chat",
-            "deepseek-reasoner"
-          ],
-          "enumDescriptions": [
-            "V4 Flash — fast & cheap (recommended for sub-agents)",
-            "V4 Pro — same as parent; slower and may hit rate limits when parallel",
-            "Compat alias (= v4-flash, non-thinking)",
-            "Compat alias (= v4-flash, thinking mode)"
-          ],
-          "description": "Model used by spawn_agent sub-agents. Defaults to v4-flash so parallel sub-agents don't exhaust the Pro/R1 rate limit quota."
+          "description": "Override for the model used by spawn_agent sub-agents. Leave empty to use the provider's subAgentModel (a cheaper/faster variant, so parallel sub-agents don't exhaust the primary model's quota)."
         },
         "deepseekAgent.approvalMode": {
           "type": "string",

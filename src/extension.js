@@ -4,6 +4,7 @@
 const vscode = require('vscode');
 
 const { Logger } = require('./logger');
+const { str } = require('./utils/settings');
 const { ChatViewProvider } = require('./chat/provider');
 const { t, isZh } = require('./utils/i18n');
 const { getDiscountWarning } = require('./pricing');
@@ -138,7 +139,7 @@ function activate(context) {
         }),
         vscode.commands.registerCommand('deepseekAgent.setBaseUrl', async () => {
             const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-            const cur = cfg.get('apiBaseUrl') || '';
+            const cur = str(cfg.get('apiBaseUrl'));
             const choice = await vscode.window.showQuickPick(
                 [
                     { label: t('baseUrlIntl'), description: 'https://api.deepseek.com', value: 'https://api.deepseek.com' },
@@ -190,9 +191,9 @@ function activate(context) {
                 const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
                 const dsKey     = await context.secrets.get('deepseekAgent.apiKey');
                 const tvKey     = await context.secrets.get('deepseekAgent.tavilyKey');
-                const baseUrl   = cfg.get('apiBaseUrl') || 'https://api.deepseek.com';
-                const model     = cfg.get('defaultModel') || 'deepseek-v4-pro';
-                const mode      = cfg.get('approvalMode') || 'manual';
+                const baseUrl   = str(cfg.get('apiBaseUrl')) || 'https://api.deepseek.com';
+                const model     = require('./providers').resolveModel(str(cfg.get('provider')) || 'deepseek', str(cfg.get('defaultModel')));
+                const mode      = str(cfg.get('approvalMode')) || 'manual';
 
                 const dsLabel   = zh ? 'DeepSeek API Key' : 'DeepSeek API Key';
                 const dsTag     = zh ? '（必填）' : ' (required)';

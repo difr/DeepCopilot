@@ -16,6 +16,7 @@ const cp       = require('child_process');
 const readline = require('readline');
 const vscode   = require('vscode');
 const { Logger } = require('./logger');
+const { arr } = require('./utils/settings');
 
 /** Sanitize a string to a safe function-name component ([a-zA-Z0-9_]). */
 function sanitize(s) {
@@ -180,7 +181,7 @@ class McpManager {
         let servers = [];
         try {
             const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-            servers = cfg.get('mcp.servers') || [];
+            servers = arr(cfg.get('mcp.servers'));
         } catch { return; }
 
         if (!Array.isArray(servers) || !servers.length) return;

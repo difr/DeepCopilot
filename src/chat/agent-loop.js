@@ -14,6 +14,7 @@ const { computeCost }      = require('../pricing');
 const { buildSystemPrompt }= require('../prompts/system');
 const { streamChat } = require('../api/adapter');
 const { getProvider, getModel, resolveModel } = require('../providers');
+const { str } = require('../utils/settings');
 const { getToolDefs }      = require('../tools/schema');
 const { mcpManager }       = require('../mcp');
 const { isZh }             = require('../utils/i18n');
@@ -139,7 +140,7 @@ class AgentLoop {
         if (existingActive && existingActive.busy) return;
 
         const cfg      = vscode.workspace.getConfiguration('deepseekAgent');
-        const provider = cfg.get('provider') || 'deepseek';
+        const provider = str(cfg.get('provider')) || 'deepseek';
 
         const apiKey = await this._context.secrets.get('deepseekAgent.apiKey');
         const needsKey = !getProvider(provider)?.noApiKey;
@@ -156,9 +157,9 @@ class AgentLoop {
         }
         run.busy = true;
 
-        const model   = cfg.get('defaultModel') || 'deepseek-v4-pro';
-        const baseUrl = (cfg.get('apiBaseUrl') || '').trim();
-        const mode    = cfg.get('approvalMode') || 'manual';
+        const model   = resolveModel(provider, str(cfg.get('defaultModel')));
+        const baseUrl = str(cfg.get('apiBaseUrl'));
+        const mode    = str(cfg.get('approvalMode')) || 'manual';
         const modelCfg = getModel(provider, resolveModel(provider, model)) || { contextWindow: 65536, maxOutputTokens: 16384 };
 
         // Build attachment block (active editor context)
@@ -273,7 +274,7 @@ class AgentLoop {
             });
         };
 
-        const interactionMode = cfg.get('interactionMode') || 'agent';
+        const interactionMode = str(cfg.get('interactionMode')) || 'agent';
         const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true, mode: interactionMode });
         const _itersRaw = Number(cfg.get('maxIterations'));
         // 0 (or unset) means "run until task is complete" — stagnation detection

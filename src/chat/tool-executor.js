@@ -16,6 +16,7 @@ const path   = require('path');
 const { Logger }       = require('../logger');
 const { t }            = require('../utils/i18n');
 const { wsRoot, resolvePath } = require('../utils/paths');
+const { str, arr } = require('../utils/settings');
 const { runHooks }     = require('../hooks');
 const { mcpManager }   = require('../mcp');
 const { lineDiffStats } = require('./diff-utils');
@@ -398,8 +399,8 @@ class ToolExecutor {
     async execute(name, args, approvalMode, run, abortSignal, tcId) {
         // Deny list / readonly guard
         const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-        const denyList    = cfg.get('denyTools')      || [];
-        const autoApprove = cfg.get('autoApproveTools') || [];
+        const denyList    = arr(cfg.get('denyTools'));
+        const autoApprove = arr(cfg.get('autoApproveTools'));
         if (denyList.includes(name)) return `Denied by configuration: ${name} is in denyTools.`;
 
         const isMutating = ToolExecutor.MUTATING.has(name);
@@ -408,7 +409,7 @@ class ToolExecutor {
         // Issue #66: Plan mode is a soft "readonly" enforced at the executor.
         // The system prompt also instructs the model to stay read-only, but
         // we still guard the executor in case the model ignores the prompt.
-        const interactionMode = cfg.get('interactionMode') || 'agent';
+        const interactionMode = str(cfg.get('interactionMode')) || 'agent';
         if (interactionMode === 'plan' && isMutating) {
             return `PLAN_MODE_FORBIDDEN: ${name} is a write/exec tool and is disabled in Plan mode. Stay read-only (read_file, grep_search, list_dir, find_files, diff_files, web_search, web_fetch, fetch_top, update_plan) and produce a plan for the user to review. The user can switch to Agent mode to execute it.`;
         }

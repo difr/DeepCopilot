@@ -16,7 +16,8 @@ const https = require('https');
 const vscode = require('vscode');
 const { Logger }         = require('../logger');
 const { streamChat } = require('../api/adapter');
-const { getProvider } = require('../providers');
+const { getProvider, getModel } = require('../providers');
+const { str } = require('../utils/settings');
 const { getToolDefs }    = require('../tools/schema');
 const { mcpManager }     = require('../mcp');
 const { autoCompactIfNeeded } = require('./compact');
@@ -110,15 +111,20 @@ class SubAgentRunner {
 
         const apiKey = await this._context.secrets.get('deepseekAgent.apiKey');
         const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-        const provider = cfg.get('provider') || 'deepseek';
-        const p = getProvider(provider) || getProvider('custom');
+        const provider = str(cfg.get('provider')) || 'deepseek';
+        const p = getProvider(provider);
         const needsKey = !p?.noApiKey;
         if (needsKey && !apiKey) return '[spawn_agent] Error: no API key configured.';
 
         // Sub-agents use each provider's declared `subAgentModel` (cheaper/faster
-        // variant) and fall back to `defaultModel` when none is set.
-        const model = p?.subAgentModel || p?.defaultModel || 'gpt-4o';
-        const baseUrl = (cfg.get('apiBaseUrl') || '').trim();
+        // variant) and fall back to `defaultModel` when none is set. The
+        // `deepseekAgent.subAgentModel` setting overrides it — but only with a
+        // model that actually belongs to the active provider.
+        const configured = str(cfg.get('subAgentModel'));
+        const model   = (configured && getModel(provider, configured))
+            ? configured
+            : (p?.subAgentModel || p?.defaultModel || 'gpt-4o');
+        const baseUrl = str(cfg.get('apiBaseUrl'));
 
         // ── Keep-alive HTTPS agent ─────────────────────────────────────────
         // Re-use the same TLS connection for every API call in this sub-agent's

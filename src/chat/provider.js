@@ -34,6 +34,7 @@ const FOLDER_TREE_SKIP = new Set([
     '__pycache__', '.venv', 'venv', '.next', 'coverage', '.turbo',
 ]);
 const { fetchBalance, resolveProviderConfig } = require('../api/adapter');
+const { str } = require('../utils/settings');
 const { testConnection: testAnthropicConnection } = require('../api/anthropic-client');
 const { resolveContextRef } = require('./context-refs');
 
@@ -260,12 +261,15 @@ class ChatViewProvider {
                     const { listProviders } = require('../providers');
                     this._post({ type: 'providersInfo', providers: listProviders() });
                 } catch { /* registry failure shouldn't break the chat UI */ }
+                const provider = str(cfg.get('provider')) || 'deepseek';
                 this._post({
                     type: 'modelInfo',
-                    model: cfg.get('defaultModel') || 'deepseek-v4-pro',
-                    approvalMode: cfg.get('approvalMode') || 'manual',
-                    provider: cfg.get('provider') || 'deepseek',
-                    interactionMode: cfg.get('interactionMode') || 'agent',
+                    provider: provider,
+                    // The model comes from the provider definition unless the user set
+                    // an override that belongs to the active provider.
+                    model: require('../providers').resolveModel(provider, str(cfg.get('defaultModel'))),
+                    interactionMode: str(cfg.get('interactionMode')) || 'agent',
+                    approvalMode: str(cfg.get('approvalMode')) || 'manual',
                 });
                 if (!this._store.sessionId) {
                     try {
@@ -318,14 +322,10 @@ class ChatViewProvider {
                 const { estimateMessagesTokens } = require('./compact');
                 const run = this._activeRun();
                 const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-                const provider = cfg.get('provider') || 'deepseek';
-                const model    = cfg.get('defaultModel') || 'deepseek-v4-pro';
-                const { resolveProvider } = require('../providers');
-                let modelCfg = { contextWindow: 65536 };
-                try {
-                    const p = resolveProvider(provider);
-                    modelCfg = p?.models?.find(m => m.id === model) || modelCfg;
-                } catch { /* fallback */ }
+                const provider = str(cfg.get('provider')) || 'deepseek';
+                const { resolveModel, getModel } = require('../providers');
+                const model    = resolveModel(provider, str(cfg.get('defaultModel')));
+                const modelCfg = getModel(provider, model) || { contextWindow: 65536 };
                 const window = modelCfg.contextWindow || 65536;
                 const sid  = this._store.sessionId;
                 const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
@@ -368,9 +368,9 @@ class ChatViewProvider {
                 const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
                 const dsKey     = await this._context.secrets.get('deepseekAgent.apiKey') || '';
                 const tvKey     = await this._context.secrets.get('deepseekAgent.tavilyKey') || '';
-                const baseUrl   = cfg.get('apiBaseUrl') || '';
-                const provider  = cfg.get('provider') || 'deepseek';
-                const rawWsProvider = cfg.get('webSearchProvider');
+                const baseUrl   = str(cfg.get('apiBaseUrl'));
+                const provider  = str(cfg.get('provider')) || 'deepseek';
+                const rawWsProvider = str(cfg.get('webSearchProvider'));
                 const wsProvider = ['auto', 'tavily', 'duckduckgo', 'bing'].includes(rawWsProvider) ? rawWsProvider : 'auto';
                 const maskKey   = (k) => k ? (k.slice(0, 6) + '...' + k.slice(-4)) : '';
                 this._post({
@@ -391,8 +391,8 @@ class ChatViewProvider {
                 if (which === 'ds') {
                     const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.apiKey') || '');
                     const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-                    const provider = msg.provider || cfg.get('provider') || 'deepseek';
-                    const resolved = resolveProviderConfig(provider, msg.baseUrl || cfg.get('apiBaseUrl') || '', '');
+                    const provider = msg.provider || str(cfg.get('provider')) || 'deepseek';
+                    const resolved = resolveProviderConfig(provider, msg.baseUrl || str(cfg.get('apiBaseUrl')), '');
                     if (!testKey && !resolved.noApiKey) {
                         this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No API key set' });
                         break;
@@ -788,9 +788,9 @@ class ChatViewProvider {
 
         const { autoCompactIfNeeded, estimateMessagesTokens } = require('./compact');
         const cfg      = vscode.workspace.getConfiguration('deepseekAgent');
-        const provider = cfg.get('provider') || 'deepseek';
-        const model    = cfg.get('defaultModel') || 'deepseek-v4-pro';
-        const baseUrl  = (cfg.get('apiBaseUrl') || '').trim();
+        const provider = str(cfg.get('provider')) || 'deepseek';
+        const model    = require('../providers').resolveModel(provider, str(cfg.get('defaultModel')));
+        const baseUrl  = str(cfg.get('apiBaseUrl'));
         const apiKey   = await this._context.secrets.get('deepseekAgent.apiKey');
 
         // Issue #142 P3-2: project-level compact instructions.  If the user
@@ -840,12 +840,7 @@ class ChatViewProvider {
                 // Issue #142 P3-3: broadcast fresh ctxUsage so the footer ring
                 // and popup reflect the compacted count immediately.
                 try {
-                    const { resolveProvider } = require('../providers');
-                    let modelCfg = { contextWindow: 65536 };
-                    try {
-                        const p = resolveProvider(provider);
-                        modelCfg = p?.models?.find(m => m.id === model) || modelCfg;
-                    } catch { /* fallback */ }
+                    const modelCfg = require('../providers').getModel(provider, model) || { contextWindow: 65536 };
                     const window = modelCfg.contextWindow || 65536;
                     this._post({
                         type: 'ctxUsage',
@@ -873,14 +868,10 @@ class ChatViewProvider {
             const { estimateMessagesTokens, estimateTokens } = require('./compact');
             const run = this._activeRun();
             const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-            const provider = cfg.get('provider') || 'deepseek';
-            const model    = cfg.get('defaultModel') || 'deepseek-v4-pro';
-            const { resolveProvider } = require('../providers');
-            let modelCfg = { contextWindow: 65536 };
-            try {
-                const p = resolveProvider(provider);
-                modelCfg = p?.models?.find(m => m.id === model) || modelCfg;
-            } catch { /* fallback */ }
+            const provider = str(cfg.get('provider')) || 'deepseek';
+            const { resolveModel, getModel } = require('../providers');
+            const model    = resolveModel(provider, str(cfg.get('defaultModel')));
+            const modelCfg = getModel(provider, model) || { contextWindow: 65536 };
             const window = modelCfg.contextWindow || 65536;
 
             const sid  = this._store.sessionId;
@@ -1498,9 +1489,9 @@ class ChatViewProvider {
         const now = Date.now();
         if (!force && now - this._balanceLastAt < 30_000) return;
         const cfg      = vscode.workspace.getConfiguration('deepseekAgent');
-        const provider = cfg.get('provider') || 'deepseek';
+        const provider = str(cfg.get('provider')) || 'deepseek';
         const apiKey   = await this._context.secrets.get('deepseekAgent.apiKey') || '';
-        const resolved = resolveProviderConfig(provider, cfg.get('apiBaseUrl') || '', '');
+        const resolved = resolveProviderConfig(provider, str(cfg.get('apiBaseUrl')), '');
         if (!apiKey) { this._post({ type: 'balanceUpdate', unsupported: true }); return; }
         const result = await fetchBalance({ apiKey, baseUrl: resolved.baseUrl, balanceEndpoint: resolved.balanceEndpoint });
         if (result === null) { this._post({ type: 'balanceUpdate', unsupported: true }); return; }

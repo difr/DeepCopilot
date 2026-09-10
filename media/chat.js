@@ -83,7 +83,7 @@
     if (modelPicker) modelPicker.dataset.model = effectiveVal;
     if (modelBtn) {
       modelBtn.textContent = '';
-      var tn = document.createTextNode(displayName + '\u00a0');
+      var tn = document.createTextNode('⚡ ' + displayName + '\u00a0');
       var chev = document.createElement('span');
       chev.className = 'mode-chev';
       chev.textContent = '\u25BE';
@@ -96,7 +96,7 @@
     }
   }
   function getSelectedModel() {
-    return modelPicker ? (modelPicker.dataset.model || (MODELS[0] && MODELS[0].value) || 'deepseek-v4-pro') : 'deepseek-v4-pro';
+    return modelPicker ? (modelPicker.dataset.model || (MODELS[0] && MODELS[0].value) || '') : '';
   }
   function openModelDrop() {
     if (!modelDrop || _modelOpen) return;

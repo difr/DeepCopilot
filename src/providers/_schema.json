@@ -6,6 +6,10 @@
   "required": ["id", "displayName", "protocol", "models"],
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional reference to this schema file, so editors validate provider JSONs inline. Ignored at runtime."
+    },
     "id": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_-]*$",

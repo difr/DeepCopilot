@@ -21,7 +21,7 @@ async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoic
   });
 
   const reqPayload = {
-    model: model || 'deepseek-chat',
+    model: model || 'deepseek-flash',
     messages,
     stream: true,
     ...(useMaxCompletionTokens ? { max_completion_tokens: maxOutputTokens || 32768 } : { max_tokens: maxOutputTokens || 32768 }),

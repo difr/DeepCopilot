@@ -6,6 +6,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { bool } = require('./utils/settings');
 
 let channel = null;
 let filePath = null;
@@ -59,7 +60,7 @@ const Logger = {
     init(context) {
         try {
             const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-            enabled = cfg.get('enableDebugLog') !== false;
+            enabled = bool(cfg.get('enableDebugLog'));
         } catch (_) { enabled = true; }
 
         if (!channel) channel = vscode.window.createOutputChannel('Deep Copilot Debug');

@@ -33,7 +33,7 @@ if (!KEY) {
 }
 
 // Reasoning-capable, cheapest model — keeps the probe nearly free.
-const MODEL = 'deepseek-v4-flash';
+const MODEL = 'deepseek-flash';
 
 // label -> candidate placeholder string
 const CANDIDATES = {

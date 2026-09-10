@@ -205,7 +205,8 @@ All settings live under the `deepseekAgent.*` namespace in `settings.json`.
 
 | Setting                               | Default                             | EN                                                         | 中文                                                                            |
 | ------------------------------------- | ----------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `deepseekAgent.defaultModel`        | `deepseek-v4-pro`                 | Default model                                              | 默认模型（`deepseek-v4-pro` / `deepseek-v4-flash` / `deepseek-reasoner`） |
+| `deepseekAgent.defaultModel`        | *(empty → provider default)*      | Chat model override                                        | 聊天模型覆盖（留空则用所选 provider 的默认模型，见 `src/providers/*.json`） |
+| `deepseekAgent.subAgentModel`       | *(empty → provider subAgentModel)* | Sub-agent model override                                  | 子 Agent 模型覆盖（留空用 provider 的 `subAgentModel`）                     |
 | `deepseekAgent.apiBaseUrl`          | *(empty → `api.deepseek.com`)* | API endpoint                                               | API 入口（国内可填 `https://api.deepseeki.com`）                              |
 | `deepseekAgent.approvalMode`        | `manual`                          | Tool-call approval policy                                  | 工具调用审批策略                                                                |
 | `deepseekAgent.interactionMode`     | `agent`                           | `agent` / `ask`                                        | 交互模式（Agent 可调工具，Ask 纯聊天）                                          |

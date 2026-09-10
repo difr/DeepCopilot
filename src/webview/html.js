@@ -124,8 +124,8 @@ function buildWebviewHtml(webview, extensionUri) {
         <div id="iModePicker" class="mode-picker" data-im="agent">
           <button id="iModeBtn" class="cbtn mode-trigger" title="${ui.interactionMode}"><i class="codicon codicon-tools"></i>&#160;Agent&#160;<span class="mode-chev">▾</span></button>
         </div>
-        <div id="modelPicker" class="mode-picker" data-model="deepseek-v4-pro">
-          <button id="modelBtn" class="cbtn mode-trigger" title="${ui.switchModel}">⚡ v4-pro <span class="mode-chev">▾</span></button>
+        <div id="modelPicker" class="mode-picker" data-model="">
+          <button id="modelBtn" class="cbtn mode-trigger" title="${ui.switchModel}">⚡ <span class="mode-chev">▾</span></button>
           <div id="modelDrop" class="mode-drop" style="display:none"></div>
         </div>
         <div id="modePicker" class="mode-picker" data-m="manual">

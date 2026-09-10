@@ -16,6 +16,7 @@ const vscode = require('vscode');
 
 const { t }                                              = require('../utils/i18n');
 const { Logger }                                         = require('../logger');
+const { str, arr }                                       = require('../utils/settings');
 const { isDangerous, confirmDangerous, _normCmd,
         _dangerCmdApprovals }                            = require('./shell');
 const { addActiveBgJob, onBgJobEnded, offBgJobEnded, markSyncReturnedJob } = require('./terminal-monitor');
@@ -53,8 +54,8 @@ async function toolRunShellBg(args, ctx = {}) {
     // ── Dangerous-command gate (mirrors shell.js logic) ──────────────────
     if (isDangerous(command)) {
         const cfg             = vscode.workspace.getConfiguration('deepseekAgent');
-        const approvalMode    = cfg.get('approvalMode') || 'manual';
-        const autoApproveTools = cfg.get('autoApproveTools') || [];
+        const approvalMode    = str(cfg.get('approvalMode')) || 'manual';
+        const autoApproveTools = arr(cfg.get('autoApproveTools'));
         const cacheKey        = _normCmd(command);
 
         if (approvalMode === 'autopilot') {

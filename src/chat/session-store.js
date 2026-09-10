@@ -7,6 +7,7 @@
 
 const vscode = require('vscode');
 const { randomBytes } = require('crypto');
+const { str } = require('../utils/settings');
 const { t, tf } = require('../utils/i18n');
 const { Logger } = require('../logger');
 
@@ -237,8 +238,8 @@ class SessionStore {
         }
 
         const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-        s.model = cfg.get('defaultModel') || 'deepseek-v4-pro';
-        s.mode  = cfg.get('approvalMode') || 'manual';
+        s.model = require('../providers').resolveModel(str(cfg.get('provider')) || 'deepseek', str(cfg.get('defaultModel')));
+        s.mode  = str(cfg.get('approvalMode')) || 'manual';
 
         if (userText) s.messages.push({ role: 'user', text: userText });
         if (asstText || thoughts) s.messages.push({ role: 'assistant', text: asstText || '', thoughts: thoughts || '' });
@@ -533,7 +534,7 @@ class SessionStore {
             `用户：${strip(userText)}\n助手：${strip(asstText)}`;
 
         const body = JSON.stringify({
-            model: 'deepseek-chat',
+            model: 'deepseek-flash',
             messages: [{ role: 'user', content: prompt }],
             stream: false, max_tokens: 20, temperature: 0.3,
         });
