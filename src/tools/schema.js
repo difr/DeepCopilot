@@ -174,6 +174,7 @@ const TOOL_DEFS = [
                     path: { type: 'string', description: 'Directory to search (default: workspace root).' },
                     include: { type: 'string', description: 'File glob filter, e.g. "*.ts".' },
                     is_regex: { type: 'boolean', description: 'Treat pattern as regex.' },
+                    include_ignored: { type: 'boolean', description: 'Also search paths excluded by .gitignore (node_modules/, out/, tmp/, .deep-copilot/, *.log) and hidden directories. Default false. Set true when the target may live in ignored output or logs — otherwise such hits come back as "(no matches)".' },
                 },
                 required: ['pattern'],
             },

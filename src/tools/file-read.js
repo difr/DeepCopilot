@@ -23,6 +23,10 @@ const { readFileText, createDecodedStream, decodeBuf, resolveEncoding } = requir
 //      ONLY searches tracked files, so it is skipped for untracked targets.
 //   4. findstr / grep — last resort; no .gitignore support (slow on trees
 //      like node_modules).
+//
+// Engines 1-3 honour .gitignore, which hides build output and log directories
+// (out/, tmp/, .deep-copilot/). The `include_ignored` argument — or an explicit
+// path that git itself ignores — drops those rules for the call.
 
 function detectRipgrep() {
     try {
@@ -84,6 +88,19 @@ function _gitGrepUsable(root) {
         if (tracked.error || (tracked.stdout || '').trim() === '') return false;
         const untracked = runArgv('git', ['ls-files', '--others', '--exclude-standard', root]);
         return !untracked.error && (untracked.stdout || '').trim() === '';
+    } catch { return false; }
+}
+
+/**
+ * Whether `absPath` is excluded by git's ignore rules (.gitignore, info/exclude,
+ * core.excludesFile). An explicitly targeted ignored path must still be searched:
+ * ripgrep applies ignore rules even to paths given on the command line, which
+ * silently turned "grep the logs in .deep-copilot/" into "(no matches)".
+ */
+function _isIgnoredPath(absPath) {
+    try {
+        const r = runArgv('git', ['check-ignore', '-q', absPath]);
+        return !r.error && r.status === 0;
     } catch { return false; }
 }
 
@@ -282,15 +299,30 @@ async function toolGrepSearch(args) {
         const pattern = String(args.pattern || '');
         if (!pattern) return 'Error: pattern is required';
 
+        // ripgrep applies .gitignore even to explicitly given paths, so a search
+        // narrowed to an ignored location (.deep-copilot/logs, out/, tmp/) came
+        // back as "(no matches)". Two ways to opt out:
+        //   • include_ignored=true — blanket switch: ignore rules off everywhere,
+        //     hidden directories included (.git stays excluded);
+        //   • an explicit path that git itself ignores — the caller clearly
+        //     targeted that location, so ignore rules are dropped for the call.
+        const explicitPath = !!(args.path && String(args.path).trim() && String(args.path).trim() !== '.');
+        const ignoreAware  = !!args.include_ignored || (explicitPath && _isIgnoredPath(root));
+
+        let engine = '';
         const rg = rgPath();
         let r;
         if (rg) {
+            engine = 'rg';
             const argv = ['--line-number', '--max-count', '10', '--max-filesize', '1M'];
+            if (ignoreAware) argv.push('--no-ignore');
+            if (args.include_ignored) argv.push('--hidden', '--glob', '!.git/**');
             if (!args.is_regex) argv.push('--fixed-strings');
             if (args.include) argv.push('--glob', String(args.include));
             argv.push('--', pattern, root);
             r = runArgv(rg, argv);
-        } else if (!args.include && _gitGrepUsable(root)) {
+        } else if (!args.include_ignored && !args.include && _gitGrepUsable(root)) {
+            engine = 'gitgrep';
             // git grep: .gitignore-aware and fast, but only tracks committed
             // files (guarded by _gitGrepUsable). Same path:line:text output
             // shape as ripgrep, so no extra formatting is needed.
@@ -300,6 +332,7 @@ async function toolGrepSearch(args) {
             argv.push('--', pattern, root);
             r = runArgv('git', argv);
         } else if (process.platform === 'win32') {
+            engine = 'findstr';
             // findstr takes a file mask, not a bare path. Masks are resolved
             // against the cwd (wsRoot, set by runArgv), so relative masks keep
             // output paths consistent with the rg / git-grep branches. No /i:
@@ -326,6 +359,7 @@ async function toolGrepSearch(args) {
             if (args.is_regex) flags.push('/r');
             r = runArgv('findstr', flags.concat([`/c:${pattern}`, mask]));
         } else {
+            engine = 'grep';
             const argv = ['-rn', '--max-count=10']; // per-file cap matches rg / git grep
             if (!args.is_regex) argv.push('-F');
             if (args.include) argv.push(`--include=${args.include}`);
@@ -335,7 +369,15 @@ async function toolGrepSearch(args) {
 
         if (r.error) return `Error: ${r.error.message}`;
         const out = (r.stdout || '').trim();
-        if (!out) return '(no matches)';
+        if (!out) {
+            // Without this note an ignore-rule miss is indistinguishable from a
+            // genuine miss. Only the ignore-aware engines can produce one.
+            const ignoreAwareEngine = engine === 'rg' || engine === 'gitgrep';
+            const hint = (!ignoreAware && ignoreAwareEngine)
+                ? '\n(hint: paths excluded by .gitignore — node_modules/, out/, tmp/, .deep-copilot/, *.log — were skipped; retry with include_ignored: true to search them)'
+                : '';
+            return '(no matches)' + hint;
+        }
         return truncate(out.split(/\r?\n/).slice(0, 200).join('\n'));
     } catch (e) { return `Error: ${e.message}`; }
 }
@@ -422,4 +464,4 @@ async function toolGetDiagnostics(args) {
     return [`diagnostics: ${totalErr} error(s), ${totalWarn} warning(s)`, ...lines].join('\n');
 }
 
-module.exports = { toolReadFile, toolListDir, toolGrepSearch, toolFindFiles, toolGetDiagnostics, _gitGrepUsable, rgPath };
+module.exports = { toolReadFile, toolListDir, toolGrepSearch, toolFindFiles, toolGetDiagnostics, _gitGrepUsable, _isIgnoredPath, rgPath };

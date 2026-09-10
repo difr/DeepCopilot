@@ -36,7 +36,7 @@ Module._resolveFilename = function (request, parent, ...rest) {
 };
 
 const assert = require('assert');
-const { toolGrepSearch, _gitGrepUsable } = require(path.join('..', 'src', 'tools', 'file-read.js'));
+const { toolGrepSearch, _gitGrepUsable, _isIgnoredPath, rgPath } = require(path.join('..', 'src', 'tools', 'file-read.js'));
 
 let passed = 0;
 const _tests = [];
@@ -132,6 +132,60 @@ test('grep by directory with include mask filters results', async () => {
 test('grep by missing path returns error, not crash', async () => {
     const out = await toolGrepSearch({ path: 'src/tools/does-not-exist.js', pattern: 'x' });
     assert.ok(typeof out === 'string' && out.length > 0, `expected non-empty result, got: ${out}`);
+});
+
+// ─── include_ignored / explicitly targeted ignored paths ────────────────────
+// `out/` is .gitignore'd, so ignore-aware engines (ripgrep, git grep) skip it.
+const IGNORED_PROBE_DIR = path.join(repoRoot, 'out', '_grep_probe_ignored');
+
+async function withIgnoredProbe(token, fn) {
+    fs.mkdirSync(IGNORED_PROBE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(IGNORED_PROBE_DIR, 'probe.js'), `// ${token}\n`);
+    try {
+        await fn();
+    } finally {
+        try { fs.rmSync(IGNORED_PROBE_DIR, { recursive: true, force: true }); } catch {}
+    }
+}
+
+test('include_ignored finds matches inside a .gitignore\'d directory', async () => {
+    await withIgnoredProbe('token_ignored_alpha', async () => {
+        const out = await toolGrepSearch({
+            path: 'out/_grep_probe_ignored', pattern: 'token_ignored_alpha', include_ignored: true,
+        });
+        assert.ok(out.includes('token_ignored_alpha'), `expected hit, got: ${out}`);
+    });
+});
+
+test('an explicit non-root path also searches ignored locations', async () => {
+    await withIgnoredProbe('token_ignored_beta', async () => {
+        const out = await toolGrepSearch({ path: 'out/_grep_probe_ignored', pattern: 'token_ignored_beta' });
+        assert.ok(out.includes('token_ignored_beta'), `expected hit via explicit path, got: ${out}`);
+    });
+});
+
+test('include_ignored does not break ordinary searches', async () => {
+    const out = await toolGrepSearch({
+        path: 'src/tools/utils.js', pattern: 'function truncate', include_ignored: true,
+    });
+    assert.ok(out.includes('function truncate'), `expected hit, got: ${out}`);
+});
+
+test('root scan skips ignored files and hints about include_ignored', async () => {
+    // findstr / grep have no .gitignore support, so the skip only applies to
+    // ignore-aware engines — this assertion is meaningful with ripgrep only.
+    if (!rgPath()) return;
+    await withIgnoredProbe('token_ignored_gamma', async () => {
+        const out = await toolGrepSearch({ pattern: 'token_ignored_gamma' });
+        assert.ok(out.startsWith('(no matches)'), `expected skip of ignored dir, got: ${out}`);
+        assert.ok(out.includes('include_ignored'), `expected include_ignored hint, got: ${out}`);
+    });
+});
+
+test('_isIgnoredPath distinguishes ignored from tracked locations', () => {
+    assert.ok(_isIgnoredPath(path.join(repoRoot, 'out', 'anything.js')), 'expected out/ to be ignored');
+    assert.ok(_isIgnoredPath(path.join(repoRoot, '.deep-copilot', 'logs')), 'expected .deep-copilot/ to be ignored');
+    assert.ok(!_isIgnoredPath(path.join(repoRoot, 'src', 'tools', 'utils.js')), 'expected src/ not to be ignored');
 });
 
 _runAll();
