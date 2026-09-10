@@ -1,9 +1,9 @@
-// web_fetch: 抓取指定 URL 的网页内容，转成纯文本返回给模型。
-// 安全设计：
-//   - 拦截内网/私有 IP（防 SSRF）
-//   - 禁止跨主机重定向（防开放重定向攻击）
-//   - 内容大小上限 2MB，超时 30 秒
-//   - 结果超长自动截断，省 token
+// web_fetch: fetches a URL and returns the page content as plain text.
+// Safety design:
+//   - blocks private/internal IPs (SSRF protection)
+//   - forbids cross-host redirects (open-redirect protection)
+//   - 2MB content cap, 30s timeout
+//   - over-long results are truncated to save tokens
 'use strict';
 
 const https = require('https');
@@ -11,7 +11,7 @@ const http  = require('http');
 const { URL } = require('url');
 const { truncate } = require('./utils');
 
-// ─── 内网地址拦截（防 SSRF） ──────────────────────────────────────────────────
+// ─── Private-network guard (SSRF protection) ─────────────────────────────────
 const BLOCKED_PATTERNS = [
     /^127\./,
     /^10\./,
@@ -29,25 +29,25 @@ function isBlockedHost(hostname) {
     return BLOCKED_PATTERNS.some(re => re.test(hostname));
 }
 
-// ─── URL 合法性校验 ────────────────────────────────────────────────────────────
+// ─── URL validation ──────────────────────────────────────────────────────────
 function validateUrl(rawUrl) {
     let parsed;
     try { parsed = new URL(rawUrl); }
-    catch { return { ok: false, reason: `无效的 URL: ${rawUrl}` }; }
+    catch { return { ok: false, reason: `Invalid URL: ${rawUrl}` }; }
 
     if (!['http:', 'https:'].includes(parsed.protocol))
-        return { ok: false, reason: `不支持的协议 ${parsed.protocol}，只支持 http/https` };
+        return { ok: false, reason: `Unsupported protocol ${parsed.protocol} — only http/https are allowed` };
 
     if (parsed.username || parsed.password)
-        return { ok: false, reason: '不允许 URL 中包含用户名/密码' };
+        return { ok: false, reason: 'URLs with embedded credentials are not allowed' };
 
     if (isBlockedHost(parsed.hostname))
-        return { ok: false, reason: `禁止访问内网地址: ${parsed.hostname}` };
+        return { ok: false, reason: `Private-network address blocked: ${parsed.hostname}` };
 
     return { ok: true, parsed };
 }
 
-// ─── 核心抓取（手动控制重定向，防跨域跳转） ────────────────────────────────────
+// ─── Core fetch (redirects handled manually, cross-host hops rejected) ───────
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024; // 2MB
 const FETCH_TIMEOUT_MS  = 30_000;
 const MAX_REDIRECTS     = 5;
@@ -60,7 +60,7 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS, abortSignal = null) {
         if (abortSignal && abortSignal.aborted) return reject(new Error('aborted'));
 
         const { parsed } = check;
-        // 强制升级到 HTTPS
+        // Force HTTPS.
         const finalUrl = parsed.protocol === 'http:'
             ? rawUrl.replace(/^http:/, 'https:')
             : rawUrl;
@@ -75,27 +75,27 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS, abortSignal = null) {
                 'User-Agent': 'Mozilla/5.0 (compatible; DeepCopilot/1.0; +https://github.com)',
                 'Accept':     'text/html,text/plain,*/*',
             },
-            // 关键：maxRedirects=0，我们自己处理重定向
+            // maxRedirects=0 — we handle redirects ourselves.
         }, (res) => {
-            // 处理重定向
+            // Handle redirects.
             if ([301, 302, 307, 308].includes(res.statusCode)) {
                 const location = res.headers.location;
-                if (!location) return reject(new Error('重定向缺少 Location header'));
-                if (redirectsLeft <= 0) return reject(new Error('重定向次数超过上限'));
+                if (!location) return reject(new Error('Redirect is missing the Location header'));
+                if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
 
-                // 解析相对 URL
+                // Resolve relative URLs.
                 let redirectUrl;
                 try { redirectUrl = new URL(location, finalUrl).toString(); }
-                catch { return reject(new Error(`无效的重定向地址: ${location}`)); }
+                catch { return reject(new Error(`Invalid redirect target: ${location}`)); }
 
-                // 只允许同主机重定向（去掉 www 前缀后对比）
+                // Same-host redirects only (compared with the `www.` prefix stripped).
                 const strip = h => h.replace(/^www\./, '');
                 const origHost = new URL(finalUrl).hostname;
                 const redirHost = new URL(redirectUrl).hostname;
                 if (strip(origHost) !== strip(redirHost)) {
                     return reject(new Error(
-                        `跨域重定向被拦截: ${origHost} → ${redirHost}\n` +
-                        `如需访问目标地址，请直接用该 URL 调用 web_fetch: ${redirectUrl}`
+                        `Cross-host redirect blocked: ${origHost} → ${redirHost}\n` +
+                        `To fetch the target instead, call web_fetch directly with: ${redirectUrl}`
                     ));
                 }
 
@@ -108,14 +108,14 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS, abortSignal = null) {
                 return reject(new Error(`HTTP ${res.statusCode}: ${finalUrl}`));
             }
 
-            // 读取响应体，限制大小
+            // Read the body, enforcing the size cap.
             const chunks = [];
             let totalBytes = 0;
             res.on('data', chunk => {
                 totalBytes += chunk.length;
                 if (totalBytes > MAX_CONTENT_BYTES) {
                     res.destroy();
-                    // 不 reject，返回已收集部分（截断）
+                    // Do not reject — return what we already collected (truncated).
                     resolve({ body: Buffer.concat(chunks).toString('utf8'), truncated: true, url: finalUrl, status: res.statusCode, contentType: res.headers['content-type'] || '' });
                     return;
                 }
@@ -135,7 +135,7 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS, abortSignal = null) {
 
         req.on('error', reject);
         req.on('timeout', () => {
-            req.destroy(new Error(`请求超时 (${FETCH_TIMEOUT_MS}ms): ${finalUrl}`));
+            req.destroy(new Error(`Request timed out (${FETCH_TIMEOUT_MS}ms): ${finalUrl}`));
         });
 
         if (abortSignal) {
@@ -149,35 +149,35 @@ function fetchUrl(rawUrl, redirectsLeft = MAX_REDIRECTS, abortSignal = null) {
     });
 }
 
-// ─── HTML → 纯文本（简单版，不依赖第三方库） ───────────────────────────────────
+// ─── HTML → plain text (simple, dependency-free) ─────────────────────────────
 function htmlToText(html) {
     return html
-        // 去掉 <script> / <style> 块
+        // Drop <script> / <style> blocks.
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<style[\s\S]*?<\/style>/gi, '')
-        // 把常见块级标签换成换行
+        // Turn common block-level tags into newlines.
         .replace(/<\/(p|div|li|tr|h[1-6]|section|article|br)>/gi, '\n')
-        // 去掉所有剩余 HTML 标签
+        // Strip every remaining HTML tag.
         .replace(/<[^>]+>/g, '')
-        // 解码常见 HTML 实体
+        // Decode common HTML entities.
         .replace(/&nbsp;/g, ' ')
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
         .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-        // 合并多余空行
+        // Collapse runs of blank lines.
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 }
 
-// ─── 工具主函数 ────────────────────────────────────────────────────────────────
+// ─── Tool entry points ───────────────────────────────────────────────────────
 
-// 结构化版本：不依赖 "Error:" 前缀字符串嗅探，供 context-refs 等需要
-// 判别成功/失败的调用方使用。返回 { ok, body?, error? }。
+// Structured variant: no "Error:" prefix sniffing — for callers (context-refs
+// and friends) that need to tell success from failure. Returns { ok, body?, error? }.
 async function fetchAndExtractText(args, _ctx = {}) {
     const url = String((args && args.url) || '').trim();
-    if (!url) return { ok: false, error: 'url 不能为空' };
+    if (!url) return { ok: false, error: 'url is required' };
 
     const { ok, reason } = validateUrl(url);
     if (!ok) return { ok: false, error: reason };
@@ -189,14 +189,14 @@ async function fetchAndExtractText(args, _ctx = {}) {
         const { body, truncated, url: finalUrl, status, contentType } = await fetchUrl(url, MAX_REDIRECTS, abortSignal);
         const isHtml = contentType.includes('text/html') || contentType.includes('application/xhtml');
         const text   = isHtml ? htmlToText(body) : body;
-        const header = `URL: ${finalUrl}\nHTTP 状态: ${status}\n内容类型: ${contentType}${truncated ? '\n⚠️ 内容已截断（超过 2MB）' : ''}\n\n`;
+        const header = `URL: ${finalUrl}\nHTTP status: ${status}\nContent-Type: ${contentType}${truncated ? '\n⚠️ content truncated (over 2MB)' : ''}\n\n`;
         return { ok: true, body: truncate(header + text), finalUrl, status, contentType };
     } catch (e) {
         return { ok: false, error: e && e.message ? e.message : String(e) };
     }
 }
 
-// 字符串版本：保持工具调用契约不变（agent loop 期望字符串）。
+// String variant: keeps the tool-call contract unchanged (the agent loop expects a string).
 async function toolWebFetch(args, _ctx = {}) {
     const res = await fetchAndExtractText(args, _ctx);
     if (!res.ok) return `Error: ${res.error}`;

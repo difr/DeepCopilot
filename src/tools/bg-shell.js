@@ -14,7 +14,7 @@
 
 const vscode = require('vscode');
 
-const { t }                                              = require('../utils/i18n');
+const { t }                                              = require('../utils/strings');
 const { Logger }                                         = require('../logger');
 const { str, arr }                                       = require('../utils/settings');
 const { isDangerous, confirmDangerous, _normCmd,

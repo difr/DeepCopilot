@@ -7,7 +7,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const { wsRoot, resolvePath } = require('../utils/paths');
-const { t }                   = require('../utils/i18n');
+const { t }                   = require('../utils/strings');
 const { truncate, ensurePathAllowed } = require('./utils');
 
 const MAX_OUTPUT = 24000;

@@ -2,7 +2,7 @@
 'use strict';
 
 const vscode = require('vscode');
-const { isZh, t } = require('../utils/i18n');
+const { t } = require('../utils/strings');
 
 function buildWebviewHtml(webview, extensionUri) {
     const cssUri      = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.css'));
@@ -13,7 +13,7 @@ function buildWebviewHtml(webview, extensionUri) {
     const katexCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'katex.min.css'));
     const katexJsUri  = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'katex.min.js'));
     const dompurifyUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'purify.min.js'));
-    const locale  = isZh() ? 'zh' : 'en';
+    const locale  = 'en';
     const ui = {
         welcomeSub:      t('wvWelcomeSub'),
         welcomeHint:     t('wvWelcomeHint'),
@@ -249,7 +249,7 @@ module.exports = { buildWebviewHtml, buildSidebarHintHtml };
  */
 function buildSidebarHintHtml(webview, extensionUri) {
     const logoUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'imgs', 'logo_black_bg.png'));
-    const locale  = isZh() ? 'zh' : 'en';
+    const locale  = 'en';
     const lead    = t('sidebarHintLead');
     const b1      = t('sidebarHintBenefit1');
     const b2      = t('sidebarHintBenefit2');

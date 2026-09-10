@@ -18,7 +18,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs/promises');
-const { t } = require('../utils/i18n');
+const { t } = require('../utils/strings');
 
 // Post-merge review: align with the rest of the codebase's workspace-artifact
 // convention (`.deep-copilot/plans`, `.deep-copilot/memory.md`,
@@ -275,7 +275,7 @@ async function exportSessionToMarkdown(session) {
         const resolved = path.resolve(archiveDir, fileName);
         const rel = path.relative(root, resolved);
         if (rel.startsWith('..') || path.isAbsolute(rel)) {
-            // i18n'd, user-facing — see archiveErrEscape in src/utils/i18n.js.
+            // user-facing — see archiveErrEscape in src/utils/strings.js.
             throw new Error(t('archiveErrEscape'));
         }
         await fs.mkdir(archiveDir, { recursive: true });

@@ -17,7 +17,7 @@ const { getProvider, getModel, resolveModel } = require('../providers');
 const { str } = require('../utils/settings');
 const { getToolDefs }      = require('../tools/schema');
 const { mcpManager }       = require('../mcp');
-const { isZh }             = require('../utils/i18n');
+const { t, tf }            = require('../utils/strings');
 const {
     estimateMessagesTokens, autoCompactIfNeeded, nuclearCompact, ToolArgsStreamer,
 } = require('./compact');
@@ -145,7 +145,7 @@ class AgentLoop {
         const apiKey = await this._context.secrets.get('deepseekAgent.apiKey');
         const needsKey = !getProvider(provider)?.noApiKey;
         if (needsKey && !apiKey) {
-            this._post({ type: 'error', text: '请先设置 API Key — 点击工具栏 🔑 按钮' });
+            this._post({ type: 'error', text: t('apiKeyMissing') });
             return;
         }
 
@@ -241,9 +241,7 @@ class AgentLoop {
             });
             this._postToRun(run, {
                 type: 'status',
-                text: isZh()
-                    ? `🔔 自动唤醒（${autoResume.trigger || 'trigger'}）`
-                    : `🔔 Auto-resumed (${autoResume.trigger || 'trigger'})`,
+                text: tf('statusAutoResumed', { trigger: autoResume.trigger || 'trigger' }),
             });
             this._postToRun(run, { type: 'replyStart' });
             this._postSessionList();
@@ -296,7 +294,7 @@ class AgentLoop {
         //   Cleared once run_shell is first called in this turn.
         // verifyNudgeEmitted: ensures we inject the reminder at most once per turn.
         // shellFailCounts: tracks consecutive failures per normalized command.
-        const FIX_KEYWORDS = /修复|报错|不工作|失败|\bfix\b|\berror\b|\bbroken\b|\bfail\b/i;
+        const FIX_KEYWORDS = /\bfix\b|\berror\b|\bbroken\b|\bfail\b/i;
         let wantsVerifyNudge  = FIX_KEYWORDS.test(typeof text === 'string' ? text : '');
         let verifyNudgeEmitted = false;
         const shellFailCounts = new Map();
@@ -451,7 +449,7 @@ class AgentLoop {
                         Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _before, after: run.messages.length, site: 'autocompact' });
                     }
                     Logger.info('AUTOCOMPACT', { sid, iter, dropped: compactRes.dropped, truncated: compactRes.truncated, deduped: compactRes.deduped });
-                    this._postToRun(run, { type: 'status', text: isZh() ? '🗜 压缩历史…' : 'Compacting history…' });
+                    this._postToRun(run, { type: 'status', text: t('statusCompacting') });
                     postProgress('compacting');
                 }
 
@@ -555,7 +553,7 @@ class AgentLoop {
                                 Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _before, after: run.messages.length, site: 'preflight_compact' });
                             }
                             Logger.info('PREFLIGHT_COMPACT', { sid, iter, before: preflightTokens, keepTail: emergencyKeepTail, dropped: agg.dropped, truncated: agg.truncated });
-                            this._postToRun(run, { type: 'status', text: isZh() ? '⚠️ 上下文接近上限，已紧急压缩历史…' : 'Context near limit — emergency compaction applied…' });
+                            this._postToRun(run, { type: 'status', text: t('statusEmergencyCompact') });
                         }
                         const newTokens = estimateMessagesTokens([{ role: 'system', content: sysPrompt }, ...run.messages], tokCtx);
                         if (newTokens <= MODEL_CTX_HARD_LIMIT) { preflightTokens = newTokens; break; }
@@ -581,9 +579,7 @@ class AgentLoop {
                         Logger.info('NUCLEAR_COMPACT', { sid, iter, before, after });
                         this._postToRun(run, {
                             type: 'status',
-                            text: isZh()
-                                ? `🔥 上下文越限，已执行核弹级压缩（${Math.round(before / 1000)}K→${Math.round(after / 1000)}K tokens）…`
-                                : `🔥 Nuclear compaction applied (${Math.round(before / 1000)}K→${Math.round(after / 1000)}K tokens)…`,
+                            text: tf('statusNuclearCompact', { before: Math.round(before / 1000), after: Math.round(after / 1000) }),
                         });
                         // preflightTokens is intentionally not re-read after this point;
                         // the next iteration recalculates it from scratch.
@@ -1130,9 +1126,7 @@ class AgentLoop {
                     });
                     this._postToRun(run, {
                         type: 'status',
-                        text: isZh()
-                            ? `💤 已挂起：${_yr.reason}（${_yr.watcherIds.length} 个 watcher 监听中）`
-                            : `💤 Suspended: ${_yr.reason} (${_yr.watcherIds.length} watcher(s) armed)`,
+                        text: tf('statusSuspended', { reason: _yr.reason, count: _yr.watcherIds.length }),
                     });
                     break;
                 }

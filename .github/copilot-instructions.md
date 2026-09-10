@@ -29,7 +29,7 @@ DeepCopilot 是一个 VS Code 扩展，核心能力：
 ## 代码风格
 - 使用 2 空格缩进、单引号、必要时分号
 - 错误必须通过 `src/errors.js` 中的工具处理，不要 `console.log` 调试代码
-- 国际化文案统一通过 `src/utils/i18n.js`
+- UI 文案统一通过 `src/utils/strings.js`（English-only，`t()`/`tf()`）
 - 路径相关用 `src/utils/paths.js`，不要直接拼字符串
 
 ## 审核结论格式

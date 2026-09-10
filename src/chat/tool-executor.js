@@ -14,7 +14,7 @@ const fs     = require('fs');
 const path   = require('path');
 
 const { Logger }       = require('../logger');
-const { t }            = require('../utils/i18n');
+const { t }            = require('../utils/strings');
 const { wsRoot, resolvePath } = require('../utils/paths');
 const { str, arr } = require('../utils/settings');
 const { runHooks }     = require('../hooks');

@@ -9,7 +9,7 @@ const readline = require('readline');
 const vscode   = require('vscode');
 
 const { wsRoot, resolvePath } = require('../utils/paths');
-const { t }                   = require('../utils/i18n');
+const { t }                   = require('../utils/strings');
 const { truncate, ensurePathAllowed } = require('./utils');
 const { readFileText, createDecodedStream, decodeBuf, resolveEncoding } = require('../utils/encoding');
 

@@ -1,7 +1,7 @@
 // Friendly error mapping for the chat error card.
 'use strict';
 
-const { t, isZh } = require('./utils/i18n');
+const { t, tf } = require('./utils/strings');
 
 function friendlyError(e) {
     const code = e && e.statusCode;
@@ -24,9 +24,7 @@ function friendlyError(e) {
         tip = t('errTip400');
     } else if (code && code >= 500) {
         title = t('errTitle5xx');
-        tip = isZh()
-            ? `服务端返回 ${code}。这通常是临时故障，几秒后重试即可。`
-            : `Server returned ${code}. This is usually a temporary issue — retry in a few seconds.`;
+        tip = tf('errTip5xx', { code });
     } else if (/ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|network|fetch failed|terminated/i.test(raw)) {
         title = t('errNetwork');
         tip = t('errTipNetwork');

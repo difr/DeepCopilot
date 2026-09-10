@@ -80,30 +80,4 @@ function computeCost(model, usage) {
     };
 }
 
-/**
- * Return a warning when *any* registered model has an active discount that
- * expires within 7 days, or has already expired. Used by the status bar /
- * extension.js boot warning. The first such model wins (the UI shows a single
- * banner).
- */
-function getDiscountWarning() {
-    const now = Date.now();
-    let nearest = null;          // {until, label, expired}
-    for (const p of listProviders()) {
-        for (const m of (p.models || [])) {
-            const raw = getModel(p.id, m.id)?.pricing;
-            const until = raw?.discount?.until && Date.parse(raw.discount.until);
-            if (!until || Number.isNaN(until)) continue;
-            if (!nearest || until < nearest.until) {
-                nearest = { until, label: raw.discount.label || '', expired: now >= until };
-            }
-        }
-    }
-    if (!nearest) return { expired: false, expiring: false };
-    if (nearest.expired) return { expired: true, expiring: false, label: nearest.label };
-    const daysLeft = Math.ceil((nearest.until - now) / (24 * 60 * 60 * 1000));
-    if (daysLeft <= 7) return { expired: false, expiring: true, days: daysLeft, label: nearest.label };
-    return { expired: false, expiring: false };
-}
-
-module.exports = { getModelPricing, computeCost, getDiscountWarning };
+module.exports = { getModelPricing, computeCost };

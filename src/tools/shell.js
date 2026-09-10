@@ -5,7 +5,7 @@ const cp     = require('child_process');
 const vscode = require('vscode');
 
 const { wsRoot } = require('../utils/paths');
-const { t, tf }      = require('../utils/i18n');
+const { t, tf }      = require('../utils/strings');
 const { truncate } = require('./utils');
 const { Logger }   = require('../logger');
 const { str, arr } = require('../utils/settings');

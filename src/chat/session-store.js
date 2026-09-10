@@ -2,13 +2,13 @@
 // Owns sessionId (current foreground session), CRUD via VS Code globalState,
 // and the auto-naming heuristic.
 //
-// Dependencies: vscode, i18n. Never imports provider or agent-loop.
+// Dependencies: vscode, strings. Never imports provider or agent-loop.
 'use strict';
 
 const vscode = require('vscode');
 const { randomBytes } = require('crypto');
 const { str } = require('../utils/settings');
-const { t, tf } = require('../utils/i18n');
+const { t, tf } = require('../utils/strings');
 const { Logger } = require('../logger');
 
 // Auto-generated session titles are capped by characters. The model names the

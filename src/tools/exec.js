@@ -1,12 +1,12 @@
-// Barrel re-export 鈥?keeps backward-compatible imports while the real
+// Barrel re-export — keeps backward-compatible imports while the real
 // implementations live in focused sub-modules:
 //
-//   src/tools/file-read.js   鈥?read_file, list_dir, grep_search, find_files
-//   src/tools/file-write.js  鈥?write_file, str_replace_in_file, apply_patch
-//   src/tools/shell.js       鈥?run_shell
-//   src/tools/web-search.js  鈥?web_search
-//   src/tools/fetch-top.js   鈥?fetch_top
-//   src/tools/utils.js       鈥?truncate, ensurePathAllowed (shared helpers)
+//   src/tools/file-read.js   — read_file, list_dir, grep_search, find_files
+//   src/tools/file-write.js  — write_file, str_replace_in_file, apply_patch
+//   src/tools/shell.js       — run_shell
+//   src/tools/web-search.js  — web_search
+//   src/tools/fetch-top.js   — fetch_top
+//   src/tools/utils.js       — truncate, ensurePathAllowed (shared helpers)
 //
 // To add a new tool: create a new sub-module and re-export it here, then
 // register it in ToolExecutor (src/chat/tool-executor.js).

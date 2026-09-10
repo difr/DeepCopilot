@@ -6,8 +6,7 @@ const vscode = require('vscode');
 const { Logger } = require('./logger');
 const { str } = require('./utils/settings');
 const { ChatViewProvider } = require('./chat/provider');
-const { t, isZh } = require('./utils/i18n');
-const { getDiscountWarning } = require('./pricing');
+const { t, tf } = require('./utils/strings');
 const { registerInlineCompletionProvider } = require('./completion/provider');
 
 function activate(context) {
@@ -59,7 +58,7 @@ function activate(context) {
         );
         statusItem.name    = 'Deep Copilot';
         statusItem.text    = '$(robot) Deep Copilot';
-        statusItem.tooltip = isZh() ? '点击打开 Deep Copilot' : 'Click to open Deep Copilot';
+        statusItem.tooltip = t('statusBarTooltip');
         statusItem.command = 'deepseekAgent.openInTab';
         statusItem.show();
         context.subscriptions.push(statusItem);
@@ -79,7 +78,7 @@ function activate(context) {
     // We expose an `onDidChange` event so the chat provider can force a
     // refresh; combined with a cache-busting `t` query param this prevents
     // VS Code from showing a stale, no-op diff on the second click of the
-    // same pending edit (see issue: "只能点击一次后面弹不出来了").
+    // same pending edit (issue: the diff opened only on the first click).
     const _pendingBeforeEmitter = new vscode.EventEmitter();
     const pendingBeforeProvider = {
         onDidChange: _pendingBeforeEmitter.event,
@@ -100,22 +99,6 @@ function activate(context) {
     // Exposed on the provider so `_handleOpenEditDiff` can poke VS Code to
     // re-read the same URI when the user clicks twice in a row.
     chatProvider._invalidatePendingBefore = (uri) => _pendingBeforeEmitter.fire(uri);
-
-    // ─── Discount expiry warning (shown once per state change) ────────────
-    const dw = getDiscountWarning();
-    const dwState = dw.expired ? 'expired' : dw.expiring ? `expiring-${dw.days}` : '';
-    const dwKey = 'deepseekAgent.discountWarnShown';
-    if (dwState && context.globalState.get(dwKey) !== dwState) {
-        context.globalState.update(dwKey, dwState);
-        const msg = dw.expired
-            ? (isZh()
-                ? 'Deep Copilot：DeepSeek v4-pro 折扣已结束，当前正价为 ¥12 / ¥0.1 / ¥24（输入/缓存命中/输出，每百万 token）。'
-                : 'Deep Copilot: The DeepSeek v4-pro discount has ended. Full pricing ¥12 / ¥0.1 / ¥24 per 1M tokens is now active.')
-            : (isZh()
-                ? `Deep Copilot：DeepSeek v4-pro 折扣将在 ${dw.days} 天后到期（2026-05-31 23:59 北京时间）。`
-                : `Deep Copilot: The DeepSeek v4-pro discount expires in ${dw.days} day(s) (2026-05-31 23:59 CST).`);
-        setTimeout(() => vscode.window.showWarningMessage(msg), 2000);
-    }
 
     // ─── API key / base URL management ────────────────────────────────────
     context.subscriptions.push(
@@ -146,7 +129,7 @@ function activate(context) {
                     { label: t('baseUrlCustom'), description: '', value: '__custom__' },
                     { label: t('baseUrlClear'),  description: '', value: '' },
                 ],
-                { placeHolder: (isZh() ? '当前：' : 'Current: ') + (cur || (isZh() ? '默认（国际版）' : 'default (international)')) }
+                { placeHolder: t('baseUrlCurrent') + (cur || t('baseUrlDefault')) }
             );
             if (!choice) return;
             let url = choice.value;
@@ -160,14 +143,12 @@ function activate(context) {
                 if (url === undefined) return;
             }
             await cfg.update('apiBaseUrl', url, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(t('baseUrlSet') + (url || (isZh() ? '（默认国际版）' : '(default international)')));
+            vscode.window.showInformationMessage(t('baseUrlSet') + (url || t('baseUrlDefaultNote')));
         }),
         vscode.commands.registerCommand('deepseekAgent.setTavilyKey', async () => {
             const existing = await context.secrets.get('deepseekAgent.tavilyKey');
             const key = await vscode.window.showInputBox({
-                prompt: isZh()
-                    ? '输入 Tavily API Key（用于 web_search 联网搜索；从 https://app.tavily.com 获取，免费 1000 次/月）'
-                    : 'Enter your Tavily API key (for web_search; get one at https://app.tavily.com — 1000 free searches/month)',
+                prompt: t('tavilyKeyPrompt'),
                 placeHolder: 'tvly-...',
                 value: existing || '',
                 password: true,
@@ -176,17 +157,16 @@ function activate(context) {
             if (key === undefined) return;
             if (key.trim() === '') {
                 await context.secrets.delete('deepseekAgent.tavilyKey');
-                vscode.window.showInformationMessage(isZh() ? 'Deep Copilot：Tavily API Key 已删除。' : 'Deep Copilot: Tavily API key removed.');
+                vscode.window.showInformationMessage(t('tavilyKeyRemoved'));
             } else {
                 await context.secrets.store('deepseekAgent.tavilyKey', key.trim());
-                vscode.window.showInformationMessage(isZh() ? 'Deep Copilot：Tavily API Key 已保存。' : 'Deep Copilot: Tavily API key saved.');
+                vscode.window.showInformationMessage(t('tavilyKeySaved'));
             }
         }),
         vscode.commands.registerCommand('deepseekAgent.showApiStatus', async () => {
             // Looped QuickPick: shows all key/URL settings with live status in one place.
             // Users can configure DeepSeek key, Tavily key, and Base URL without hunting
             // through the command palette. Re-opens after each action until dismissed.
-            const zh = isZh();
             while (true) {
                 const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
                 const dsKey     = await context.secrets.get('deepseekAgent.apiKey');
@@ -195,55 +175,45 @@ function activate(context) {
                 const model     = require('./providers').resolveModel(str(cfg.get('provider')) || 'deepseek', str(cfg.get('defaultModel')));
                 const mode      = str(cfg.get('approvalMode')) || 'manual';
 
-                const dsLabel   = zh ? 'DeepSeek API Key' : 'DeepSeek API Key';
-                const dsTag     = zh ? '（必填）' : ' (required)';
-                const tvLabel   = zh ? 'Tavily API Key' : 'Tavily API Key';
-                const tvTag     = zh ? '（可选）' : ' (optional)';
+                const dsLabel   = t('apiStatusApiKey');
+                const dsTag     = t('apiStatusRequired');
+                const tvLabel   = t('apiStatusTavily');
+                const tvTag     = t('apiStatusOptional');
 
                 const items = [
                     {
                         label: `$(${dsKey ? 'pass-filled' : 'circle-large-outline'}) ${dsLabel}${dsTag}`,
                         description: dsKey
-                            ? (zh ? '已配置 · ' : 'Configured · ') + dsKey.slice(0, 6) + '…' + dsKey.slice(-4)
-                            : (zh ? '未配置' : 'Not set'),
-                        detail: zh
-                            ? '驱动 AI 对话与工具调用 · 获取地址：platform.deepseek.com/api_keys'
-                            : 'Powers AI chat & tool calls · Get one at platform.deepseek.com/api_keys',
+                            ? t('apiStatusConfigured') + dsKey.slice(0, 6) + '…' + dsKey.slice(-4)
+                            : t('apiStatusNotSet'),
+                        detail: t('apiStatusApiKeyDetail'),
                         action: 'deepseekAgent.setApiKey',
                     },
                     {
                         label: `$(${tvKey ? 'pass-filled' : 'circle-large-outline'}) ${tvLabel}${tvTag}`,
                         description: tvKey
-                            ? (zh ? '已配置 · ' : 'Configured · ') + tvKey.slice(0, 6) + '…' + tvKey.slice(-4)
-                            : (zh ? '未配置（联网搜索不可用）' : 'Not set (web_search disabled)'),
-                        detail: zh
-                            ? '启用 web_search 联网搜索工具 · 获取地址：app.tavily.com（免费 1000 次/月）'
-                            : 'Enables the web_search tool · Get one at app.tavily.com (1000 free/month)',
+                            ? t('apiStatusConfigured') + tvKey.slice(0, 6) + '…' + tvKey.slice(-4)
+                            : t('apiStatusNotSetSearch'),
+                        detail: t('apiStatusTavilyDetail'),
                         action: 'deepseekAgent.setTavilyKey',
                     },
                     {
-                        label: `$(globe) ${zh ? 'Base URL' : 'Base URL'}`,
+                        label: `$(globe) ${t('apiStatusBaseUrl')}`,
                         description: baseUrl,
-                        detail: zh
-                            ? '支持任意 OpenAI 兼容接口'
-                            : 'Works with any OpenAI-compatible endpoint',
+                        detail: t('apiStatusBaseUrlDetail'),
                         action: 'deepseekAgent.setBaseUrl',
                     },
                     {
-                        label: `$(info) ${zh ? '当前配置' : 'Current config'}`,
+                        label: `$(info) ${t('apiStatusCurrent')}`,
                         description: `${model} · ${mode}`,
-                        detail: zh
-                            ? `模型：${model} · 审批模式：${mode}（在 VS Code 设置中修改）`
-                            : `Model: ${model} · Approval mode: ${mode} (change in VS Code settings)`,
+                        detail: tf('apiStatusCurrentDetail', { model, mode }),
                         action: '__noop__',
                     },
                 ];
 
                 const pick = await vscode.window.showQuickPick(items, {
-                    title: zh ? 'Deep Copilot · API 设置' : 'Deep Copilot · API Settings',
-                    placeHolder: zh
-                        ? '选择要配置的项目（按 Esc 关闭）'
-                        : 'Pick an item to configure (Esc to close)',
+                    title: t('apiStatusTitle'),
+                    placeHolder: t('apiStatusPlaceholder'),
                     ignoreFocusOut: false,
                 });
                 if (!pick) return;
@@ -399,12 +369,10 @@ function activate(context) {
         if (!key && !context.globalState.get('deepseekAgent.keyPrompted')) {
             context.globalState.update('deepseekAgent.keyPrompted', true);
             setTimeout(() => {
-                const msg = isZh()
-                    ? 'Deep Copilot 已安装！请先设置 DeepSeek API Key 才能开始使用。'
-                    : 'Deep Copilot installed. Set your DeepSeek API key to get started.';
-                const action = t('statusBtnSetKey');
-                const later  = isZh() ? '稍后' : 'Later';
-                vscode.window.showInformationMessage(msg, action, later).then(pick => {
+                const msg     = t('firstRunInstalled');
+                const action  = t('firstRunSetKey');
+                const dismiss = t('firstRunLater');
+                vscode.window.showInformationMessage(msg, action, dismiss).then(pick => {
                     if (pick === action) vscode.commands.executeCommand('deepseekAgent.setApiKey');
                 });
             }, 1500);

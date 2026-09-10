@@ -6,7 +6,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const { resolvePath }              = require('../utils/paths');
-const { t }                        = require('../utils/i18n');
+const { t }                        = require('../utils/strings');
 const { truncate, ensurePathAllowed } = require('./utils');
 const { readFileText, writeFileText } = require('../utils/encoding');
 
