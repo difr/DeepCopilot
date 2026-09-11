@@ -311,7 +311,7 @@ class AgentLoop {
             this._postToRun(run, { type: 'replyDelta', text: txt });
         };
 
-        let lastUsage = null;
+        let lastUsage = null, lastUsageAt = null;
         let messagesSnapshot = null; // snapshot of run.messages before each API call; restored on protocol error
 
         let _lastCtxTokens = 0, _lastCtxWindow = 0;
@@ -662,7 +662,7 @@ class AgentLoop {
                     signal,
                 );
                 flushDelta();
-                if (usage) lastUsage = usage;
+                if (usage) { lastUsage = usage; lastUsageAt = iterT0; }
 
                 Logger.flush();
                 Logger.info('ITER_END', {
@@ -673,7 +673,7 @@ class AgentLoop {
                 if (assistantText) Logger.info('ASSISTANT', assistantText.slice(0, 4000));
 
                 if (usage) {
-                    const { cost_cny, breakdown } = computeCost(model, usage);
+                    const { cost_cny, breakdown } = computeCost(model, usage, lastUsageAt);
                     // DeepSeek prefix-cache visibility: surface the per-turn
                     // cache hit rate so users can see when prefix-cache
                     // optimisations pay off. DeepSeek's OpenAI-compatible
@@ -1191,7 +1191,7 @@ class AgentLoop {
             let usageWithCost = null;
             if (lastUsage) {
                 try {
-                    const { cost_cny } = computeCost(model, lastUsage);
+                    const { cost_cny } = computeCost(model, lastUsage, lastUsageAt);
                     usageWithCost = Object.assign({}, lastUsage, { cost_cny });
                 } catch { usageWithCost = lastUsage; }
             }

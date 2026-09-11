@@ -7,6 +7,16 @@
   "protocol": "openai",
   "defaultModel": "deepseek-v4-pro",
   "subAgentModel": "deepseek-flash",
+  "pricingPolicy": {
+    "offPeakDiscount": {
+      "multiplier": 0.5,
+      "timezone": "Asia/Shanghai",
+      "peakWindows": [
+        { "weekdays": [1, 2, 3, 4, 5], "from": "09:00", "to": "12:00" },
+        { "weekdays": [1, 2, 3, 4, 5], "from": "14:00", "to": "18:00" }
+      ]
+    }
+  },
   "quirks": {
     "streamOptions": true,
     "parallelTools": true,
