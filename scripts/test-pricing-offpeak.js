@@ -31,7 +31,7 @@ const { initRegistry } = require(path.join('..', 'src', 'providers'));
 // bundle layout (out/providers). Point the registry at the source dir instead.
 initRegistry([PROVIDER_DIR]);
 
-const { getModelPricing, computeCost } = require(path.join('..', 'src', 'pricing'));
+const { getModelPricing, getPricingMode, computeCost } = require(path.join('..', 'src', 'pricing'));
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -125,6 +125,20 @@ test('timestamp defaults to now and never throws', () => {
     assert.strictEqual(typeof p.input, 'number');
     assert.strictEqual(typeof p.cache_hit, 'number');
     assert.strictEqual(typeof p.output, 'number');
+});
+
+test('getPricingMode reports hourly vendors and the live window', () => {
+    assert.deepStrictEqual(getPricingMode('claude-opus-4-7', MON_1000), { hourly: false });
+    const peak = getPricingMode('deepseek-v4-pro', MON_1000);
+    assert.strictEqual(peak.hourly, true);
+    assert.strictEqual(peak.off_peak, false);
+    assert.strictEqual(peak.multiplier, 0.5);
+    assert.strictEqual(getPricingMode('deepseek-v4-pro', MON_2200).off_peak, true);
+});
+
+test('pricing records are flagged hourly for vendors with a policy', () => {
+    assert.strictEqual(getModelPricing('deepseek-v4-pro', MON_1000).hourly, true);
+    assert.strictEqual(getModelPricing('deepseek-flash', SAT_1000).hourly, true);
 });
 
 (async () => {

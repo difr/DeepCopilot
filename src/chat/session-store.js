@@ -299,12 +299,18 @@ class SessionStore {
         s.updatedAt = Date.now();
 
         if (usage && (usage.prompt_tokens || usage.completion_tokens)) {
-            s.totals = s.totals || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_cny: 0, turns: 0 };
+            s.totals = s.totals || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_cny: 0, cache_hit_tokens: 0, turns: 0 };
             s.totals.prompt_tokens     += Number(usage.prompt_tokens     || 0);
             s.totals.completion_tokens += Number(usage.completion_tokens || 0);
             s.totals.total_tokens      += Number(usage.total_tokens      || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0));
             s.totals.cost_cny          += Number(usage.cost_cny          || 0);
+            s.totals.cache_hit_tokens  += Number(usage.prompt_cache_hit_tokens || 0);
             s.totals.turns             += 1;
+            // The footer shows the turn count, and the webview cannot count
+            // turns itself: one turn emits several usage events, and only the
+            // last one looks like a turn boundary. Stream the running totals,
+            // for the active session only.
+            if (sid === this.sessionId) this._post({ type: 'totals', totals: s.totals });
         }
 
         await this.set(list);
@@ -319,7 +325,7 @@ class SessionStore {
         this.sessionId = s.id;
         // Include busy flag so the webview only restores the spinner for
         // sessions that are genuinely still running (not stale timer entries).
-        this._post({ type: 'sessionLoaded', id: s.id, messages: s.messages || [], busy: !!opts.busy });
+        this._post({ type: 'sessionLoaded', id: s.id, messages: s.messages || [], busy: !!opts.busy, totals: s.totals || null });
         this.postList();
         // Return buffered run events so the caller can replay them.
         return id;

@@ -14,6 +14,7 @@ const { computeCost }      = require('../pricing');
 const { buildSystemPrompt }= require('../prompts/system');
 const { streamChat } = require('../api/adapter');
 const { getProvider, getModel, resolveModel } = require('../providers');
+const { sumUsage } = require('./usage-sum');
 const { str } = require('../utils/settings');
 const { getToolDefs }      = require('../tools/schema');
 const { mcpManager }       = require('../mcp');
@@ -311,7 +312,9 @@ class AgentLoop {
             this._postToRun(run, { type: 'replyDelta', text: txt });
         };
 
-        let lastUsage = null, lastUsageAt = null;
+        let lastUsageAt = null;
+        // Summed across every API call this turn makes — one per iteration.
+        let turnUsage = null, turnCost = 0;
         let messagesSnapshot = null; // snapshot of run.messages before each API call; restored on protocol error
 
         let _lastCtxTokens = 0, _lastCtxWindow = 0;
@@ -662,7 +665,10 @@ class AgentLoop {
                     signal,
                 );
                 flushDelta();
-                if (usage) { lastUsage = usage; lastUsageAt = iterT0; }
+                if (usage) {
+                    lastUsageAt = iterT0;
+                    turnUsage = sumUsage(turnUsage, usage);
+                }
 
                 Logger.flush();
                 Logger.info('ITER_END', {
@@ -674,6 +680,7 @@ class AgentLoop {
 
                 if (usage) {
                     const { cost_cny, breakdown } = computeCost(model, usage, lastUsageAt);
+                    turnCost += cost_cny;
                     // DeepSeek prefix-cache visibility: surface the per-turn
                     // cache hit rate so users can see when prefix-cache
                     // optimisations pay off. DeepSeek's OpenAI-compatible
@@ -687,7 +694,8 @@ class AgentLoop {
                     if (cache_hit_rate !== null) {
                         Logger.info('CACHE_HIT_RATE', { sid, iter, hit, miss, rate: cache_hit_rate });
                     }
-                    this._postToRun(run, { type: 'usage', usage: { ...usage, cost_cny, breakdown, model, cache_hit_rate } });
+                    // `turn_usage` carries the running sum for this turn — tokens and money.
+                    this._postToRun(run, { type: 'usage', usage: { ...usage, cost_cny, breakdown, model, cache_hit_rate, turn_usage: turnUsage ? { ...turnUsage, cost_cny: turnCost } : null } });
                 }
 
                 if (!toolCalls.length) {
@@ -1188,12 +1196,13 @@ class AgentLoop {
         // Persist turn
         const r = run.reply;
         if (!run.discarded && (r.user || r.asst)) {
+            // Persist the whole turn, not only its last iteration: a turn with
+            // tool calls makes one API call per iteration and each reports its
+            // own usage, while the session totals (and the footer restored from
+            // them after a reload) read this one record.
             let usageWithCost = null;
-            if (lastUsage) {
-                try {
-                    const { cost_cny } = computeCost(model, lastUsage, lastUsageAt);
-                    usageWithCost = Object.assign({}, lastUsage, { cost_cny });
-                } catch { usageWithCost = lastUsage; }
+            if (turnUsage) {
+                usageWithCost = Object.assign({}, turnUsage, { cost_cny: turnCost });
             }
             await this._store.append(sid, r.user, r.asst, r.thoughts, usageWithCost, run.messages);
             this._store.maybeAutoName(

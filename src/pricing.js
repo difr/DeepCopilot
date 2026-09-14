@@ -91,8 +91,9 @@ function _findModelPricing(model) {
 /**
  * Resolve the *effective* pricing for a model at `at` (defaults to now).
  * An active `discount` is applied first, then the provider's off-peak modifier.
- * The result carries `off_peak: true` and `multiplier` while the off-peak price
- * is in force, so callers can label the number they show.
+ * The result carries `hourly: true` for vendors with an hourly policy, plus
+ * `off_peak: true` and `multiplier` while the off-peak price is in force — so
+ * callers can label the number they show.
  */
 function getModelPricing(model, at) {
     const when = at == null ? Date.now() : at;
@@ -138,11 +139,29 @@ function getModelPricing(model, at) {
         output:    effective.output,
     };
     if (effective.discount !== undefined) out.discount = effective.discount;
+    if (policy) out.hourly = true;
     if (offPeak) {
         out.off_peak   = true;
         out.multiplier = policy.multiplier;
     }
     return out;
+}
+
+/**
+ * Hourly-price mode for a model at `at`: whether the vendor has an off-peak
+ * policy at all (`hourly`) and, when it does, whether that price is in force
+ * right now. Exists so the UI can label the mode without re-deriving windows.
+ */
+function getPricingMode(model, at) {
+    const when = at == null ? Date.now() : at;
+    const found = _findModelPricing(model);
+    const policy = found && found.policy && found.policy.offPeakDiscount;
+    if (!policy) return { hourly: false };
+    return {
+        hourly:     true,
+        off_peak:   !_insidePeakWindows(policy, when),
+        multiplier: policy.multiplier,
+    };
 }
 
 function computeCost(model, usage, at) {
@@ -184,4 +203,4 @@ function computeCost(model, usage, at) {
     };
 }
 
-module.exports = { getModelPricing, computeCost };
+module.exports = { getModelPricing, getPricingMode, computeCost };

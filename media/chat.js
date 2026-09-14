@@ -7,7 +7,7 @@
   var inp  = document.getElementById("inp");
   var sbtn = document.getElementById("sbtn");
   var es   = document.getElementById("es");
-  var apibt = document.getElementById("apibt");
+  var settingsBtn = document.getElementById("ft-stg");
   var newSessionBtn = document.getElementById("newSessionBtn");
   var scopeWs = document.getElementById("scopeWs");
   var scopeAll = document.getElementById("scopeAll");
@@ -264,8 +264,7 @@
   }
   if (ftCtxBtn) ftCtxBtn.addEventListener('click', function(e){ e.stopPropagation(); openCtxPop(); });
   var ftTokens = document.getElementById("ft-tokens");
-  var ftCost = document.getElementById("ft-cost");
-  var ftCache = document.getElementById("ft-cache");
+  var ftOffPeak = document.getElementById("ft-off-peak");
   var todoPop = document.getElementById("todo-pop");
   var todoPopList = document.getElementById("todo-pop-list");
   var todoPopCnt = document.getElementById("todo-pop-cnt");
@@ -279,7 +278,7 @@
   var _readTermCardMap = new Map(); // terminal name → card record, for read_terminal deduplication
   var _userMsgCount = 0; // tracks index of each .msgU for editUserMessage
   var _editPendingIdx = -1; // index of msgU being edited, set before postMessage
-  var sess = { tokens:0, cost:0, cacheHit:0, promptTotal:0 };
+  var sess = { tokens:0, completion:0, cost:0, cacheHit:0, promptTotal:0, turns:0 };
   var sessions = [], activeSessionId = null, currentWs = "";
   /* Smart scroll: only auto-stick to bottom when user is at/near bottom; otherwise leave alone. */
   var stick = true;
@@ -1609,45 +1608,85 @@
     if (v === 0) return "¥0.0000";
     if (v < 0.0001) return "¥" + v.toExponential(2);
     if (v < 1) return "¥" + v.toFixed(4);
-    return "¥" + v.toFixed(3);
+    if (v < 10) return "¥" + v.toFixed(3);
+    return "¥" + v.toFixed(2);
   }
-  function fmtTokens(n){
-    if (n >= 1e6) return (n/1e6).toFixed(2) + "M";
-    if (n >= 1e3) return (n/1e3).toFixed(1) + "K";
-    return String(n);
+  /* Up to three significant digits with a K/M suffix, so the pill keeps roughly
+     the same width as the numbers grow (221K, 2.66K, 2.22M). */
+  function fmtCompact(n){
+    n = Number(n) || 0;
+    if (n < 0) return "-" + fmtCompact(-n);
+    function trim(s){ return s.indexOf(".") < 0 ? s : s.replace(/0+$/, "").replace(/\.$/, ""); }
+    if (n < 1000) return String(Math.round(n));
+    if (n < 1e6) return trim((n / 1e3).toFixed(n < 1e4 ? 2 : n < 1e5 ? 1 : 0)) + "K";
+    return trim((n / 1e6).toFixed(n < 1e7 ? 2 : n < 1e8 ? 1 : 0)) + "M";
   }
+  /* Cache share with a themed colour band: <50% red, 50-75% orange, >75% green. */
+  function cacheBand(hit, total){
+    var pct = total ? hit / total * 100 : 0;
+    return { pct: pct, cls: pct >= 75 ? "val-ok" : pct >= 50 ? "val-mid" : "val-low" };
+  }
+  /* The pill follows the turn running right now; before its first request there
+     is nothing to show. Emoji stand in for words to keep the line compact. */
+  function renderTurn(tu){
+    if (!tu || !tu.total_tokens){ ftTokens.innerHTML = "🔤--"; return; }
+    var band = cacheBand(tu.prompt_cache_hit_tokens || 0, tu.prompt_tokens || 0);
+    ftTokens.innerHTML =
+      "🔤" + fmtCompact(tu.total_tokens) + " (" +
+      "↘️" + fmtCompact(tu.prompt_tokens) + " " +
+      "🔄" + '<span class="' + band.cls + '">' + band.pct.toFixed(1) + "%</span> " +
+      "↗️" + fmtCompact(tu.completion_tokens) + ") / " +
+      "🪙" + fmtCny(tu.cost_cny || 0).replace("¥", "");
+  }
+  /* One line for the tooltip: the session, whose numbers stay comparable. */
+  function renderSessionTip(){
+    var band = cacheBand(sess.cacheHit, sess.promptTotal);
+    ftTokens.title = "Total turns " + (sess.turns || 0) + "; " +
+      "tokens " + fmtCompact(sess.tokens) + " (" +
+      "in " + fmtCompact(sess.promptTotal) + "; " +
+      "cache " + fmtCompact(sess.cacheHit) + "=" + band.pct.toFixed(1) + "%; " +
+      "out " + fmtCompact(sess.completion) + ") / " +
+      fmtCny(sess.cost);
+  }
+
+  /* Opening a session restores the session numbers (they live in the store) and
+     clears the turn pill: no turn has run in this panel yet. */
+  function restoreTotals(t){
+    sess.tokens      = t.total_tokens || 0;
+    sess.completion  = t.completion_tokens || 0;
+    sess.cost        = t.cost_cny || 0;
+    sess.cacheHit    = t.cache_hit_tokens || 0;
+    sess.promptTotal = t.prompt_tokens || 0;
+    sess.turns       = t.turns || 0;
+    renderTurn(null);
+    renderSessionTip();
+  }
+
+  /* Peak / off-peak marker: the pill shows the state, the tooltip spells it out
+     with the multiplier straight from the price list. */
+  function setPricingMode(mode){
+    if (!ftOffPeak) return;
+    if (!mode || !mode.hourly){ ftOffPeak.style.display = "none"; return; }
+    var off = !!mode.off_peak;
+    ftOffPeak.style.display = "";
+    ftOffPeak.textContent = (off ? "🍃" : "🔥") + "⏳";
+    ftOffPeak.title = off
+      ? String(ftOffPeak.dataset.off || "").replace("{0}", mode.multiplier != null ? mode.multiplier : "")
+      : (ftOffPeak.dataset.peak || "");
+  }
+  function askPricingMode(){ try { vscode.postMessage({type:"getPricingMode"}); } catch(e){} }
+
   function bumpUsage(u){
-    sess.tokens += (u.total_tokens || 0);
-    sess.cost += (u.cost_cny || 0);
-    var b = u.breakdown;
-    if (b) {
-      sess.cacheHit += (b.cache_hit_tokens || 0);
-      sess.promptTotal += (b.prompt_tokens || 0);
-    }
-    ftTokens.textContent = fmtTokens(sess.tokens) + " tokens";
-    ftCost.textContent = fmtCny(sess.cost);
-    if (ftCache) {
-      var rate = sess.promptTotal ? (sess.cacheHit / sess.promptTotal * 100) : 0;
-      ftCache.textContent = "💾 " + rate.toFixed(0) + "%";
-      ftCache.classList.toggle("good", rate >= 50);
-    }
-    /* Tooltip with per-turn breakdown */
-    if (b) {
-      var tip =
-        "This turn: " + (b.total_tokens||0) + " tok"
-        + " (in " + (b.prompt_tokens||0)
-        + (b.cache_hit_tokens ? ", cache " + b.cache_hit_tokens : "")
-        + " / out " + (b.completion_tokens||0) + ")"
-        + "\nTotal: " + sess.tokens + " tok / " + fmtCny(sess.cost)
-        + "\nCache hit rate: " + (sess.promptTotal ? (sess.cacheHit/sess.promptTotal*100).toFixed(1) + "%" : "-")
-        + "  (" + sess.cacheHit + "/" + sess.promptTotal + " prompt tok)"
-        + (u.model ? "\nModel: " + u.model : "")
-        + (b.pricing ? "\nPrice (¥/1M): in " + b.pricing.input
-            + " · cache " + b.pricing.cache_hit
-            + " · out " + b.pricing.output : "");
-      ftTokens.title = tip;
-      ftCost.title = tip;
-      if (ftCache) ftCache.title = tip;
+    var b = u.breakdown || {};
+    sess.tokens     += (u.total_tokens || 0);
+    sess.completion += (u.completion_tokens || 0);
+    sess.cost       += (u.cost_cny || 0);
+    sess.cacheHit   += (b.cache_hit_tokens || 0);
+    sess.promptTotal += (b.prompt_tokens || 0);
+    renderTurn(u.turn_usage || null);
+    renderSessionTip();
+    if (b.pricing && b.pricing.hourly) {
+      setPricingMode({ hourly: true, off_peak: !!b.pricing.off_peak, multiplier: b.pricing.multiplier });
     }
   }
 
@@ -1659,19 +1698,15 @@
     ftBalance.style.display = "";
     if (!b.available){
       ftBalance.textContent = "⛔ Account unavailable";
-      ftBalance.className = "pill balance-unavail";
+      ftBalance.className = "ft-pill val-unavail";
       ftBalance.title = "Account unavailable, check your API Key";
       return;
     }
     var cny = b.balance_cny || 0;
     var low = cny < 5;
-    ftBalance.textContent = (low ? "⚠️ " : "💰 ") + fmtCny(cny);
-    ftBalance.className = "pill" + (low ? " balance-low" : " balance-ok");
-    ftBalance.title = "Balance: " + fmtCny(cny)
-      + "\nTop-up: " + fmtCny(b.topped_up_cny || 0)
-      + "  Granted: " + fmtCny(b.granted_cny || 0)
-      + "\nThis session: " + fmtCny(sess.cost)
-      + "\nClick to refresh";
+    ftBalance.textContent = (low ? "⚠️" : "💰") + fmtCny(cny).replace("¥", "");
+    ftBalance.className = "ft-pill " + (low ? "val-low" : "val-ok");
+    ftBalance.title = ftBalance.dataset.refresh || "Click to refresh";
   }
   if (ftBalance){
     ftBalance.addEventListener("click", function(){
@@ -2209,9 +2244,9 @@
     var nodes = msgs.querySelectorAll(".msgU,.msgA,.err,.errCard");
     for (var i=0;i<nodes.length;i++) nodes[i].remove();
     if (es) es.style.display = "block";
-    sess = { tokens:0, cost:0, cacheHit:0, promptTotal:0 };
-    ftTokens.textContent = "0 tokens"; ftCost.textContent = "¥0.0000";
-    if (ftCache) { ftCache.textContent = "💾 0%"; ftCache.classList.remove("good"); }
+    sess = { tokens:0, completion:0, cost:0, cacheHit:0, promptTotal:0, turns:0 };
+    renderTurn(null);
+    renderSessionTip();
     renderPlan([]);
     curBubble = null; cur = null; curText = ""; curThk = null; toolMap = new Map(); _readTermCardMap = new Map(); _userMsgCount = 0; _editPendingIdx = -1;
   }
@@ -2511,7 +2546,7 @@
     closeSettingsModal(true);
   });
 
-  apibt.addEventListener("click", function(){ openSettingsModal(); });
+  settingsBtn.addEventListener("click", function(){ openSettingsModal(); });
   cbt.addEventListener("click", function(){
     resetChat();
     vscode.postMessage({type:"clear"});
@@ -2520,7 +2555,9 @@
   /* ─── Message handler ──────────────────────────────────────────────── */
   window.addEventListener("message", function(e){
     var m = e.data;
-    if (m.type === "settingsLoaded"){
+    if (m.type === "pricingMode"){
+      setPricingMode(m.mode);
+    } else if (m.type === "settingsLoaded"){
       _stgDsKeySet = !!m.dsKeySet;
       _stgTvKeySet = !!m.tvKeySet;
       _stgOrigBaseUrl = m.baseUrl || '';
@@ -2945,6 +2982,13 @@
       renderPendingEdits(m.items || []);
     } else if (m.type === "usage"){
       bumpUsage(m.usage || {});
+    } else if (m.type === "totals"){
+      /* One turn spans several usage events, so only the extension knows where a
+         turn ended — the turn count has to come from the stored totals. */
+      sess.turns = (m.totals && m.totals.turns) || 0;
+      /* The turn just ended, so the new count has to appear now rather than on
+         the next usage event, which may be a whole turn away. */
+      renderSessionTip();
     } else if (m.type === "ctxUsage"){
       // Issue #142 P3-3: footer ring (replaces old top bar).
       try { updateCtxRing(m.pct, m.tokens, m.window); } catch (_e) {}
@@ -3066,6 +3110,10 @@
       var _savedTs = (m.busy && activeSessionId) ? _sessionTimerMap[activeSessionId] : 0;
       if (!m.busy && activeSessionId) delete _sessionTimerMap[activeSessionId];
       resetChat();
+      /* The per-session totals live in the session record, so opening a session
+         (or reloading the window) restores the footer instead of starting the
+         counters from zero. */
+      if (m.totals) restoreTotals(m.totals);
       /* Pass preserveTimerMap=true so that if the PREVIOUS session is still
          running in the background, its _sessionTimerMap entry is kept alive
          until replyEnd/stopped fires and can clean it up with the correct id. */
@@ -3606,6 +3654,12 @@
       vscode.postMessage({type:"openFile", path: a.getAttribute("data-path"), line: parseInt(a.getAttribute("data-line") || "0", 10) || 0});
     }
   });
+
+  /* Keep the peak/off-peak marker honest while the panel sits idle: a pricing
+     window can close without any request being made, and the marker would keep
+     claiming the old mode. */
+  setInterval(askPricingMode, 60000);
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) askPricingMode(); });
 
   vscode.postMessage({type:"ready"});
 })();

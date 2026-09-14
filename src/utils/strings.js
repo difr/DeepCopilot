@@ -105,12 +105,13 @@ const STRINGS = {
     wvThinking:          '● ● ● Thinking...',
     wvInputPlaceholder:  'Describe what you want to build',
     wvSend:              'Send',
-    wvApiTitle:          'API settings · DeepSeek / Tavily / Base URL',
-    wvCacheTitle:        'Prompt cache hit rate (higher = cheaper)',
+    wvSettings:          'Settings',
+    wvPeakHours:         'Peak hours',
+    wvOffPeakHours:      'Off-peak hours ({0} discount)',
     wvSwitchModel:       'Switch model',
     wvApprovalMode:      'Approval Mode',
     wvInteractionMode:   'Interaction Mode',
-    wvBalanceTitle:      'Account balance (click to refresh)',
+    wvBalanceRefresh:    'Click to refresh',
     wvBalanceInit:       '💰 Checking...',
 
     // Pending-edits panel (review agent-authored writes before keep/discard)

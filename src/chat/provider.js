@@ -252,6 +252,16 @@ class ChatViewProvider {
 
     async _onMessage(msg) {
         switch (msg.type) {
+            case 'getPricingMode': {
+                try {
+                    const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+                    const provider = str(cfg.get('provider')) || 'deepseek';
+                    const mName = require('../providers').resolveModel(provider, str(cfg.get('defaultModel')));
+                    const { getPricingMode } = require('../pricing');
+                    this._post({ type: 'pricingMode', mode: getPricingMode(mName) });
+                } catch { /* decorative: never break the UI over a price lookup */ }
+                break;
+            }
             case 'ready': {
                 const cfg = vscode.workspace.getConfiguration('deepseekAgent');
                 // Push the dynamic provider registry first so the webview can
@@ -271,6 +281,13 @@ class ChatViewProvider {
                     interactionMode: str(cfg.get('interactionMode')) || 'agent',
                     approvalMode: str(cfg.get('approvalMode')) || 'manual',
                 });
+                // Hourly vendors (DeepSeek) price by the clock, so the footer
+                // needs an initial mode; the webview refreshes it on a timer.
+                try {
+                    const { getPricingMode } = require('../pricing');
+                    const mName = require('../providers').resolveModel(provider, str(cfg.get('defaultModel')));
+                    this._post({ type: 'pricingMode', mode: getPricingMode(mName) });
+                } catch { /* decorative: a pricing lookup must not break startup */ }
                 if (!this._store.sessionId) {
                     try {
                         const all = this._store.all();

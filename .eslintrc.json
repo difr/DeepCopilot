@@ -11,18 +11,43 @@
     "acquireVsCodeApi": "readonly"
   },
   "rules": {
+    "no-undef": "error",
+    "no-unused-expressions": ["error", { "allowShortCircuit": true, "allowTernary": true }],
+    "no-unreachable": "error",
+    "no-dupe-keys": "error",
+    "no-dupe-args": "error",
     "no-eval": "error",
     "no-implied-eval": "error",
     "no-new-func": "error",
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
     "no-console": "warn",
     "eqeqeq": ["error", "always", {"null": "ignore"}],
-    "indent": ["warn", 2],
+    "indent": ["warn", 4],
     "quotes": ["warn", "single"],
     "semi": ["warn", "always"],
     "no-var": "error",
     "prefer-const": "warn"
   },
+  "overrides": [
+    {
+      "files": ["media/**/*.js"],
+      "env": {
+        "browser": true
+      },
+      "globals": {
+        "vscode": "readonly",
+        "katex": "readonly",
+        "DOMPurify": "readonly"
+      },
+      "rules": {
+        "no-var": "off",
+        "indent": "off",
+        "quotes": "off",
+        "semi": "off",
+        "prefer-const": "off"
+      }
+    }
+  ],
   "ignorePatterns": [
     "out/",
     "node_modules/",

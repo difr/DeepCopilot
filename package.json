@@ -380,7 +380,7 @@
     "package": "npm run build && vsce package --out release/",
     "publish": "npm run build && vsce publish",
     "vscode:prepublish": "npm run build",
-    "lint": "eslint src/",
+    "lint": "eslint src/ media/",
     "test": "node scripts/test-orphan-toolcalls.js"
   },
   "dependencies": {
