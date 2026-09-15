@@ -22,6 +22,7 @@ const { t, tf }            = require('../utils/strings');
 const {
     estimateMessagesTokens, autoCompactIfNeeded, nuclearCompact, ToolArgsStreamer,
 } = require('./compact');
+const { readCompactPolicy } = require('./compact-policy');
 const { _dropOrphanToolCallGroups } = require('./session-store');
 const { sanitizeForReminder } = require('./digest');
 const {
@@ -279,8 +280,18 @@ class AgentLoop {
         // 0 (or unset) means "run until task is complete" — stagnation detection
         // (repeat-tool hints + ABAB cycle guard) is the real runaway guard.
         const MAX_ITERS = (_itersRaw > 0) ? Math.min(200, _itersRaw) : 9999;
-        const COMPACT_BUDGET = Math.max(8000, Number(cfg.get('compactBudgetTokens')) || Math.floor(modelCfg.contextWindow * 0.7));
-        const MODEL_CTX_HARD_LIMIT = Math.floor(modelCfg.contextWindow * 0.9);
+        // Compaction policy — settings-driven, validated and documented in one
+        // place. The defaults reproduce the historical numbers (700K budget /
+        // 400 messages / 200 tail / 900K ceiling on a 1M window) but now scale
+        // with the active model instead of being pinned to DeepSeek's window.
+        const policy = readCompactPolicy(cfg, modelCfg, Logger);
+        const COMPACT_BUDGET       = policy.budget;
+        const COMPACT_MAX_MESSAGES = policy.maxMessages; // hard cap, see the trigger below
+        // Messages kept verbatim when the head is summarised: 200 leaves the
+        // recent half byte-stable, so one rewrite covers a whole cycle. The old
+        // inherited default of 12 once cut a live turn from 322 messages to 15.
+        const COMPACT_KEEP_TAIL    = policy.keepTail;
+        const MODEL_CTX_HARD_LIMIT = policy.hardLimit;
         const askMode = interactionMode === 'ask';
         Logger.info('INTERACTION_MODE', { mode: interactionMode });
 
@@ -318,6 +329,10 @@ class AgentLoop {
         let messagesSnapshot = null; // snapshot of run.messages before each API call; restored on protocol error
 
         let _lastCtxTokens = 0, _lastCtxWindow = 0;
+        // Char-heuristic size of the prompt the last reported fact belongs to.
+        // The ratio of the two converts our estimates into provider units: the
+        // heuristic runs ~3x low on dense tool output.
+        let _lastEstTokens = 0;
 
         // ── Bg-job end notifications (terminal-monitor push) ──────────────────
         // Collect events from background terminals; injected as system-reminders
@@ -433,15 +448,33 @@ class AgentLoop {
                     }
                 }
                 const compactApiConfig = { apiKey, baseUrl, model, provider };
-                // DeepSeek prefix-cache tuning: removed the "every 12
-                // iterations tighten budget to 80%" proactive trigger. That
-                // periodic re-compaction rewrote the head of the history and
-                // fully invalidated the server-side KV prefix cache on a
-                // fixed cadence — exactly the opposite of what we want. Now
-                // compaction only fires when the real token estimate
-                // genuinely exceeds the (already-generous) COMPACT_BUDGET,
-                // i.e. once per session in most runs.
-                const compactRes = await autoCompactIfNeeded(run.messages, COMPACT_BUDGET, 12, compactApiConfig);
+                // DeepSeek prefix-cache tuning: compaction rewrites the head of
+                // the history, so it must fire as rarely as possible. Earlier
+                // revisions dropped the "every 12 iterations" trigger and the
+                // eager re-compaction on persist for exactly that reason.
+                //
+                // It now fires on either of two signals: the history grew past
+                // COMPACT_MAX_MESSAGES, or the *expected* prompt size exceeds
+                // COMPACT_BUDGET. The expected size is the provider-reported
+                // fact plus the growth since that report, converted into
+                // provider units by the fact/estimate ratio of the previous
+                // pair — the same _scale compact.js applies internally. A bare
+                // estimate cannot be compared with the budget at all, and the
+                // fact alone ignores tool results appended since the last call.
+                const tokCtx = { provider, model };
+                let estTokens = 0, ctxExpected = 0;
+                const evalCtxExpected = () => {
+                    estTokens = estimateMessagesTokens([{ role: 'system', content: sysPrompt }, ...run.messages], tokCtx);
+                    const scale = (_lastEstTokens > 0 && _lastCtxTokens > 0) ? _lastCtxTokens / _lastEstTokens : 1;
+                    const delta = _lastEstTokens > 0 ? Math.max(0, estTokens - _lastEstTokens) : 0;
+                    ctxExpected = _lastCtxTokens > 0 ? _lastCtxTokens + Math.round(delta * scale) : estTokens;
+                };
+                evalCtxExpected();
+                const overByCount  = run.messages.length > COMPACT_MAX_MESSAGES;
+                const overByTokens = ctxExpected > COMPACT_BUDGET;
+                const compactRes = (overByCount || overByTokens)
+                    ? await autoCompactIfNeeded(run.messages, COMPACT_BUDGET, COMPACT_KEEP_TAIL, compactApiConfig, _lastCtxTokens)
+                    : { compacted: false };
                 if (compactRes.compacted) {
                     // Issue #145: compaction may slice between an
                     // assistant{tool_calls} and its tool block. Drop any
@@ -451,23 +484,45 @@ class AgentLoop {
                     if (run.messages.length !== _before) {
                         Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _before, after: run.messages.length, site: 'autocompact' });
                     }
-                    Logger.info('AUTOCOMPACT', { sid, iter, dropped: compactRes.dropped, truncated: compactRes.truncated, deduped: compactRes.deduped });
+                    // The history was rewritten: the cached fact describes a
+                    // prompt that no longer exists. Re-derive the expectation
+                    // from the new array so the log reports what we will send.
+                    const ctxBefore = Math.round(ctxExpected);
+                    _lastCtxTokens = 0;
+                    _lastEstTokens = 0;
+                    evalCtxExpected();
+                    Logger.info('AUTOCOMPACT', {
+                        sid, iter,
+                        reason: overByCount ? (overByTokens ? 'count+budget' : 'count') : 'budget',
+                        keep_tail: COMPACT_KEEP_TAIL,
+                        dropped: compactRes.dropped,
+                        truncated: compactRes.truncated,
+                        deduped: compactRes.deduped,
+                        msgs_after: run.messages.length,
+                        ctx_before: ctxBefore,
+                        ctx_after: Math.round(ctxExpected), // estimate: no fact for the new history yet
+                        budget: COMPACT_BUDGET,
+                    });
                     this._postToRun(run, { type: 'status', text: t('statusCompacting') });
                     postProgress('compacting');
+                    // Same for the persisted copy that /context reads.
+                    this._store.notePromptTokens(sid, 0);
                 }
 
                 // Issue #142 P3-3 / #149: broadcast context usage so the webview can
-                // render a real-time usage bar. With provider-aware tokenization
-                // (tiktoken) this is no longer free, so we compute the count once
-                // per iteration here and reuse it below for ITER_START logging and
-                // the preflight cap when no plan/verify-nudge messages get appended
-                // in between.
-                const tokCtx = { provider, model };
+                // render a real-time usage bar. Prefer the provider-reported fact
+                // from the previous call — the char heuristic runs ~3x low, and the
+                // ring must agree with the number the compaction trigger uses.
+                // The estimate is computed only when no fact exists yet (first
+                // iteration of a session, or right after a compaction) and is never
+                // written back into _lastCtxTokens.
                 let ctxUsageMsgs = [{ role: 'system', content: sysPrompt }, ...run.messages];
-                let ctxUsageTokens = 0;
+                const hasFact = _lastCtxTokens > 0;
+                let ctxUsageTokens = hasFact ? _lastCtxTokens : 0;
                 try {
-                    ctxUsageTokens = estimateMessagesTokens(ctxUsageMsgs, tokCtx);
-                    _lastCtxTokens = ctxUsageTokens;
+                    if (!ctxUsageTokens) {
+                        ctxUsageTokens = estimateMessagesTokens(ctxUsageMsgs, tokCtx);
+                    }
                     const ctxWindow = modelCfg.contextWindow || 65536;
                     _lastCtxWindow = ctxWindow;
                     this._postToRun(run, {
@@ -475,6 +530,7 @@ class AgentLoop {
                         tokens: ctxUsageTokens,
                         window: ctxWindow,
                         pct: Math.min(100, Math.round(ctxUsageTokens / ctxWindow * 100)),
+                        source: hasFact ? 'fact' : 'estimate',
                     });
                 } catch { /* never block the loop on a UI broadcast */ }
                 checkAbort();
@@ -518,17 +574,12 @@ class AgentLoop {
                 const msgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
                 let assistantText = '';
                 let reasoningText = '';
-                // Issue #149: avoid tokenizing the same array twice. If no
-                // plan / verify-nudge appended messages since ctxUsageMsgs was
-                // built (and the system prompt is identical), reuse the count;
-                // otherwise recompute.
-                let msgsTokens;
-                if (run.messages.length === ctxUsageMsgs.length - 1 && effectiveSysPrompt === sysPrompt) {
-                    msgsTokens = ctxUsageTokens;
-                } else {
-                    msgsTokens = estimateMessagesTokens(msgs, tokCtx);
-                }
-                Logger.info('ITER_START', { sid, iter, msg_count: msgs.length, est_tokens: msgsTokens });
+                Logger.info('ITER_START', {
+                    sid, iter, msg_count: msgs.length,
+                    ctx_tokens: _lastCtxTokens || null,     // provider-reported fact, null until the first call
+                    est_tokens: Math.round(ctxExpected),    // expected size in provider units (fact + scaled growth)
+                    raw_est_tokens: estTokens,              // raw char heuristic: est_tokens / raw_est_tokens is the scale
+                });
 
                 // Pre-flight hard token cap — prevents HTTP 400 context-too-long errors.
                 // MODEL_CTX_HARD_LIMIT is derived from the active model's contextWindow
@@ -538,7 +589,12 @@ class AgentLoop {
                 // fallback.  We NEVER bail out with a CTX_LIMIT error — if nothing
                 // else fits, nuclearCompact() reduces history to {firstUser +
                 // summary + lastUser} and we continue the turn.
-                let preflightTokens = msgsTokens;
+                // The cap guards against HTTP 400, so it compares the same expected
+                // size the compaction trigger uses: the reported fact plus the
+                // growth since it, in provider units. The bare fact misses the tool
+                // results appended after the last call, and the raw estimate is
+                // ~3x low — neither is safe as a ceiling check.
+                let preflightTokens = ctxExpected;
                 if (preflightTokens > MODEL_CTX_HARD_LIMIT) {
                     // Aggressive ladder — try increasingly small tails before going nuclear.
                     const ladder = [8, 6, 4, 2, 1];
@@ -546,16 +602,24 @@ class AgentLoop {
                         // No LLM summarisation during emergency compaction — speed is critical.
                         // Pass provider/model so the modular token counter still picks the
                         // right tokenizer (issue #149).
-                        const agg = await autoCompactIfNeeded(run.messages, Math.floor(MODEL_CTX_HARD_LIMIT * 0.6), emergencyKeepTail, { provider, model, noSummary: true });
-                        if (agg.compacted) {
+                        // actualTokens calibrates the internal estimate against the
+                        // provider-reported fact; without it the ladder measures the
+                        // ~3x-low heuristic, declines every step and falls through to
+                        // nuclearCompact even when a smaller tail would have fit.
+                        const compactRes = await autoCompactIfNeeded(
+                            run.messages, Math.floor(MODEL_CTX_HARD_LIMIT * 0.6), emergencyKeepTail,
+                            { provider, model, noSummary: true },
+                            _lastCtxTokens
+                        );
+                        if (compactRes.compacted) {
                             // Issue #145: never let a compaction-induced orphan
                             // group leak into the next API call.
-                            const _before = agg.messages.length;
-                            run.messages = _dropOrphanToolCallGroups(agg.messages);
+                            const _before = compactRes.messages.length;
+                            run.messages = _dropOrphanToolCallGroups(compactRes.messages);
                             if (run.messages.length !== _before) {
                                 Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _before, after: run.messages.length, site: 'preflight_compact' });
                             }
-                            Logger.info('PREFLIGHT_COMPACT', { sid, iter, before: preflightTokens, keepTail: emergencyKeepTail, dropped: agg.dropped, truncated: agg.truncated });
+                            Logger.info('PREFLIGHT_COMPACT', { sid, iter, before: preflightTokens, keepTail: emergencyKeepTail, dropped: compactRes.dropped, truncated: compactRes.truncated });
                             this._postToRun(run, { type: 'status', text: t('statusEmergencyCompact') });
                         }
                         const newTokens = estimateMessagesTokens([{ role: 'system', content: sysPrompt }, ...run.messages], tokCtx);
@@ -690,6 +754,16 @@ class AgentLoop {
                     // case cache_hit_rate stays `null`.
                     const hit  = Number(usage.prompt_cache_hit_tokens || 0);
                     const miss = Number(usage.prompt_cache_miss_tokens || 0);
+                    const promptTokens = Number(usage.prompt_tokens || 0);
+                    if (promptTokens > 0) {
+                        // The real size of what was just sent — the only number the
+                        // compaction trigger and /context should trust.
+                        _lastCtxTokens = promptTokens;
+                        // Heuristic of the same array, kept so the next iteration
+                        // can price its growth in provider units.
+                        _lastEstTokens = estTokens;
+                        this._store.notePromptTokens(sid, promptTokens);
+                    }
                     const cache_hit_rate = (hit + miss) > 0 ? +(hit / (hit + miss)).toFixed(4) : null;
                     if (cache_hit_rate !== null) {
                         Logger.info('CACHE_HIT_RATE', { sid, iter, hit, miss, rate: cache_hit_rate });
@@ -1143,8 +1217,12 @@ class AgentLoop {
             // Force-final summary when iteration cap is hit with no reply yet
             if (iter > MAX_ITERS && !run.reply.asst.trim()) {
                 Logger.info('FORCE_FINAL_SUMMARY', { iter });
-                const compacted = await autoCompactIfNeeded(run.messages, Math.floor(COMPACT_BUDGET * 0.6), 12, { apiKey, baseUrl, model, provider });
-                const _srcMsgs  = compacted.compacted ? compacted.messages : run.messages;
+                const compactRes = await autoCompactIfNeeded(
+                    run.messages, Math.floor(COMPACT_BUDGET * 0.6), COMPACT_KEEP_TAIL,
+                    { apiKey, baseUrl, model, provider },
+                    _lastCtxTokens
+                );
+                const _srcMsgs  = compactRes.compacted ? compactRes.messages : run.messages;
                 const baseMsgs  = _dropOrphanToolCallGroups(_srcMsgs);
                 if (baseMsgs.length !== _srcMsgs.length) {
                     Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _srcMsgs.length, after: baseMsgs.length, site: 'force_final_summary' });

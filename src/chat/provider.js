@@ -24,6 +24,7 @@ const { mcpManager }       = require('../mcp');
 const { SessionStore } = require('./session-store');
 const { ToolExecutor } = require('./tool-executor');
 const { AgentLoop }    = require('./agent-loop');
+const { readCompactPolicy } = require('./compact-policy');
 
 // ─── Module-level constants ───────────────────────────────────────────────────
 /** Maximum bytes of file content attached via the Explorer context menu. */
@@ -806,7 +807,9 @@ class ChatViewProvider {
         const { autoCompactIfNeeded, estimateMessagesTokens } = require('./compact');
         const cfg      = vscode.workspace.getConfiguration('deepseekAgent');
         const provider = str(cfg.get('provider')) || 'deepseek';
-        const model    = require('../providers').resolveModel(provider, str(cfg.get('defaultModel')));
+        const providers = require('../providers');
+        const model     = providers.resolveModel(provider, str(cfg.get('defaultModel')));
+        const modelCfg  = providers.getModel(provider, model) || {};
         const baseUrl  = str(cfg.get('apiBaseUrl'));
         const apiKey   = await this._context.secrets.get('deepseekAgent.apiKey');
 
@@ -838,10 +841,17 @@ class ChatViewProvider {
         const before = estimateMessagesTokens(messages);
         // Force compaction by setting a budget well below the current size.
         const budget = Math.max(2000, Math.floor(before * (focus ? 0.3 : 0.4)));
+        // /compact is an explicit squeeze — it keeps only 30-40% of the current
+        // size — but the tail itself comes from the shared policy, so a manual
+        // squeeze can never cut deeper than an automatic one.
+        const MANUAL_KEEP_TAIL = readCompactPolicy(cfg, modelCfg, Logger).keepTail;
 
         this._post({ type: 'status', text: '🗜 Compacting…' });
         try {
-            const res = await autoCompactIfNeeded(messages, budget, 6, apiConfig);
+            // 0 for actualTokens on purpose: `budget` is derived from the same
+            // heuristic that measures the result (40% of the current estimate),
+            // so calibrating only the measurement would make the two disagree.
+            const res = await autoCompactIfNeeded(messages, budget, MANUAL_KEEP_TAIL, apiConfig, 0);
             if (res && res.compacted) {
                 if (run) run.messages = res.messages;
                 const after = estimateMessagesTokens(res.messages);
@@ -907,7 +917,11 @@ class ChatViewProvider {
                 sysTok = estimateTokens(sys);
             } catch { /* skip */ }
 
-            const total = historyTok + sysTok;
+            // The provider-reported prompt size beats any estimate: it is what
+            // the API actually billed, and it is what compaction trusts.
+            const storeRec = sid ? this._store.all().find(x => x.id === sid) : null;
+            const factTok  = (storeRec && Number(storeRec.lastPromptTokens)) || 0;
+            const total = factTok > 0 ? factTok : historyTok + sysTok;
             const pct = Math.min(100, Math.round(total / window * 100));
             const bar = (() => {
                 const w = 20;
@@ -920,6 +934,7 @@ class ChatViewProvider {
                 ``,
                 `• System prompt : ${Math.round(sysTok/1000)}K`,
                 `• History       : ${Math.round(historyTok/1000)}K (${msgs.length} msgs)`,
+                `• Last prompt   : ${Math.round(factTok/1000)}K (real, as sent)`,
                 `• Model         : ${provider} / ${model}`,
                 ``,
                 `Tip: /compact [focus] to summarise · /fork [title] to branch off`,

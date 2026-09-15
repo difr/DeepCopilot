@@ -594,7 +594,7 @@ const TOOL_DEFS = [
                     },
                     max_iters: {
                         type: 'integer',
-                        description: 'Max sub-agent loop iterations (default 20, max 40).',
+                        description: 'Max sub-agent loop iterations (default 40, hard cap 40).',
                     },
                 },
                 required: ['prompt', 'description'],

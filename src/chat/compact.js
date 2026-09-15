@@ -9,10 +9,10 @@
 // ─── Token estimator ───────────────────────────────────────────────────────
 // Token counting is delegated to `src/api/token-counter`, which dispatches to
 // a provider-aware tokenizer:
-//   - tiktoken for OpenAI-compatible vendors (DeepSeek / OpenAI / Groq / …)
-//   - char-based heuristic as the universal fallback (and the SYNC path for
-//     Anthropic — exact Anthropic counts are network-only and live on
-//     `countMessagesAsync`, which this estimator does NOT call).
+//   - a char-based heuristic for every vendor (no local BPE tokenizer: the
+//     exact counts are provider-side and arrive with `usage`)
+//   - the SYNC path for Anthropic — exact Anthropic counts are network-only
+//     and live on `countMessagesAsync`, which this estimator does NOT call.
 // See issue #149.
 //
 // The legacy `estimateTokens(text)` / `estimateMessagesTokens(messages)`
@@ -399,7 +399,17 @@ function _hasAttachment(m) {
  *   deduped: number,    // # of earlier duplicate read tool results collapsed
  * }}
  */
-async function autoCompactIfNeeded(messages, budgetTokens, keepTail = 12, apiConfig = null) {
+// keepTail deliberately has no default: it used to be 12, new call sites
+// silently inherited it, and a 12-message tail once cut a live turn from 322
+// messages down to 15 mid-task. Each caller now states how much recent history
+// is expected to survive, next to its own budget.
+//
+// `actualTokens` is the prompt size the provider reported for `messages` (0 when
+// no such fact exists yet). It calibrates the internal measurement against the
+// real count: pass it whenever `budgetTokens` is expressed in provider units,
+// and pass 0 whenever the budget itself came from the heuristic — scaling only
+// one side would make budget and measurement disagree by the scale factor.
+async function autoCompactIfNeeded(messages, budgetTokens, keepTail, apiConfig = null, actualTokens) {
     let working = messages;
     // PR #155 review: track dedup and truncation separately so the returned
     // `truncated` field keeps its original semantic ("tool results actually
@@ -414,17 +424,24 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail = 12, apiCon
     const tokCtx = apiConfig
         ? { provider: apiConfig.provider, model: apiConfig.model }
         : undefined;
-    // Token counting can be expensive with tiktoken on large histories, so
-    // memoise per `working` reference: every mutation re-assigns `working`,
+    // Memoise per `working` reference: every mutation re-assigns `working`,
     // which invalidates the cache automatically.
     let _measureRef = null;
     let _measureVal = 0;
+    let _measureScale = 1;
     const measure = (msgs) => {
         if (msgs === _measureRef) return _measureVal;
-        _measureVal = estimateMessagesTokens(msgs, tokCtx);
+        _measureVal = Math.round(estimateMessagesTokens(msgs, tokCtx) * _measureScale);
         _measureRef = msgs;
         return _measureVal;
     };
+    // When the caller knows the real prompt size (the usage reported by the
+    // last API call), scale the heuristic by that ratio. The estimator is
+    // char-based and undercounts dense code by roughly 3x, which would
+    // otherwise keep every threshold below the actual size.
+    measure(working);
+    _measureScale = (actualTokens > 0 && _measureVal > 0) ? actualTokens / _measureVal : 1;
+    _measureVal = Math.round(_measureVal * _measureScale);
 
     // Step 0 (Issue #142 P1-3 / DeepSeek prefix-cache tuning):
     // dedup repeated file reads rewrites middle-of-history tool messages,
@@ -498,7 +515,21 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail = 12, apiCon
         }
     }
 
-    // (c) Accumulate text from any prior compact-summaries so history is never lost.
+    // (c) Most recent real user message — the current intent. Without it a
+    // compaction that fires mid-turn can drop the very message the model is
+    // answering; with keepTail 12 that is exactly what happened.
+    let lastUser = null;
+    for (let i = head.length - 1; i >= 0; i--) {
+        const m = head[i];
+        if (m === firstUser || m === lastAttachUser) continue;
+        if (m.role !== 'user' || _isCompactSummary(m)) continue;
+        // Plan / verify nudges and the like are internal reminders, not intent.
+        if (String(m.content || '').trimStart().startsWith('<system-reminder>')) continue;
+        lastUser = m;
+        break;
+    }
+
+    // (d) Accumulate text from any prior compact-summaries so history is never lost.
     const priorSummaryParts = [];
     for (const m of head) {
         if (!_isCompactSummary(m)) continue;
@@ -509,7 +540,7 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail = 12, apiCon
         if (inner && inner !== m.content) priorSummaryParts.push(inner);
     }
 
-    const kept = new Set([firstUser, lastAttachUser].filter(Boolean));
+    const kept = new Set([firstUser, lastAttachUser, lastUser].filter(Boolean));
     const toDropMsgs = head.filter(m => !kept.has(m) && !_isCompactSummary(m));
     const dropped = head.length - kept.size - head.filter(_isCompactSummary).length;
 
@@ -542,6 +573,7 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail = 12, apiCon
     let out = [];
     if (firstUser) out.push(firstUser);
     if (lastAttachUser) out.push(lastAttachUser);
+    if (lastUser) out.push(lastUser);
     out.push(summary);
     out.push(...tail);
 

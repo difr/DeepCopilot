@@ -21,6 +21,7 @@ const { str } = require('../utils/settings');
 const { getToolDefs }    = require('../tools/schema');
 const { mcpManager }     = require('../mcp');
 const { autoCompactIfNeeded } = require('./compact');
+const { readCompactPolicy } = require('./compact-policy');
 
 const READ_ONLY_TOOLS = new Set([
     'read_file', 'list_dir', 'grep_search', 'find_files',
@@ -43,6 +44,7 @@ function buildSubAgentSystemPrompt(agentType) {
 - Work autonomously. Do not ask clarifying questions.
 - Be efficient: use targeted tool calls rather than broad exploration.
 - When you have enough information to answer the task, stop calling tools and write your final summary.
+- Budget your iterations: reserve the last one for the final summary. When you are running low, stop reading and write up what you already have — a partial answer with named gaps is far more useful to the parent than no answer at all.
 - Do not produce long explanations — the parent agent needs structured facts.
 - Format your output as a concise Markdown summary with headers and code references where useful.
 
@@ -98,7 +100,7 @@ class SubAgentRunner {
             prompt,
             description = 'sub-task',
             agent_type  = 'explore',
-            max_iters   = 20,
+            max_iters   = 40,
         } = args || {};
 
         // ── Safety guards ──────────────────────────────────────────────────
@@ -138,7 +140,7 @@ class SubAgentRunner {
             scheduling:          'lifo',
         });
 
-        const MAX_ITERS = Math.min(40, Math.max(1, Number(max_iters) || 20));
+        const MAX_ITERS = Math.min(40, Math.max(1, Number(max_iters) || 40));
         const agentType = agent_type === 'general' ? 'general' : 'explore';
 
         // ── Tool list ──────────────────────────────────────────────────────
@@ -185,6 +187,9 @@ class SubAgentRunner {
         let finalText    = '';
         let toolCallsRan = 0;
         let iters        = 0;
+        // Provider-reported prompt size of the last call — calibrates the
+        // compaction budget against the real count (0 until the first response).
+        let childFactTokens = 0;
 
         // ── Retry-aware streamDeepSeek wrapper ────────────────────────────
         // Transient network errors (TLS reset, ECONNRESET, ETIMEDOUT) are
@@ -217,15 +222,26 @@ class SubAgentRunner {
         };
 
         try {
-            const COMPACT_BUDGET = 48000; // smaller budget for sub-agents
+            // Sub-agents are cheap scouts on `subAgentModel`, so they run with a
+            // fraction of the parent budget. The old fixed 48000 was small enough
+            // that a few file reads exhausted it, every iteration recompacted,
+            // and the agent kept re-reading what it had already seen until it ran
+            // out of iterations with nothing to report.
+            const policy            = readCompactPolicy(cfg, getModel(provider, model) || {}, Logger);
+            const COMPACT_BUDGET    = Math.max(48000, Math.round(policy.budget * 0.25));
+            const COMPACT_KEEP_TAIL = Math.min(policy.keepTail, 100);
 
             while (iters < MAX_ITERS) {
                 iters++;
 
-                // Light compaction to avoid context blowout in deep read tasks.
-                // No LLM summarisation here — sub-agent uses a fast model and needs
-                // to stay responsive; structured fact fallback is sufficient.
-                const compact = await autoCompactIfNeeded(childRun.messages, COMPACT_BUDGET, 12, null);
+                // LLM summarisation is on: dropping the facts a research task has
+                // just collected costs more than one cheap flash call. The
+                // structured fallback still covers a failed summary request.
+                const compact = await autoCompactIfNeeded(
+                    childRun.messages, COMPACT_BUDGET, COMPACT_KEEP_TAIL,
+                    { provider, model, apiKey, baseUrl },
+                    childFactTokens,
+                );
                 if (compact.compacted) {
                     childRun.messages = compact.messages;
                     Logger.info('SUB_AGENT_COMPACT', { child: childRun.sessionId, dropped: compact.dropped });
@@ -238,13 +254,15 @@ class SubAgentRunner {
 
                 let assistantText = '';
                 let reasoningText  = ''; // must be passed back to DeepSeek in thinking mode
-                const { toolCalls } = await streamWithRetry(
+                const { toolCalls, usage } = await streamWithRetry(
                     { provider, apiKey, baseUrl, messages: apiMessages, model, noTools: false, tools: childTools },
                     {
                         onDelta:    d => { assistantText += d; },
                         onThinking: d => { reasoningText  += d; }, // keep — API requires passback
                     },
                 );
+
+                if (usage && Number(usage.prompt_tokens) > 0) childFactTokens = Number(usage.prompt_tokens);
 
                 if (!toolCalls || !toolCalls.length) {
                     // No more tool calls — sub-agent has finished
@@ -304,6 +322,31 @@ class SubAgentRunner {
                     childRun.messages.push({ role: 'tool', tool_call_id: id, content: String(result) });
                 }
             } // end while
+
+            // Ran out of iterations without a final answer. Ask once more with
+            // tools disabled so the parent gets a partial summary instead of
+            // "produced no output" — the facts are already in the history.
+            if ((!finalText || !finalText.trim()) && !childAbort.signal.aborted) {
+                try {
+                    const wrapMsgs = [
+                        { role: 'system', content: sysPrompt },
+                        ...childRun.messages,
+                        { role: 'user', content: '<system-reminder>\nYou have reached the tool-call iteration limit. Stop calling tools. Write a concise Markdown summary of what you found: (1) what you inspected, (2) the facts that answer the task, (3) what remains unknown.\n</system-reminder>' },
+                    ];
+                    let wrapText = '';
+                    await streamWithRetry(
+                        { provider, apiKey, baseUrl, messages: wrapMsgs, model, noTools: true },
+                        { onDelta: d => { wrapText += d; }, onThinking: () => {} },
+                    );
+                    if (wrapText.trim()) {
+                        finalText = wrapText;
+                        childRun.messages.push({ role: 'assistant', content: wrapText });
+                    }
+                    Logger.info('SUB_AGENT_WRAPUP', { child: childRun.sessionId, chars: finalText.length });
+                } catch (e) {
+                    Logger.info('SUB_AGENT_WRAPUP_ERROR', { child: childRun.sessionId, message: e && e.message ? e.message : String(e) });
+                }
+            }
         } catch (e) {
             const msg = e && e.message ? e.message : String(e);
             Logger.info('SUB_AGENT_ERROR', { child: childRun.sessionId, message: msg });

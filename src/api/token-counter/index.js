@@ -10,8 +10,10 @@
 // network call, e.g. Anthropic's beta endpoint).
 //
 // IMPORTANT: synchronous counters NEVER make network calls. Concretely:
-//   - OpenAI-compatible providers run a local `js-tiktoken` BPE pass.
-//   - Anthropic's sync path uses the char heuristic; only `countMessagesAsync`
+//   - OpenAI-compatible providers (and everyone else) use the char heuristic;
+//     the sync path deliberately ships no local BPE tokenizer. `compact.js`
+//     scales it against the real usage the API reported, which is exact.
+//   - Anthropic's sync path uses the same heuristic; only `countMessagesAsync`
 //     hits `client.beta.messages.countTokens()` for an exact count.
 // Callers that absolutely need accuracy for Claude should `await
 // countMessagesAsync(...)` instead of relying on the sync API.
@@ -32,17 +34,11 @@
 'use strict';
 
 const heuristic = require('./heuristic');
-const tiktoken  = require('./tiktoken-counter');
 const anthropic = require('./anthropic-counter');
 
-// Provider id → counter. Aliases share one module by referencing the same
-// object — keeps the table compact and the intent obvious.
+// Provider id → counter. Only Anthropic needs a dedicated module (its async
+// path is network-backed); every other vendor falls through to the heuristic.
 const _REGISTRY = Object.freeze({
-    deepseek:  tiktoken,
-    openai:    tiktoken,
-    groq:      tiktoken,
-    gemini:    tiktoken,
-    custom:    tiktoken,   // assume OpenAI-compatible by default
     anthropic: anthropic,
 });
 

@@ -10,6 +10,7 @@ const { randomBytes } = require('crypto');
 const { str } = require('../utils/settings');
 const { t, tf } = require('../utils/strings');
 const { Logger } = require('../logger');
+const { readCompactPolicy } = require('./compact-policy');
 
 // Auto-generated session titles are capped by characters. The model names the
 // session in the language of the conversation, so the cap has to fit Cyrillic
@@ -213,6 +214,14 @@ class SessionStore {
         return _dropOrphanToolCallGroups(s.apiMessages);
     }
 
+    /** Latest real prompt size the provider reported for this session. */
+    notePromptTokens(sid, n) {
+        const s = this.all().find(x => x.id === sid);
+        // 0 clears it: after a compaction the recorded size describes a prompt
+        // that no longer exists, and /context must not quote it.
+        if (s) s.lastPromptTokens = Math.max(0, Number(n) || 0);
+    }
+
     /**
      * Append one completed turn to a session record.
      * @param {string}   sid
@@ -243,15 +252,26 @@ class SessionStore {
         }
 
         const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-        s.model = require('../providers').resolveModel(str(cfg.get('provider')) || 'deepseek', str(cfg.get('defaultModel')));
+        const providers = require('../providers');
+        s.model = providers.resolveModel(str(cfg.get('provider')) || 'deepseek', str(cfg.get('defaultModel')));
         s.mode  = str(cfg.get('approvalMode')) || 'manual';
+
+        // Same policy the agent loop runs on: the persisted history has to be cut
+        // at the same two points, otherwise a reload hands the loop a history
+        // that immediately compacts again.
+        const policy = readCompactPolicy(
+            cfg,
+            providers.getModel(str(cfg.get('provider')) || 'deepseek', s.model) || {},
+            Logger,
+        );
+        const MAX_HISTORY  = policy.maxMessages; // was a hardcoded 400
+        const KEEP_HISTORY = policy.keepTail;    // was a hardcoded 200
 
         if (userText) s.messages.push({ role: 'user', text: userText });
         if (asstText || thoughts) s.messages.push({ role: 'assistant', text: asstText || '', thoughts: thoughts || '' });
-        if (s.messages.length > 200) s.messages = s.messages.slice(-200);
+        if (s.messages.length > MAX_HISTORY) s.messages = s.messages.slice(-KEEP_HISTORY);
 
         if (apiMessages !== undefined) {
-            const MAX_API = 200;
             // reasoning_content is intentionally kept here.  Stripping it at
             // persist time caused HTTP 400 ("reasoning_content must be passed
             // back") when a session was reloaded after a VS Code restart —
@@ -260,12 +280,16 @@ class SessionStore {
             // sanitizeMessages() in adapter.js already handles per-model
             // stripping at API-call time, so we don't need to do it here.
             const messagesToPersist = Array.isArray(apiMessages) ? [...apiMessages] : [];
-            // Truncate to the last MAX_API messages, but never start with an
-            // orphan `tool` message — DeepSeek requires every tool message to
-            // follow its assistant{tool_calls}. See issue #70.
+            // Drop in steps instead of sliding every turn: cutting 400 back to
+            // 200 leaves the head of the history byte-stable between drops,
+            // which is what the server-side prefix cache matches on. A sliding
+            // window rewrote the first message on every turn, so each new turn
+            // paid a full miss. Never start with an orphan `tool` message —
+            // DeepSeek requires every tool message to follow its
+            // assistant{tool_calls}. See issue #70.
             let sanitized = messagesToPersist;
-            if (messagesToPersist.length > MAX_API) {
-                let startIdx = messagesToPersist.length - MAX_API;
+            if (messagesToPersist.length > MAX_HISTORY) {
+                let startIdx = messagesToPersist.length - KEEP_HISTORY;
                 while (startIdx < messagesToPersist.length && messagesToPersist[startIdx].role === 'tool') {
                     startIdx++;
                 }
@@ -284,11 +308,12 @@ class SessionStore {
             // the server-side KV cache depends on — every "reopen the same
             // session" then paid a full prefix-cache miss on the next turn.
             //
-            // Compaction now fires lazily inside the agent loop only when
-            // the real token estimate exceeds COMPACT_BUDGET (default 70%
-            // of the model window). On reload, agent-loop.js still defends
-            // against an oversized history via the same path, so we don't
-            // need to do anything proactively here.
+            // Compaction now fires lazily inside the agent loop, either when the
+            // expected prompt size (reported fact plus growth, in provider
+            // units) exceeds the configured budget, or when the history passes
+            // the message cap. On reload, agent-loop.js still defends against
+            // an oversized history via the same path, so we don't need to do
+            // anything proactively here.
 
             s.apiMessages = sanitized;
         }

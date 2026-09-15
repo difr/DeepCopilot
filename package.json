@@ -243,9 +243,35 @@
         },
         "deepseekAgent.compactBudgetTokens": {
           "type": "number",
-          "default": 96000,
-          "minimum": 8000,
-          "description": "Approximate token budget before older tool results are auto-compacted to fit the model context window."
+          "default": 0,
+          "minimum": 0,
+          "description": "Explicit token budget for auto-compaction. 0 (default) derives it from the active model's context window via deepseekAgent.compactBudgetShare — set a positive number to pin it."
+        },
+        "deepseekAgent.compactBudgetShare": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0.1,
+          "maximum": 0.95,
+          "description": "Share of the active model's context window used as the compaction budget when compactBudgetTokens is 0. Default 0.7, i.e. 700K on a 1M-token window and 140K on a 200K-token one."
+        },
+        "deepseekAgent.compactMaxMessages": {
+          "type": "number",
+          "default": 400,
+          "minimum": 20,
+          "description": "Hard cap on the messages in one conversation. History is compacted once it grows past this, regardless of token usage."
+        },
+        "deepseekAgent.compactKeepTail": {
+          "type": "number",
+          "default": 200,
+          "minimum": 2,
+          "description": "Messages kept verbatim when the head of the history is summarised. A larger tail survives compaction byte-identical (good for the prefix cache), a smaller one frees more room for the summary. Values at or above compactMaxMessages are clamped."
+        },
+        "deepseekAgent.compactHardLimitShare": {
+          "type": "number",
+          "default": 0.9,
+          "minimum": 0.5,
+          "maximum": 0.98,
+          "description": "Emergency ceiling as a share of the model's context window. When the prompt is expected to exceed it, the aggressive compaction ladder and the nuclear fallback run to avoid an HTTP 400."
         },
         "deepseekAgent.autoResumeMaxPerHour": {
           "type": "number",
@@ -386,7 +412,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
     "iconv-lite": "^0.6.3",
-    "js-tiktoken": "^1.0.21",
     "openai": "^6.38.0"
   },
   "devDependencies": {

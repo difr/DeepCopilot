@@ -71,7 +71,7 @@ const extConfig = {
     bundle: true,
     platform: 'node',
     target: 'node18',
-    external: ['vscode', 'js-tiktoken'],
+    external: ['vscode'],
     format: 'cjs',
     minify: isProd,
     sourcemap: !isProd,

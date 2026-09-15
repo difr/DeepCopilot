@@ -8,8 +8,10 @@
 
 const heuristic = require('./heuristic');
 
-// Lazy, environment-agnostic logger — see tiktoken-counter.js for the
-// rationale (avoids dragging `vscode` into the token-counter layer).
+// Lazy, environment-agnostic logger: `require('../../logger')` pulls in
+// `vscode`, which does not exist outside the extension host (tests, plain node
+// scripts). Resolve it on first use and swallow the failure — a missing logger
+// must never break token counting.
 let _loggerCache = null;
 let _loggerTried = false;
 function _log(event, payload) {
