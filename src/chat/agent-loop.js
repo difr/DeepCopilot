@@ -328,11 +328,19 @@ class AgentLoop {
         let turnUsage = null, turnCost = 0;
         let messagesSnapshot = null; // snapshot of run.messages before each API call; restored on protocol error
 
-        let _lastCtxTokens = 0, _lastCtxWindow = 0;
+        // Seed from the persisted record: a window reload wipes the in-memory
+        // numbers, but the store still holds what the provider reported for this
+        // session. Without the seed the first iteration of the turn recomputes a
+        // ~2x-low estimate — the ring drops back to a tilde and the compaction
+        // trigger measures against the wrong scale — until the first call of the
+        // turn reports a fresh fact.
+        const _seed = this._store.all().find(x => x.id === sid);
+        let _lastCtxTokens = Math.max(0, Number(_seed && _seed.lastPromptTokens) || 0);
+        let _lastCtxWindow = 0;
         // Char-heuristic size of the prompt the last reported fact belongs to.
         // The ratio of the two converts our estimates into provider units: the
         // heuristic runs ~3x low on dense tool output.
-        let _lastEstTokens = 0;
+        let _lastEstTokens = Math.max(0, Number(_seed && _seed.lastEstTokens) || 0);
 
         // ── Bg-job end notifications (terminal-monitor push) ──────────────────
         // Collect events from background terminals; injected as system-reminders
@@ -487,50 +495,42 @@ class AgentLoop {
                     // The history was rewritten: the cached fact describes a
                     // prompt that no longer exists. Re-derive the expectation
                     // from the new array so the log reports what we will send.
-                    const ctxBefore = Math.round(ctxExpected);
+                    const ctxBefore = ctxExpected;
                     _lastCtxTokens = 0;
                     _lastEstTokens = 0;
                     evalCtxExpected();
                     Logger.info('AUTOCOMPACT', {
                         sid, iter,
-                        reason: overByCount ? (overByTokens ? 'count+budget' : 'count') : 'budget',
-                        keep_tail: COMPACT_KEEP_TAIL,
-                        dropped: compactRes.dropped,
-                        truncated: compactRes.truncated,
-                        deduped: compactRes.deduped,
+                        reason    : overByCount ? (overByTokens ? 'count+budget' : 'count') : 'budget',
+                        keep_tail : COMPACT_KEEP_TAIL,
+                        dropped   : compactRes.dropped,
+                        truncated : compactRes.truncated,
+                        deduped   : compactRes.deduped,
                         msgs_after: run.messages.length,
                         ctx_before: ctxBefore,
-                        ctx_after: Math.round(ctxExpected), // estimate: no fact for the new history yet
-                        budget: COMPACT_BUDGET,
+                        ctx_after : ctxExpected, // estimate: no fact for the new history yet
+                        budget    : COMPACT_BUDGET,
                     });
                     this._postToRun(run, { type: 'status', text: t('statusCompacting') });
                     postProgress('compacting');
                     // Same for the persisted copy that /context reads.
-                    this._store.notePromptTokens(sid, 0);
+                    this._store.notePromptTokens(sid, 0, 0);
                 }
 
                 // Issue #142 P3-3 / #149: broadcast context usage so the webview can
-                // render a real-time usage bar. Prefer the provider-reported fact
-                // from the previous call — the char heuristic runs ~3x low, and the
-                // ring must agree with the number the compaction trigger uses.
-                // The estimate is computed only when no fact exists yet (first
-                // iteration of a session, or right after a compaction) and is never
-                // written back into _lastCtxTokens.
-                let ctxUsageMsgs = [{ role: 'system', content: sysPrompt }, ...run.messages];
-                const hasFact = _lastCtxTokens > 0;
-                let ctxUsageTokens = hasFact ? _lastCtxTokens : 0;
+                // render a real-time usage bar. ctxExpected is exactly the number
+                // the compaction trigger compares against the budget — the reported
+                // fact plus the growth since it, in provider units, or the raw
+                // estimate while no fact exists yet. Sending the bare fact would
+                // leave the ring one iteration behind the history it describes.
                 try {
-                    if (!ctxUsageTokens) {
-                        ctxUsageTokens = estimateMessagesTokens(ctxUsageMsgs, tokCtx);
-                    }
                     const ctxWindow = modelCfg.contextWindow || 65536;
                     _lastCtxWindow = ctxWindow;
                     this._postToRun(run, {
                         type: 'ctxUsage',
-                        tokens: ctxUsageTokens,
                         window: ctxWindow,
-                        pct: Math.min(100, Math.round(ctxUsageTokens / ctxWindow * 100)),
-                        source: hasFact ? 'fact' : 'estimate',
+                        tokens: ctxExpected,
+                        source: _lastCtxTokens > 0 ? 'fact' : 'estimate',
                     });
                 } catch { /* never block the loop on a UI broadcast */ }
                 checkAbort();
@@ -576,9 +576,9 @@ class AgentLoop {
                 let reasoningText = '';
                 Logger.info('ITER_START', {
                     sid, iter, msg_count: msgs.length,
-                    ctx_tokens: _lastCtxTokens || null,     // provider-reported fact, null until the first call
-                    est_tokens: Math.round(ctxExpected),    // expected size in provider units (fact + scaled growth)
-                    raw_est_tokens: estTokens,              // raw char heuristic: est_tokens / raw_est_tokens is the scale
+                    ctx_tokens: _lastCtxTokens || null, // provider-reported fact, null until the first call
+                    est_tokens: ctxExpected,            // expected size in provider units (fact + scaled growth)
+                    raw_est_tokens: estTokens,          // raw char heuristic: est_tokens / raw_est_tokens is the scale
                 });
 
                 // Pre-flight hard token cap — prevents HTTP 400 context-too-long errors.
@@ -762,7 +762,7 @@ class AgentLoop {
                         // Heuristic of the same array, kept so the next iteration
                         // can price its growth in provider units.
                         _lastEstTokens = estTokens;
-                        this._store.notePromptTokens(sid, promptTokens);
+                        this._store.notePromptTokens(sid, promptTokens, estTokens);
                     }
                     const cache_hit_rate = (hit + miss) > 0 ? +(hit / (hit + miss)).toFixed(4) : null;
                     if (cache_hit_rate !== null) {
@@ -1296,10 +1296,11 @@ class AgentLoop {
         // Issue #142 P3-3: send final context usage so the webview footer ring
         // stays accurate between turns (run is deleted below).
         if (_lastCtxTokens > 0 && _lastCtxWindow > 0 && !run.discarded) {
-            this._postToRun(run, { type: 'ctxUsage',
-                tokens: _lastCtxTokens,
+            this._postToRun(run, {
+                type: 'ctxUsage',
                 window: _lastCtxWindow,
-                pct: Math.min(100, Math.round(_lastCtxTokens / _lastCtxWindow * 100)),
+                tokens: _lastCtxTokens,
+                source: 'fact',
             });
         }
         this._deleteRun(sid);

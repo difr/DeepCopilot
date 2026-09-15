@@ -199,61 +199,74 @@
   var ftCtxBtn  = document.getElementById("ft-ctx");
   var ftCtxRing = document.getElementById("ft-ctx-ring");
   var ftCtxPct  = document.getElementById("ft-ctx-pct");
-  var _lastCtx  = { tokens: 0, window: 0, pct: 0 };
+  var _lastCtx  = { pct: 0, window: 0, tokens: 0, source: 'fact', detail: null };
   var _ctxPop   = null;
-  function updateCtxRing(pct, tokens, win){
-    _lastCtx = { tokens: tokens||0, window: win||0, pct: pct||0 };
+  /* `source` arrives from the extension as 'fact' (the prompt size the provider
+     reported for the last call) or 'estimate' (the char heuristic, available
+     only before any call has completed — it runs roughly 2x low). Estimates get
+     a tilde so an approximate number is never read as a real one. */
+  function updateCtxRing(window, tokens, source, detail) {
+    const pct = window ? Math.round(100 * (tokens||0) / window) : 0;
+    _lastCtx = { pct, window: window||0, tokens: tokens||0,
+      source: source === 'estimate' ? 'estimate' : 'fact',
+      detail: detail || _lastCtx.detail || null,
+    };
     if (!ftCtxRing || !ftCtxPct) return;
-    var p = Math.max(0, Math.min(100, Number(pct)||0));
+    const p = Math.max(0, Math.min(100, pct));
     // circumference ≈ 2πr = 2*π*8 ≈ 50.265
-    var C = 50.265;
+    const C = 50.265;
     ftCtxRing.setAttribute('stroke-dashoffset', String(C * (1 - p/100)));
     ftCtxRing.setAttribute('stroke', p > 85 ? '#e57373' : (p > 65 ? '#ffb74d' : '#66bb6a'));
-    ftCtxPct.textContent = (p|0) + '%';
-    if (ftCtxBtn) ftCtxBtn.title = 'Context ' + (p|0) + '%  ' + Math.round((tokens||0)/1000) + 'K / ' + Math.round((win||0)/1000) + 'K — click for details';
+    ftCtxPct.textContent = pct + '%';
+    if (ftCtxBtn) {
+      const tilde = _lastCtx.source === 'estimate' ? '~' : '';
+      const note  = _lastCtx.source === 'estimate' ? ' (estimate)' : '';
+      ftCtxBtn.title = 'Context ' + pct + '% = ' + tilde + Math.round(_lastCtx.tokens/1000) + 'K / ' + Math.round(_lastCtx.window/1000) + 'K' + note + ' — click for details';
+    }
   }
   function closeCtxPop(){ if (_ctxPop) { _ctxPop.remove(); _ctxPop = null; document.removeEventListener('mousedown', _ctxPopOutside, true); } }
   function _ctxPopOutside(e){ if (_ctxPop && !_ctxPop.contains(e.target) && e.target !== ftCtxBtn && !ftCtxBtn.contains(e.target)) closeCtxPop(); }
-  /* Refresh the open popup in-place after a late ctxUsage response arrives
-     (e.g. from the pull request below). Only touches the Used row. */
-  function _updateCtxPop(){
-    if (!_ctxPop) return;
-    var b = _ctxPop.querySelector('.ft-ctx-pop-row b');
-    if (!b) return;
-    var pct = _lastCtx.pct|0, tk = Math.round((_lastCtx.tokens||0)/1000), wn = Math.round((_lastCtx.window||0)/1000);
-    b.textContent = tk + 'K / ' + wn + 'K (' + pct + '%)';
-  }
-  function openCtxPop(){
-    if (_ctxPop) { closeCtxPop(); return; }
-    /* Escape any value that flows into innerHTML to satisfy CodeQL
-       js/xss-through-dom — even though modelTxt / _curIMode originate from
-       extension-side messages, treat them as untrusted. */
-    function _esc(s){
-      return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  /* Popup body. Rebuilt rather than patched when a late ctxUsage arrives: the
+     total and the breakdown always change together, and the breakdown exists
+     only once the extension has computed it (the pull below or /context). */
+  function _ctxPopBodyHtml(){
+    const pct   = _lastCtx.pct;
+    const wn    = Math.round(_lastCtx.window/1000);
+    const tk    = Math.round(_lastCtx.tokens/1000);
+    const tilde = _lastCtx.source === 'estimate' ? '~' : '';
+    const d     = _lastCtx.detail;
+    let rows = '';
+    if (d){
+      function row(label, value){ return '<div class="ft-ctx-pop-row"><span>' + label + '</span><b>' + value + '</b></div>'; }
+      rows += row('Last prompt', d.factTok > 0 ? Math.round(d.factTok/1000) + 'K' : 'n/a');
+      rows += row('System prompt', '~' + Math.round((d.syspTok||0)/1000) + 'K');
+      rows += row('Messages', (d.msgsLen||0) + ' = ~' + Math.round((d.msgsTok||0)/1000) + 'K');
     }
-    // Issue #142 P3-3: if data is stale (no live run has pushed ctxUsage
-    // yet, or last turn ended), request fresh values from the extension.
-    if (_lastCtx.tokens === 0 && _lastCtx.window === 0) {
-      vscode.postMessage({ type: 'getCtxUsage' });
-    }
-    var pop = document.createElement('div');
-    pop.className = 'ft-ctx-pop';
-    var pct = _lastCtx.pct|0;
-    var tk = Math.round((_lastCtx.tokens||0)/1000);
-    var wn = Math.round((_lastCtx.window||0)/1000);
-    var modelTxt = (modelPicker && modelPicker.dataset.model) || 'unknown';
-    pop.innerHTML =
-      '<div class="ft-ctx-pop-h">Context usage</div>' +
-      '<div class="ft-ctx-pop-row"><span>Used</span><b>' + tk + 'K / ' + wn + 'K (' + pct + '%)</b></div>' +
-      '<div class="ft-ctx-pop-row"><span>Model</span><b>' + _esc(modelTxt) + '</b></div>' +
-      '<div class="ft-ctx-pop-row"><span>Mode</span><b>' + _esc(_curIMode||'agent') + '</b></div>' +
+    return '<div class="ft-ctx-pop-h">Context usage</div>' +
+      '<div class="ft-ctx-pop-row"><span>Used</span><b>' + tilde + tk + 'K / ' + wn + 'K = ' + pct + '%</b></div>' +
+      rows +
+      (d ? '<div class="ft-ctx-pop-tip"><div>Tokens with a tilde are the char estimates that run low on dense code.</div></div>' : '') +
       '<div class="ft-ctx-pop-tip">' +
-        '<div><code>/context</code> — detailed token breakdown</div>' +
+        '<div><code>/context</code> — refresh this breakdown</div>' +
         '<div><code>/compact [focus]</code> — summarise history</div>' +
         '<div><code>/fork [title]</code> — branch this session</div>' +
       '</div>';
+  }
+  /* Refresh the open popup after a late ctxUsage response arrives — from the
+     pull below, from /context, or from a running agent loop. */
+  function _updateCtxPop(){
+    if (!_ctxPop) return;
+    _ctxPop.innerHTML = _ctxPopBodyHtml();
+  }
+  function openCtxPop(){
+    if (_ctxPop) { closeCtxPop(); return; }
+    // Issue #142 P3-3: always pull fresh numbers. The breakdown is computed
+    // extension-side and lives there — between turns the webview may hold the
+    // value from the previous run, or none at all after a window reload.
+    vscode.postMessage({ type: 'getCtxUsage' });
+    var pop = document.createElement('div');
+    pop.className = 'ft-ctx-pop';
+    pop.innerHTML = _ctxPopBodyHtml();
     document.body.appendChild(pop);
     _ctxPop = pop;
     // position above the button
@@ -2991,8 +3004,12 @@
       renderSessionTip();
     } else if (m.type === "ctxUsage"){
       // Issue #142 P3-3: footer ring (replaces old top bar).
-      try { updateCtxRing(m.pct, m.tokens, m.window); } catch (_e) {}
+      try { updateCtxRing(m.window, m.tokens, m.source, m.detail); } catch (e){}
       _updateCtxPop();
+    } else if (m.type === "openCtxPop"){
+      // /context asks for the popup instead of printing a multi-line report
+      // into the one-line status bar.
+      if (_ctxPop) _updateCtxPop(); else openCtxPop();
     } else if (m.type === "progress"){
       if (m.phase) _curPhase = m.phase;
       _curTool = m.activeTool || "";

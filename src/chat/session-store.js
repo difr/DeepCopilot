@@ -215,11 +215,17 @@ class SessionStore {
     }
 
     /** Latest real prompt size the provider reported for this session. */
-    notePromptTokens(sid, n) {
+    notePromptTokens(sid, n, estTokens) {
         const s = this.all().find(x => x.id === sid);
-        // 0 clears it: after a compaction the recorded size describes a prompt
-        // that no longer exists, and /context must not quote it.
-        if (s) s.lastPromptTokens = Math.max(0, Number(n) || 0);
+        if (!s) return;
+        // 0 clears both: after a compaction the recorded sizes describe a prompt
+        // that no longer exists, and /context must not quote them.
+        s.lastPromptTokens = Math.max(0, Number(n) || 0);
+        // The heuristic of the same array. Kept so a reloaded window can still
+        // price the next turn's growth in provider units instead of rescaling
+        // from 1 — which is what put a tilde and a ~2x-low number in the ring
+        // on the first iteration after a restart.
+        s.lastEstTokens = Math.max(0, Number(estTokens) || 0);
     }
 
     /**

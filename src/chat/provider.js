@@ -349,10 +349,20 @@ class ChatViewProvider {
                 const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
                     ? run.messages
                     : (sid ? this._store.loadApiMessages(sid) : []);
-                const tokens = estimateMessagesTokens(msgs, { provider, model });
-                this._post({ type: 'ctxUsage',
-                    tokens, window,
-                    pct: Math.min(100, Math.round(tokens / window * 100)),
+                // Prefer the prompt size the provider reported: it is the number
+                // /context shows and compaction trusts, while the char heuristic
+                // runs ~2x low. Without this the ring snaps back to a smaller
+                // value after a window reload, when no run is live to push the
+                // fact down.
+                const rec  = sid ? this._store.all().find(x => x.id === sid) : null;
+                const factTok = (rec && Number(rec.lastPromptTokens)) || 0;
+                const detail = this._ctxDetail(factTok, provider, model, msgs);
+                const tokens = factTok > 0 ? factTok : detail.estTok;
+                this._post({
+                    type: 'ctxUsage',
+                    window, tokens,
+                    source: factTok > 0 ? 'fact' : 'estimate',
+                    detail,
                 });
                 break;
             }
@@ -838,9 +848,16 @@ class ChatViewProvider {
         } catch { /* best effort */ }
         const apiConfig = { apiKey, baseUrl, model, provider, focus: effectiveFocus };
 
-        const before = estimateMessagesTokens(messages);
+        const detBefore = this._ctxDetail(0, provider, model, messages);
         // Force compaction by setting a budget well below the current size.
-        const budget = Math.max(2000, Math.floor(before * (focus ? 0.3 : 0.4)));
+        // The budget has to come from `msgsTok` alone: autoCompactIfNeeded
+        // measures `estimateMessagesTokens(messages)` and, with actualTokens = 0
+        // below, does not calibrate, so the two must share one scale. Basing it
+        // on `estTok` (messages + system prompt) would look more accurate while
+        // raising the budget by 0.4 x syspTok against an unraised measurement.
+        // `estTok` is still what the status line reports, because that number is
+        // about how full the context is, not about what gets cut.
+        const budget = Math.max(2000, Math.floor(detBefore.msgsTok * (focus ? 0.3 : 0.4)));
         // /compact is an explicit squeeze — it keeps only 30-40% of the current
         // size — but the tail itself comes from the shared policy, so a manual
         // squeeze can never cut deeper than an automatic one.
@@ -854,26 +871,26 @@ class ChatViewProvider {
             const res = await autoCompactIfNeeded(messages, budget, MANUAL_KEEP_TAIL, apiConfig, 0);
             if (res && res.compacted) {
                 if (run) run.messages = res.messages;
-                const after = estimateMessagesTokens(res.messages);
                 // Persist the compacted state — no userText / asstText so
                 // append() only updates apiMessages.
                 try {
                     await this._store.append(sid, '', '', '', null, res.messages);
                 } catch (_e) { /* persistence best-effort */ }
+                const detail = this._ctxDetail(0, provider, model, res.messages);
                 this._post({
                     type: 'status',
-                    text: `✅  Compacted ${Math.round(before / 1000)}K → ${Math.round(after / 1000)}K tokens`,
+                    text: `✅  Compacted ${Math.round(detBefore.estTok/1000)}K → ${Math.round(detail.estTok/1000)}K tokens`,
                 });
                 // Issue #142 P3-3: broadcast fresh ctxUsage so the footer ring
                 // and popup reflect the compacted count immediately.
                 try {
-                    const modelCfg = require('../providers').getModel(provider, model) || { contextWindow: 65536 };
                     const window = modelCfg.contextWindow || 65536;
                     this._post({
                         type: 'ctxUsage',
-                        tokens: after,
                         window,
-                        pct: Math.min(100, Math.round(after / window * 100)),
+                        tokens: detail.estTok,
+                        source: 'estimate',
+                        detail,
                     });
                 } catch { /* never fail compaction over a UI broadcast */ }
             } else {
@@ -884,6 +901,31 @@ class ChatViewProvider {
         }
     }
 
+    // Breakdown for the context popup and `/context`: the char estimate of each
+    // part plus the message count. The estimate runs ~2x low on dense code and
+    // tool definitions are not counted at all, which is why every row carries
+    // its own label and the total comes from the reported fact.
+    _ctxDetail(factTok, provider, model, msgs) {
+        let syspTok = 0;
+        try {
+            const { estimateTokens } = require('./compact');
+            const { buildSystemPrompt } = require('../prompts/system');
+            syspTok = estimateTokens(buildSystemPrompt({ provider, model }));
+        } catch { /* the breakdown is best-effort */ }
+        let msgsTok = 0;
+        try {
+            const { estimateMessagesTokens } = require('./compact');
+            msgsTok = estimateMessagesTokens(msgs, { provider, model });
+        } catch { /* ditto */ }
+        return {
+            factTok: Number(factTok) || 0,
+            estTok: syspTok + msgsTok,
+            syspTok,
+            msgsTok,
+            msgsLen: Array.isArray(msgs) ? msgs.length : 0,
+        };
+    }
+
     // Issue #142 P3-4: `/context` status report.  Reports a coarse breakdown
     // (system prompt + message history) so the user can decide whether to
     // /compact or /fork.  Note: tool definitions, file/hint payloads sent
@@ -892,7 +934,6 @@ class ChatViewProvider {
     // wire size is tracked separately (Copilot review feedback).
     async _handleContextCommand() {
         try {
-            const { estimateMessagesTokens, estimateTokens } = require('./compact');
             const run = this._activeRun();
             const cfg = vscode.workspace.getConfiguration('deepseekAgent');
             const provider = str(cfg.get('provider')) || 'deepseek';
@@ -908,38 +949,27 @@ class ChatViewProvider {
             const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
                 ? run.messages
                 : (sid ? this._store.loadApiMessages(sid) : []);
-            const historyTok = estimateMessagesTokens(msgs);
-            // Rough estimate for system prompt — uses the default builder.
-            let sysTok = 0;
-            try {
-                const { buildSystemPrompt } = require('../prompts/system');
-                const sys = buildSystemPrompt({ provider, model });
-                sysTok = estimateTokens(sys);
-            } catch { /* skip */ }
-
             // The provider-reported prompt size beats any estimate: it is what
             // the API actually billed, and it is what compaction trusts.
             const storeRec = sid ? this._store.all().find(x => x.id === sid) : null;
             const factTok  = (storeRec && Number(storeRec.lastPromptTokens)) || 0;
-            const total = factTok > 0 ? factTok : historyTok + sysTok;
-            const pct = Math.min(100, Math.round(total / window * 100));
-            const bar = (() => {
-                const w = 20;
-                const filled = Math.round(pct / 100 * w);
-                return '█'.repeat(filled) + '░'.repeat(w - filled);
-            })();
-            const lines = [
-                `📊 Context usage — ${pct}%`,
-                `[${bar}] ${Math.round(total/1000)}K / ${Math.round(window/1000)}K tokens`,
-                ``,
-                `• System prompt : ${Math.round(sysTok/1000)}K`,
-                `• History       : ${Math.round(historyTok/1000)}K (${msgs.length} msgs)`,
-                `• Last prompt   : ${Math.round(factTok/1000)}K (real, as sent)`,
-                `• Model         : ${provider} / ${model}`,
-                ``,
-                `Tip: /compact [focus] to summarise · /fork [title] to branch off`,
-            ];
-            this._post({ type: 'status', text: lines.join('\n') });
+            const detail   = this._ctxDetail(factTok, provider, model, msgs);
+            const tokens   = factTok > 0 ? factTok : detail.estTok;
+            const pct      = Math.round(100 * tokens / window);
+            // The breakdown is drawn in the footer popup, not here: the status bar
+            // is a single line and collapses newlines, which turned the old
+            // multi-line report into one unreadable string.
+            this._post({
+                type: 'ctxUsage',
+                window, tokens,
+                source: factTok > 0 ? 'fact' : 'estimate',
+                detail,
+            });
+            this._post({ type: 'openCtxPop' });
+            this._post({
+                type: 'status',
+                text: `📊 Context ${pct}% = ${Math.round(tokens/1000)}K / ${Math.round(window/1000)}K · breakdown in the footer ring`,
+            });
         } catch (e) {
             this._post({ type: 'error', text: `/context failed: ${e.message}` });
         }
