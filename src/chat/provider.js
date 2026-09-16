@@ -881,6 +881,25 @@ class ChatViewProvider {
                 // fact next to a freshly measured breakdown.
                 this._store.notePromptTokens(sid, 0, 0);
                 const detail = this._ctxDetail(0, provider, model, res.messages);
+                // Manual compaction had no log line of its own: the only trace was
+                // PERSIST_TRIM from append(), which describes the panel and the api
+                // cut but says nothing about the squeeze itself. Both paths log
+                // under COMPACT, distinguished by `trigger`.
+                Logger.info('COMPACT', {
+                    trigger    : 'manual',
+                    sid,
+                    focus: !!focus,
+                    compacted: true,
+                    budget,
+                    keep_tail  : MANUAL_KEEP_TAIL,
+                    msgs_before: detBefore.msgsLen,
+                    msgs_after : detail.msgsLen,
+                    tok_before : detBefore.estTok,
+                    tok_after  : detail.estTok,
+                    dropped: res.dropped,
+                    truncated: res.truncated,
+                    deduped: res.deduped,
+                });
                 this._post({
                     type: 'status',
                     text: `✅  Compacted ${Math.round(detBefore.estTok/1000)}K → ${Math.round(detail.estTok/1000)}K tokens`,
@@ -907,6 +926,14 @@ class ChatViewProvider {
                     });
                 } catch { /* never fail compaction over a UI broadcast */ }
             } else {
+                Logger.info('COMPACT', {
+                    trigger    : 'manual',
+                    sid,
+                    focus: !!focus,
+                    compacted: false,
+                    msgs: detBefore.msgsLen,
+                    tok: detBefore.estTok,
+                });
                 this._post({ type: 'status', text: 'History already compact' });
             }
         } catch (e) {

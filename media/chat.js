@@ -3085,7 +3085,7 @@
       if (m.text){ sb.textContent = m.text; sb.style.display = "block"; } else sb.style.display = "none";
     } else if (m.type === "systemNotice"){
       // Issue #82: render a persistent in-conversation card so the user knows
-      // a context-altering event happened (currently: AUTOCOMPACT). Distinct
+      // a context-altering event happened (currently: a compaction). Distinct
       // from `status` which is transient and shown only in the status bar.
       // Use textContent + appendChild (no innerHTML) to avoid any XSS risk
       // from user-provided content flowing into the DOM (CodeQL js/xss).

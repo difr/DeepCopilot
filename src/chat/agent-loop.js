@@ -532,7 +532,8 @@ class AgentLoop {
                     _lastCtxTokens = 0;
                     _lastEstTokens = 0;
                     evalCtxExpected();
-                    Logger.info('AUTOCOMPACT', {
+                    Logger.info('COMPACT', {
+                        trigger   : 'auto',
                         sid, iter,
                         reason    : overByCount ? (overByTokens ? 'count+budget' : 'count') : 'budget',
                         keep_tail : COMPACT_KEEP_TAIL,
