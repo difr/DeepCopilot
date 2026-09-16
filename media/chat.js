@@ -245,7 +245,9 @@
     return '<div class="ft-ctx-pop-h">Context usage</div>' +
       '<div class="ft-ctx-pop-row"><span>Used</span><b>' + tilde + tk + 'K / ' + wn + 'K = ' + pct + '%</b></div>' +
       rows +
-      (d ? '<div class="ft-ctx-pop-tip"><div>Tokens with a tilde are the char estimates that run low on dense code.</div></div>' : '') +
+      (d ? '<div class="ft-ctx-pop-tip"><div>' + (Math.abs(d.estScale - 1) > 0.05
+            ? 'Tilde marks estimates, priced in provider units with the ×' + (Math.round(d.estScale * 10) / 10) + ' factor measured on the last reported prompt.'
+            : 'Tokens with a tilde are the char estimates that run low on dense code.') + '</div></div>' : '') +
       '<div class="ft-ctx-pop-tip">' +
         '<div><code>/context</code> — refresh this breakdown</div>' +
         '<div><code>/compact [focus]</code> — summarise history</div>' +

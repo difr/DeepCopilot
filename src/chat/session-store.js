@@ -11,6 +11,7 @@ const { str } = require('../utils/settings');
 const { t, tf } = require('../utils/strings');
 const { Logger } = require('../logger');
 const { readCompactPolicy } = require('./compact-policy');
+const { smoothScale } = require('./token-scale');
 
 // Auto-generated session titles are capped by characters. The model names the
 // session in the language of the conversation, so the cap has to fit Cyrillic
@@ -226,6 +227,14 @@ class SessionStore {
         // from 1 — which is what put a tilde and a ~2x-low number in the ring
         // on the first iteration after a restart.
         s.lastEstTokens = Math.max(0, Number(estTokens) || 0);
+        // Smoothed provider/heuristic ratio, so the ring, the popup and /context
+        // all price their estimates in provider units instead of each deriving
+        // its own factor. Deliberately survives the 0/0 reset above: the
+        // calibration belongs to the content, not to the current history.
+        const raw = (s.lastPromptTokens > 0 && s.lastEstTokens > 0)
+            ? s.lastPromptTokens / s.lastEstTokens
+            : 0;
+        if (raw > 0) s.ctxEstScale = smoothScale(s.ctxEstScale, raw);
     }
 
     /**
