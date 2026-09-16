@@ -24,6 +24,99 @@ async function toolWriteFile(args) {
 
 // ─── str_replace_in_file ─────────────────────────────────────────────────────
 
+// Line offsets, so a mismatch can be reported by line number instead of as a
+// bare "not found" that leaves the caller bisecting the block by hand.
+function _lineIndex(text) {
+    const offsets = [0];
+    for (let i = 0; i < text.length; i++) if (text[i] === '\n') offsets.push(i + 1);
+    return offsets;
+}
+
+function _lineOf(offsets, idx) {
+    let lo = 0, hi = offsets.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (offsets[mid] <= idx) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1; // 1-based
+}
+
+const _stripEol = (s) => s.replace(/[ \t]+$/, '');
+const _trailLen = (s) => (_stripEol(s).length === s.length ? 0 : s.length - _stripEol(s).length);
+
+// Whole-line comparison with trailing spaces and tabs dropped. Invisible
+// trailing whitespace is the most common reason a retyped block fails to match,
+// and an exact-only matcher turns that into a guessing loop. Used solely as a
+// fallback when the exact search finds nothing, and reported as such.
+function _findMatchesIgnoringTrailingSpace(text, oldStr) {
+    const oldLines  = oldStr.split('\n');
+    const textLines = text.split('\n');
+    const offsets   = _lineIndex(text);
+    const needle    = oldLines.map(_stripEol);
+    const hits      = [];
+    let prevEnd     = -1;
+    for (let i = 0; i + oldLines.length <= textLines.length; i++) {
+        let ok = true;
+        for (let j = 0; j < oldLines.length; j++) {
+            if (_stripEol(textLines[i + j]) !== needle[j]) { ok = false; break; }
+        }
+        if (!ok) continue;
+        const last  = i + oldLines.length - 1;
+        const start = offsets[i];
+        const end   = offsets[last] + textLines[last].length;
+        if (start < prevEnd) continue; // ignore overlapping hits
+        prevEnd = end;
+        hits.push({ start, end, loose: true });
+        if (hits.length > 1000) break;
+    }
+    return hits;
+}
+
+function _collectMatches(text, oldStr) {
+    const exact = [];
+    for (let at = text.indexOf(oldStr); at !== -1; at = text.indexOf(oldStr, at + oldStr.length)) {
+        exact.push({ start: at, end: at + oldStr.length, loose: false });
+        if (exact.length > 1000) break;
+    }
+    return exact.length ? exact : _findMatchesIgnoringTrailingSpace(text, oldStr);
+}
+
+// Where the block went wrong: locate the closest place in the file and name the
+// first line that differs, with both spellings quoted and the trailing-space
+// counts when that is the whole difference.
+function _describeMiss(text, oldStr) {
+    const oldLines  = oldStr.split('\n');
+    const textLines = text.split('\n');
+    const anchor    = _stripEol(oldLines[0]).trim();
+    if (!anchor) return '';
+    const fileLine = textLines.findIndex(l => l.includes(anchor));
+    if (fileLine < 0) {
+        return `  The first line of old_string appears nowhere in the file: ${JSON.stringify(oldLines[0])}`
+             + (anchor === oldLines[0]
+                 ? '.'
+                 : `\n  (also searched for it without trailing whitespace: ${JSON.stringify(anchor)}).`);
+    }
+    const fileNum = fileLine + 1;
+    for (let j = 0; j < oldLines.length; j++) {
+        const have = textLines[fileLine + j];
+        if (have === undefined) {
+            return `  Closest block starts at line ${fileNum}, but the file ends ${j} line(s) in,`
+                 + ` short of the ${oldLines.length} line(s) in old_string.`;
+        }
+        if (have === oldLines[j]) continue;
+        const spaceOnly = _stripEol(have) === _stripEol(oldLines[j]);
+        return `  Closest block starts at line ${fileNum} (${j} of ${oldLines.length} line(s) matched).`
+             + `\n  Line ${fileNum + j} differs${spaceOnly ? ' in trailing whitespace only' : ''}:`
+             + `\n    old_string: ${JSON.stringify(oldLines[j])}`
+             + `\n    file      : ${JSON.stringify(have)}`
+             + (spaceOnly
+                 ? `\n    (old_string ends with ${_trailLen(oldLines[j])} whitespace char(s), the file with ${_trailLen(have)}).`
+                 : '');
+    }
+    return `  A block starting at line ${fileNum} already equals old_string.`;
+}
+
+
 async function toolStrReplaceInFile(args) {
     try {
         const fp = resolvePath(args.path);
@@ -41,28 +134,35 @@ async function toolStrReplaceInFile(args) {
         const text   = hasCRLF ? rawText.replace(/\r\n/g, '\n') : rawText;
         const oldStrNorm = hasCRLF ? oldStr.replace(/\r\n/g, '\n') : oldStr;
 
-        let count = 0, idx = 0;
-        const indices = [];
-        while ((idx = text.indexOf(oldStrNorm, idx)) !== -1) {
-            indices.push(idx);
-            count++;
-            idx += oldStrNorm.length;
-            if (count > 1000) break;
+        const lineOffsets = _lineIndex(text);
+        const matches = _collectMatches(text, oldStrNorm);
+        if (matches.length === 0) {
+            const why = _describeMiss(text, oldStrNorm);
+            return `Error: old_string not found in ${args.path}.`
+                 + (why ? `\n${why}` : '')
+                 + `\n  Both sides are compared with LF line endings, so the remaining candidates are`
+                 + ` indentation and whitespace inside the lines.`;
         }
-        if (count === 0) {
-            return `Error: old_string not found in ${args.path}. Check whitespace, indentation, and line endings — old_string must match exactly.`;
-        }
-        if (count !== expected) {
-            return `Error: old_string matched ${count} times but expected_replacements=${expected}. To proceed, either include more surrounding context to make old_string unique, or set expected_replacements=${count} explicitly.`;
+        if (matches.length !== expected) {
+            const lines = matches.map(m => _lineOf(lineOffsets, m.start));
+            return `Error: old_string matched ${matches.length} time${matches.length === 1 ? '' : 's'} but expected_replacements=${expected}`
+                 + ` (line${lines.length === 1 ? '' : 's'} ${lines.join(', ')}). To proceed, either include more`
+                 + ` surrounding context to make old_string unique, or set expected_replacements=${matches.length} explicitly.`;
         }
 
         let updated = '';
         let cursor = 0;
-        for (const at of indices) { updated += text.slice(cursor, at) + newStr; cursor = at + oldStrNorm.length; }
+        let loose = 0;
+        for (const m of matches) {
+            updated += text.slice(cursor, m.start) + newStr;
+            cursor = m.end;
+            if (m.loose) loose++;
+        }
         updated += text.slice(cursor);
 
         writeFileText(fp, hasCRLF ? updated.replace(/\n/g, '\r\n') : updated, args.encoding || encoding);
-        return `OK: ${count} replacement(s) in ${args.path} (${updated.length - text.length >= 0 ? '+' : ''}${updated.length - text.length} chars).`;
+        const note = loose ? ` — matched ${loose} block(s) ignoring trailing whitespace` : '';
+        return `OK: ${matches.length} replacement(s) in ${args.path} (${updated.length - text.length >= 0 ? '+' : ''}${updated.length - text.length} chars)${note}.`;
     } catch (e) { return `Error: ${e.message}`; }
 }
 
