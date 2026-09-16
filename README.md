@@ -198,9 +198,9 @@ Chat, tool and shell settings live under the `deepseekAgent.*` namespace in
 | `deepseekAgent.shellExecutionMode` | `silent` | `silent` hidden subprocess / `terminal` integrated terminal |
 | `deepseekAgent.maxIterations` | `0` | Max tool-call rounds per send; `0` = unlimited |
 | `deepseekAgent.compactBudgetTokens` | `0` | Explicit compaction token budget; `0` = derive it from the model window |
-| `deepseekAgent.compactBudgetShare` | `0.7` | Share of the model window used as the budget when `compactBudgetTokens` is `0` |
-| `deepseekAgent.compactMaxMessages` | `400` | Message count that triggers compaction regardless of tokens |
-| `deepseekAgent.compactKeepTail` | `200` | Messages kept verbatim when the head of the history is summarised |
+| `deepseekAgent.compactBudgetShare` | `0.75` | Share of the model window used as the budget when `compactBudgetTokens` is `0` |
+| `deepseekAgent.compactMaxMessages` | `1200` | Message count that triggers compaction regardless of tokens; the cut takes `keepTail / maxMessages` of the current size |
+| `deepseekAgent.compactKeepTail` | `300` | Messages kept verbatim when the head of the history is summarised |
 | `deepseekAgent.compactHardLimitShare` | `0.9` | Emergency ceiling as a share of the model window (avoids HTTP 400) |
 | `deepseekAgent.postEditDiagnostics` | `true` | Append LSP diagnostics after every file edit |
 | `deepseekAgent.autoResumeMaxPerHour` | `12` | Auto-resumes per session per hour (background wake scheduler) |
@@ -343,7 +343,7 @@ Deep Copilot exposes a small, deliberately-minimal tool set to the model:
 - **No backend.** Everything runs inside the VS Code extension host. The single bundle `out/extension.js` is roughly 105 KB minified.
 - **Per-session run map.** `provider._runs: Map<sessionId, Run>` lets you switch sessions while a task is running; the run keeps producing events that get buffered and replayed when you return.
 - **Streaming via SSE.** `src/api/deepseek.js` parses `data:` frames and forwards `delta`, `reasoning`, `tool_calls`, `usage` to the provider.
-- **Auto-compaction.** History grows to `compactMaxMessages` and is compacted back to `compactKeepTail`, leaving the recent tail byte-identical so the provider's prefix cache stays warm. The token trigger compares the expected prompt size (the reported fact plus the growth since it, in provider units) against the budget — never a raw character estimate.
+- **Auto-compaction.** History grows to `compactMaxMessages` and is compacted back to `compactKeepTail`, leaving the recent tail byte-identical so the provider's prefix cache stays warm. The token trigger compares the expected prompt size (the reported fact plus the growth since it, in provider units) against the budget — never a raw character estimate. A count-only fire has no token pressure to satisfy, so it takes `compactKeepTail / compactMaxMessages` of the current size as its budget, and both triggers then shrink to the same share.
 - **Approval is enforced server-side (in the extension), not just UI.** A model-issued `write_file` will not execute unless the policy or user explicitly allows it.
 
 ---

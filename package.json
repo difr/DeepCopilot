@@ -249,20 +249,20 @@
         },
         "deepseekAgent.compactBudgetShare": {
           "type": "number",
-          "default": 0.7,
+          "default": 0.75,
           "minimum": 0.1,
           "maximum": 0.95,
-          "description": "Share of the active model's context window used as the compaction budget when compactBudgetTokens is 0. Default 0.7, i.e. 700K on a 1M-token window and 140K on a 200K-token one."
+          "description": "Share of the active model's context window used as the compaction budget when compactBudgetTokens is 0. Default 0.75, i.e. 750K on a 1M-token window and 150K on a 200K-token one."
         },
         "deepseekAgent.compactMaxMessages": {
           "type": "number",
-          "default": 400,
+          "default": 1200,
           "minimum": 20,
-          "description": "Hard cap on the messages in one conversation. History is compacted once it grows past this, regardless of token usage."
+          "description": "Hard cap on the messages in one conversation. Growing past it compacts the history down to compactKeepTail even when the token budget is not reached; that cut uses compactKeepTail / compactMaxMessages as its share of the current size."
         },
         "deepseekAgent.compactKeepTail": {
           "type": "number",
-          "default": 200,
+          "default": 300,
           "minimum": 2,
           "description": "Messages kept verbatim when the head of the history is summarised. A larger tail survives compaction byte-identical (good for the prefix cache), a smaller one frees more room for the summary. Values at or above compactMaxMessages are clamped."
         },

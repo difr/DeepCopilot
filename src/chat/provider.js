@@ -25,7 +25,6 @@ const { SessionStore } = require('./session-store');
 const { ToolExecutor } = require('./tool-executor');
 const { AgentLoop }    = require('./agent-loop');
 const { readCompactPolicy } = require('./compact-policy');
-const { clampScale } = require('./token-scale');
 
 // ─── Module-level constants ───────────────────────────────────────────────────
 /** Maximum bytes of file content attached via the Explorer context menu. */
@@ -905,21 +904,6 @@ class ChatViewProvider {
     // part plus the message count. The estimate runs ~2x low on dense code and
     // tool definitions are not counted at all, which is why every row carries
     // its own label and the total comes from the reported fact.
-    /**
-     * Ratio that converts our char heuristic into provider units: the last
-     * reported prompt over the estimate of the same array, smoothed in the
-     * session store. Falls back to the raw ratio, then to 1.
-     */
-    _ctxEstScale(sid) {
-        const rec = sid ? this._store.all().find(x => x.id === sid) : null;
-        if (!rec) return 1;
-        const smoothed = clampScale(rec.ctxEstScale);
-        if (smoothed > 0) return smoothed;
-        const fact = Number(rec.lastPromptTokens) || 0;
-        const est  = Number(rec.lastEstTokens) || 0;
-        return (fact > 0 && est > 0) ? (clampScale(fact / est) || 1) : 1;
-    }
-
     _ctxDetail(factTok, provider, model, msgs) {
         let syspTok = 0;
         try {
@@ -934,7 +918,7 @@ class ChatViewProvider {
         } catch { /* ditto */ }
         // The rows are only meaningful next to a real prompt size, so they are
         // reported in provider units rather than in the raw char count.
-        const estScale = this._ctxEstScale(this._store.sessionId);
+        const estScale = this._store.estScale(this._store.sessionId);
         return {
             factTok: Math.round(Number(factTok) || 0),
             estScale,

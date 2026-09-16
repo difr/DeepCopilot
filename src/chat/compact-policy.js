@@ -10,12 +10,12 @@
 // defaults, so a hand-edited settings.json cannot silently disable compaction
 // or make it fire on every iteration.
 const DEFAULTS = Object.freeze({
-    budgetShare:    0.7,   // share of the model window used as the token budget
+    budgetShare:    0.75,  // share of the model window used as the token budget
     maxBudgetShare: 0.95,
     minBudget:      8000,  // floor, so a small window still gets a workable budget
     minMessages:    20,
-    maxMessages:    400,   // hard cap on the message count, independent of tokens
-    keepTail:       200,   // messages kept verbatim when the head is summarised
+    maxMessages:    1200,  // hard cap on the message count, independent of tokens
+    keepTail:       300,   // messages kept verbatim when the head is summarised
     minKeepTail:    2,
     hardLimitShare: 0.9,   // preflight ceiling; above it the emergency ladder runs
     fallbackWindow: 65536, // used when the model entry has no contextWindow

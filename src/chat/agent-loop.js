@@ -470,18 +470,51 @@ class AgentLoop {
                 // estimate cannot be compared with the budget at all, and the
                 // fact alone ignores tool results appended since the last call.
                 const tokCtx = { provider, model };
+                // Fallback factor for the case with no fact at all: the first
+                // turn of a session, or the turn right after a compaction. The
+                // session's smoothed ratio is the only honest number there — 1
+                // would understate every estimate by the same 2-3x.
+                const estScale = this._store.estScale(sid);
                 let estTokens = 0, ctxExpected = 0;
                 const evalCtxExpected = () => {
                     estTokens = estimateMessagesTokens([{ role: 'system', content: sysPrompt }, ...run.messages], tokCtx);
-                    const scale = (_lastEstTokens > 0 && _lastCtxTokens > 0) ? _lastCtxTokens / _lastEstTokens : 1;
-                    const delta = _lastEstTokens > 0 ? Math.max(0, estTokens - _lastEstTokens) : 0;
-                    ctxExpected = _lastCtxTokens > 0 ? _lastCtxTokens + Math.round(delta * scale) : estTokens;
+                    if (_lastCtxTokens > 0 && _lastEstTokens > 0) {
+                        // Ratio of the last reported pair, applied to the growth
+                        // since it. The floor matters: a user message can be edited,
+                        // which drops the messages after it, and a negative delta
+                        // would push the expectation below a fact we already know.
+                        const ratio = _lastCtxTokens / _lastEstTokens;
+                        const delta = Math.max(0, estTokens - _lastEstTokens);
+                        ctxExpected = _lastCtxTokens + Math.round(delta * ratio);
+                    } else {
+                        ctxExpected = Math.round(estTokens * estScale);
+                    }
                 };
                 evalCtxExpected();
                 const overByCount  = run.messages.length > COMPACT_MAX_MESSAGES;
                 const overByTokens = ctxExpected > COMPACT_BUDGET;
+                let compactBudget = COMPACT_BUDGET;
+                if (overByCount && !overByTokens) {
+                    // A count-only fire has no token pressure to satisfy, so its
+                    // budget comes from the survival ratio the tail settings
+                    // already define — keepTail / maxMessages. Both mechanisms
+                    // then cut to the same share, and this one keeps a summary
+                    // instead of dropping the head outright later in the store.
+                    //
+                    // The floor is not leniency: a budget below the weight of the
+                    // tail itself would make compact.js truncate inside the very
+                    // tail it is meant to keep byte-identical, which is the
+                    // prefix cache's whole point. Worth measuring only here — the
+                    // heuristic over the tail is not free, and the token path has
+                    // its own budget.
+                    const tailTok = estimateMessagesTokens(run.messages.slice(-COMPACT_KEEP_TAIL), tokCtx) * estScale;
+                    compactBudget = Math.min(Math.max(
+                        Math.floor(ctxExpected * (COMPACT_KEEP_TAIL / COMPACT_MAX_MESSAGES)),
+                        Math.ceil(tailTok * 1.05),
+                    ), compactBudget);
+                }
                 const compactRes = (overByCount || overByTokens)
-                    ? await autoCompactIfNeeded(run.messages, COMPACT_BUDGET, COMPACT_KEEP_TAIL, compactApiConfig, _lastCtxTokens)
+                    ? await autoCompactIfNeeded(run.messages, compactBudget, COMPACT_KEEP_TAIL, compactApiConfig, _lastCtxTokens)
                     : { compacted: false };
                 if (compactRes.compacted) {
                     // Issue #145: compaction may slice between an
@@ -509,7 +542,7 @@ class AgentLoop {
                         msgs_after: run.messages.length,
                         ctx_before: ctxBefore,
                         ctx_after : ctxExpected, // estimate: no fact for the new history yet
-                        budget    : COMPACT_BUDGET,
+                        budget    : compactBudget,
                     });
                     this._postToRun(run, { type: 'status', text: t('statusCompacting') });
                     postProgress('compacting');

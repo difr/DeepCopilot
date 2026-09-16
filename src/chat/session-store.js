@@ -11,7 +11,44 @@ const { str } = require('../utils/settings');
 const { t, tf } = require('../utils/strings');
 const { Logger } = require('../logger');
 const { readCompactPolicy } = require('./compact-policy');
-const { smoothScale } = require('./token-scale');
+const { smoothScale, clampScale } = require('./token-scale');
+
+// A compact summary is a user-role message carrying this marker (see
+// `_isCompactSummary` in compact.js). The check is duplicated here on purpose:
+// requiring compact.js would drag the API client into the store, and this file
+// only needs the marker, not the machinery.
+const COMPACT_SUMMARY_MARKER = '<compact-summary>';
+
+function _isSummaryNode(m) {
+    return m && m.role === 'user' && typeof m.content === 'string'
+        && m.content.includes(COMPACT_SUMMARY_MARKER);
+}
+
+function _isInternalReminder(m) {
+    return m && typeof m.content === 'string'
+        && m.content.trimStart().startsWith('<system-reminder>');
+}
+
+// How many real user prompts survive in an api tail. Summaries and internal
+// reminders are user-role messages too, and counting them would leave the panel
+// longer than the context it is supposed to mirror.
+function _countUserPrompts(msgs) {
+    return msgs.filter(m => m.role === 'user' && !_isSummaryNode(m) && !_isInternalReminder(m)).length;
+}
+
+// Keep as many panel turns as the api tail still carries prompts, so what the
+// user reads and what the model is sent cannot drift apart.
+function _trimPanel(panel, keptPrompts) {
+    if (!Array.isArray(panel)) return panel;
+    if (keptPrompts <= 0) return panel.slice(-2);
+    let seen = 0;
+    for (let i = panel.length - 1; i >= 0; i--) {
+        if (panel[i].role !== 'user') continue;
+        if (++seen === keptPrompts) return panel.slice(i);
+    }
+    return panel; // the panel holds fewer prompts than the tail: nothing to cut
+}
+
 
 // Auto-generated session titles are capped by characters. The model names the
 // session in the language of the conversation, so the cap has to fit Cyrillic
@@ -238,6 +275,22 @@ class SessionStore {
     }
 
     /**
+     * Smoothed provider/heuristic factor for a session: the last reported prompt
+     * over the heuristic of the same array. Falls back to the raw ratio, then to
+     * 1. Callers that price estimates in provider units (the footer ring, the
+     * popup, /context, the agent loop's expectations) all read it from here.
+     */
+    estScale(sid) {
+        const s = this.all().find(x => x.id === sid);
+        if (!s) return 1;
+        const smoothed = clampScale(s.ctxEstScale);
+        if (smoothed > 0) return smoothed;
+        const fact = Number(s.lastPromptTokens) || 0;
+        const est  = Number(s.lastEstTokens) || 0;
+        return (fact > 0 && est > 0) ? (clampScale(fact / est) || 1) : 1;
+    }
+
+    /**
      * Append one completed turn to a session record.
      * @param {string}   sid
      * @param {string}   userText
@@ -284,7 +337,6 @@ class SessionStore {
 
         if (userText) s.messages.push({ role: 'user', text: userText });
         if (asstText || thoughts) s.messages.push({ role: 'assistant', text: asstText || '', thoughts: thoughts || '' });
-        if (s.messages.length > MAX_HISTORY) s.messages = s.messages.slice(-KEEP_HISTORY);
 
         if (apiMessages !== undefined) {
             // reasoning_content is intentionally kept here.  Stripping it at
@@ -309,6 +361,21 @@ class SessionStore {
                     startIdx++;
                 }
                 sanitized = messagesToPersist.slice(startIdx);
+                // The panel follows the same cut instead of keeping its own
+                // counter: a turn costs ~2 panel entries against ~10 api
+                // messages, so one shared limit let the visible history run an
+                // order of magnitude longer than the context the model gets.
+                const keptPrompts = _countUserPrompts(sanitized);
+                s.messages = _trimPanel(s.messages, keptPrompts);
+                Logger.info('PERSIST_TRIM', {
+                    sid,
+                    before: messagesToPersist.length,
+                    after: sanitized.length,
+                    dropped: messagesToPersist.length - sanitized.length,
+                    panel: s.messages.length,
+                    kept_prompts: keptPrompts,
+                    keep_tail: KEEP_HISTORY,
+                });
             }
             // Drop ANY orphan assistant{tool_calls} group (head/middle/tail)
             // so a mid-turn interruption or a slice-induced split never
