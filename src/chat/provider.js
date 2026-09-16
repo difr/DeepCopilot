@@ -875,6 +875,11 @@ class ChatViewProvider {
                 try {
                     await this._store.append(sid, '', '', '', null, res.messages);
                 } catch (_e) { /* persistence best-effort */ }
+                // The reported prompt size describes a history that no longer
+                // exists. Without this the panel redraw (sessionLoaded) makes the
+                // webview re-ask getCtxUsage, which then quotes the pre-compaction
+                // fact next to a freshly measured breakdown.
+                this._store.notePromptTokens(sid, 0, 0);
                 const detail = this._ctxDetail(0, provider, model, res.messages);
                 this._post({
                     type: 'status',
