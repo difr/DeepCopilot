@@ -3144,6 +3144,23 @@
       for (var k=0; k<msgsArr.length; k++){
         var mm = msgsArr[k];
         if (mm.role === "user") add("user", mm.text || "");
+        else if (mm.role === "summary"){
+          /* A compaction left behind a summary the model still carries. Shown
+             collapsed, but with the fact and the body, so the panel never loses
+             track of why the turns above are gone. */
+          var card = document.createElement("div");
+          card.className = "sys-notice";
+          var n = mm.compacted | 0;
+          var body = String(mm.text || "").trim();
+          card.innerHTML =
+            "<div class=\"sys-notice-title\">History compacted" + (n > 0 ? " — " + n + " earlier messages" : "") + "</div>";
+          if (body) {
+            card.insertAdjacentHTML("beforeend",
+              "<details><summary>Summary kept for the model</summary><div class=\"sys-notice-body\"></div></details>");
+            card.querySelector(".sys-notice-body").innerHTML = renderMd(body);
+          }
+          if (thk && thk.parentNode === msgs) msgs.insertBefore(card, thk); else msgs.appendChild(card);
+        }
         else if (mm.role === "assistant"){
           if (es) es.style.display = "none";
           var d = document.createElement("div");

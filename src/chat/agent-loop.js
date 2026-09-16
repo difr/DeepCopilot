@@ -546,6 +546,15 @@ class AgentLoop {
                     });
                     this._postToRun(run, { type: 'status', text: t('statusCompacting') });
                     postProgress('compacting');
+                    // The in-conversation card the README promises (issue #82): it
+                    // explains why older tool output is gone. The permanent record
+                    // of the same event is the summary card in the session panel.
+                    this._postToRun(run, {
+                        type: 'systemNotice',
+                        kind: 'compact',
+                        title: `History compacted — ${Math.round(ctxBefore / 1000)}K → ${Math.round(ctxExpected / 1000)}K tokens`,
+                        body: 'Older turns were replaced by a summary of themselves; it is kept as a card in the session panel.',
+                    });
                     // Same for the persisted copy that /context reads.
                     this._store.notePromptTokens(sid, 0, 0);
                 }

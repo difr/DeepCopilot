@@ -49,6 +49,17 @@ function _trimPanel(panel, keptPrompts) {
     return panel; // the panel holds fewer prompts than the tail: nothing to cut
 }
 
+// Body of a compact summary: what the model reads back on the next turn.
+function _summaryText(m) {
+    const inner = String(m.content || '').match(/<compact-summary>([\s\S]*?)<\/compact-summary>/);
+    return inner ? inner[1].trim() : '';
+}
+
+// Panel entry that stands in for a compaction: the fact (how many turns went
+// into it) plus the summary body, collapsed in the webview.
+function _summaryCard(text, compacted) {
+    return { role: 'summary', text: text || '', compacted: Math.max(0, compacted | 0) };
+}
 
 // Auto-generated session titles are capped by characters. The model names the
 // session in the language of the conversation, so the cap has to fit Cyrillic
@@ -361,20 +372,65 @@ class SessionStore {
                     startIdx++;
                 }
                 sanitized = messagesToPersist.slice(startIdx);
-                // The panel follows the same cut instead of keeping its own
-                // counter: a turn costs ~2 panel entries against ~10 api
-                // messages, so one shared limit let the visible history run an
-                // order of magnitude longer than the context the model gets.
-                const keptPrompts = _countUserPrompts(sanitized);
-                s.messages = _trimPanel(s.messages, keptPrompts);
+            }
+            // The panel is rebuilt from the api tail whenever that tail carries a
+            // summary: a compaction drops the history far below MAX_HISTORY, so
+            // waiting for the count limit would leave the card out until some
+            // later overflow.
+            //
+            // A turn costs ~2 panel entries against ~10 api messages, so one
+            // shared limit let the visible history run an order of magnitude
+            // longer than the context the model gets. A summary is what the model
+            // carries forward, so it becomes a panel entry of its own and every
+            // turn older than it goes: those messages are already folded in.
+            // A summary node is what the model carries forward, so the panel is
+            // cut from it whether or not its body survived. The marker alone is
+            // the signal; a card without text still beats dropping turns with no
+            // trace at all.
+            const lastSummaryIdx = sanitized.findLastIndex(_isSummaryNode);
+            const hasSummary = lastSummaryIdx >= 0;
+            const summaryText = hasSummary ? _summaryText(sanitized[lastSummaryIdx]) : '';
+            const overflow = messagesToPersist.length > MAX_HISTORY;
+            if (hasSummary || overflow) {
+                const keptPrompts = hasSummary
+                    ? _countUserPrompts(sanitized.slice(lastSummaryIdx + 1))
+                    : _countUserPrompts(sanitized);
+                const panelBefore = s.messages.length;
+                // With a summary in play, nothing above it survives in the api
+                // tail either. Keeping the slice(-2) safety net here would put
+                // turns back in the panel that the model no longer has.
+                const panelTail = (hasSummary && keptPrompts === 0)
+                    ? []
+                    : _trimPanel(s.messages, keptPrompts).filter(m => m.role !== 'summary');
+                s.messages = [
+                    ...(hasSummary ? [_summaryCard(summaryText, panelBefore - panelTail.length)] : []),
+                    ...panelTail,
+                ];
+                // A session with no run in flight can be redrawn right away.
+                // During a turn the webview owns the transcript and rebuilding it
+                // would kill the live stream, so the card waits for the next
+                // session load there.
+                const redrawn = typeof this._getBusy === 'function' && !this._getBusy(sid);
+                if (redrawn) {
+                    this._post({ type: 'sessionLoaded', id: sid, messages: s.messages, busy: false, totals: s.totals || null });
+                }
+                // Names say which array each number belongs to: the api history is
+                // cut by the count limit, while the panel follows the summary. A
+                // line reading "dropped: 0" used to look like a failed trim when it
+                // was in fact a panel rebuild.
                 Logger.info('PERSIST_TRIM', {
                     sid,
-                    before: messagesToPersist.length,
-                    after: sanitized.length,
-                    dropped: messagesToPersist.length - sanitized.length,
-                    panel: s.messages.length,
+                    reason: hasSummary ? (overflow ? 'summary+overflow' : 'summary') : 'overflow',
+                    api_before : messagesToPersist.length,
+                    api_after  : sanitized.length,
+                    api_dropped: messagesToPersist.length - sanitized.length,
+                    panel_before : panelBefore,
+                    panel_after  : s.messages.length,
+                    panel_dropped: panelBefore - s.messages.length,
                     kept_prompts: keptPrompts,
-                    keep_tail: KEEP_HISTORY,
+                    keep_tail   : KEEP_HISTORY,
+                    summary: hasSummary,
+                    redrawn,
                 });
             }
             // Drop ANY orphan assistant{tool_calls} group (head/middle/tail)

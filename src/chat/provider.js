@@ -880,6 +880,15 @@ class ChatViewProvider {
                     type: 'status',
                     text: `✅  Compacted ${Math.round(detBefore.estTok/1000)}K → ${Math.round(detail.estTok/1000)}K tokens`,
                 });
+                // Unlike the status line, this card stays in the transcript, and
+                // it is the only place the user learns what happened to history
+                // they can no longer see. The summary itself lands in the panel.
+                this._post({
+                    type: 'systemNotice',
+                    kind: 'compact',
+                    title: `History compacted — ${detBefore.msgsLen} → ${detail.msgsLen} messages`,
+                    body: 'Older turns were replaced by a summary of themselves; it is kept as a card in the session panel.',
+                });
                 // Issue #142 P3-3: broadcast fresh ctxUsage so the footer ring
                 // and popup reflect the compacted count immediately.
                 try {
