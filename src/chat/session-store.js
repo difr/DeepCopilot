@@ -231,6 +231,24 @@ class SessionStore {
         });
     }
 
+    // ─── Active session per workspace ───────────────────────────────────────
+
+    /**
+     * Session to open for the current workspace: the last one the user opened
+     * there, else the most recently updated one. Null when this workspace has
+     * none, so the panel stays empty instead of showing another project's chat.
+     *
+     * Sorted here rather than trusting the stored order: `all()` is newest-first
+     * only because set() sorts before writing, and older or hand-edited state can
+     * break that.
+     */
+    workspaceSession() {
+        const ws = this._getCurrentWs() || ''; // no folder open -> ''
+        return this.all()
+            .filter(s => !s.archived && (s.ws || '') === ws)
+            .sort((a, b) => (b.lastOpenedAt || b.updatedAt || 0) - (a.lastOpenedAt || a.updatedAt || 0))[0] || null;
+    }
+
     // ─── Session lifecycle ──────────────────────────────────────────────────
 
     /** Ensure a session exists and return its id. Creates one if needed. */
@@ -482,15 +500,24 @@ class SessionStore {
 
     // ─── Session commands (webview → extension) ─────────────────────────────
 
-    async load(id, opts = {}) {
-        const s = this.all().find(x => x.id === id);
+    async load(id) {
+        const list = this.all();
+        const s = list.find(x => x.id === id);
         if (!s) return;
         this.sessionId = s.id;
-        // Include busy flag so the webview only restores the spinner for
-        // sessions that are genuinely still running (not stale timer entries).
-        this._post({ type: 'sessionLoaded', id: s.id, messages: s.messages || [], busy: !!opts.busy, totals: s.totals || null });
+        // Opening a session "activates" it: lastOpenedAt is the first key
+        // workspaceSession() sorts by, so the panel comes back to this one. It is
+        // deliberately not updatedAt — that one drives the sidebar timestamps and
+        // must keep meaning "when the content changed".
+        s.lastOpenedAt = Date.now();
+        try { await this.set(list); } catch { /* activation is best-effort */ }
+        // busy comes from the live run (getBusy in the constructor). The panel is
+        // rebuilt whenever it is reopened or switched to, and it has to know whether
+        // a turn is still in flight to restore the spinner; the run map is the single
+        // source for that, so no caller needs to pass it in.
+        const busy = typeof this._getBusy === 'function' && !!this._getBusy(s.id);
+        this._post({ type: 'sessionLoaded', id: s.id, messages: s.messages || [], busy, totals: s.totals || null });
         this.postList();
-        // Return buffered run events so the caller can replay them.
         return id;
     }
 

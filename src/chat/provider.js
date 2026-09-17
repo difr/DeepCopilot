@@ -291,10 +291,15 @@ class ChatViewProvider {
                 } catch { /* decorative: a pricing lookup must not break startup */ }
                 if (!this._store.sessionId) {
                     try {
-                        const all = this._store.all();
-                        const latest = all.length ? all.find(s => !s.archived) : null;
-                        if (latest) {
-                            await this._store.load(latest.id); // load() calls postList() internally
+                        // Open the session of THIS workspace: the last one activated
+                        // here, else the most recently updated one. Taking the newest
+                        // session of any workspace is how another project's chat used
+                        // to appear. No session here means an empty view.
+                        const session = this._store.workspaceSession();
+                        if (session) {
+                            // _loadSession restores the history and replays whatever
+                            // the live run has buffered (it posts the list itself).
+                            await this._loadSession(session.id);
                         } else {
                             this._store.postList();
                             this._post({ type: 'sessionLoaded', id: null, messages: [] });
@@ -304,8 +309,22 @@ class ChatViewProvider {
                         this._post({ type: 'sessionLoaded', id: null, messages: [] });
                     }
                 } else {
-                    this._store.postList();
+                    // The webview is rebuilt from scratch every time the panel is
+                    // reopened, while the store still remembers the session. Without
+                    // restoring it the chat area came up empty — the session list
+                    // showed it as active — and the ring kept quoting numbers for a
+                    // conversation that was not on screen. _loadSession also replays
+                    // the buffered events, so a panel reopened mid-turn catches up
+                    // with the turn in flight.
+                    try {
+                        await this._loadSession(this._store.sessionId);
+                    } catch {
+                        this._store.postList();
+                    }
                 }
+                // Fill the footer ring right away. Previously it stayed at "--"
+                // until the user clicked it or a turn pushed new numbers.
+                this._pushCtxUsage();
                 this._refreshBalance(false);
                 // Push discovered skills to the webview for slash-command autocomplete.
                 // NOTE: content is intentionally omitted here — the webview only needs name/desc/hint
@@ -337,33 +356,7 @@ class ChatViewProvider {
             // run), _lastCtx is stale/zero — the webview posts this message
             // and we compute a fresh value from the persisted store.
             case 'getCtxUsage': {
-                const { estimateMessagesTokens } = require('./compact');
-                const run = this._activeRun();
-                const cfg = vscode.workspace.getConfiguration('deepseekAgent');
-                const provider = str(cfg.get('provider')) || 'deepseek';
-                const { resolveModel, getModel } = require('../providers');
-                const model    = resolveModel(provider, str(cfg.get('defaultModel')));
-                const modelCfg = getModel(provider, model) || { contextWindow: 65536 };
-                const window = modelCfg.contextWindow || 65536;
-                const sid  = this._store.sessionId;
-                const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
-                    ? run.messages
-                    : (sid ? this._store.loadApiMessages(sid) : []);
-                // Prefer the prompt size the provider reported: it is the number
-                // /context shows and compaction trusts, while the char heuristic
-                // runs ~2x low. Without this the ring snaps back to a smaller
-                // value after a window reload, when no run is live to push the
-                // fact down.
-                const rec  = sid ? this._store.all().find(x => x.id === sid) : null;
-                const factTok = (rec && Number(rec.lastPromptTokens)) || 0;
-                const detail = this._ctxDetail(factTok, provider, model, msgs);
-                const tokens = factTok > 0 ? factTok : detail.estTok;
-                this._post({
-                    type: 'ctxUsage',
-                    window, tokens,
-                    source: factTok > 0 ? 'fact' : 'estimate',
-                    detail,
-                });
+                this._pushCtxUsage();
                 break;
             }
 
@@ -758,8 +751,9 @@ class ChatViewProvider {
     async _loadSession(id) {
         // Check run before load — completed runs are deleted from _runs, so
         // run will be null for finished sessions and truthy for in-flight ones.
+        // The store derives the busy flag from that same run map itself.
         const run = this._runs.get(id);
-        await this._store.load(id, { busy: !!(run && run.busy) });
+        await this._store.load(id);
         if (!run || !run.events.length) return;
         // Issue #143: defer event replay to the next macrotask so the webview
         // has time to paint the rebuilt session history BEFORE the buffered
@@ -939,6 +933,38 @@ class ChatViewProvider {
         } catch (e) {
             this._post({ type: 'error', text: `Compact failed: ${e.message}` });
         }
+    }
+
+    // Push current context-usage numbers to the webview. Called when the panel
+    // loads — the only other trigger is the popover opening, which is why the ring
+    // used to sit at "--" until the user clicked it — and on demand from the
+    // webview.
+    _pushCtxUsage() {
+        const run = this._activeRun();
+        const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+        const provider = str(cfg.get('provider')) || 'deepseek';
+        const { resolveModel, getModel } = require('../providers');
+        const model    = resolveModel(provider, str(cfg.get('defaultModel')));
+        const modelCfg = getModel(provider, model) || { contextWindow: 65536 };
+        const window = modelCfg.contextWindow || 65536;
+        const sid  = this._store.sessionId;
+        const msgs = (run && Array.isArray(run.messages) && run.messages.length > 0)
+            ? run.messages
+            : (sid ? this._store.loadApiMessages(sid) : []);
+        // Prefer the prompt size the provider reported: it is the number /context
+        // shows and compaction trusts, while the char heuristic runs low. Without
+        // this the ring snaps back to a smaller value after a window reload, when no
+        // run is live to push the fact down.
+        const rec  = sid ? this._store.all().find(x => x.id === sid) : null;
+        const factTok = (rec && Number(rec.lastPromptTokens)) || 0;
+        const detail = this._ctxDetail(factTok, provider, model, msgs);
+        const tokens = factTok > 0 ? factTok : detail.estTok;
+        this._post({
+            type: 'ctxUsage',
+            window, tokens,
+            source: factTok > 0 ? 'fact' : 'estimate',
+            detail,
+        });
     }
 
     // Breakdown for the context popup and `/context`: the char estimate of each
