@@ -31,6 +31,7 @@ function buildWebviewHtml(webview, extensionUri) {
         switchModel:     t('wvSwitchModel'),
         approvalMode:    t('wvApprovalMode'),
         interactionMode: t('wvInteractionMode'),
+        fastThinking:    t('wvFastThinking'),
         balanceRefresh:  t('wvBalanceRefresh'),
         balanceInit:     t('wvBalanceInit'),
         peakHours:       t('wvPeakHours'),
@@ -122,17 +123,18 @@ function buildWebviewHtml(webview, extensionUri) {
     </div>
     <div id="composer-bar">
       <div class="cb-left">
-        <div id="iModePicker" class="mode-picker" data-im="agent">
-          <button id="iModeBtn" class="cbtn mode-trigger" title="${ui.interactionMode}"><i class="codicon codicon-tools"></i>&#160;Agent&#160;<span class="mode-chev">▾</span></button>
-        </div>
         <div id="modelPicker" class="mode-picker" data-model="">
           <button id="modelBtn" class="cbtn mode-trigger" title="${ui.switchModel}">⚡ <span class="mode-chev">▾</span></button>
           <div id="modelDrop" class="mode-drop" style="display:none"></div>
         </div>
+        <div id="iModePicker" class="mode-picker" data-im="agent">
+          <button id="iModeBtn" class="cbtn mode-trigger" title="${ui.interactionMode}"><i class="codicon codicon-tools"></i> Agent <span class="mode-chev">▾</span></button>
+        </div>
         <div id="modePicker" class="mode-picker" data-m="manual">
-          <button id="modeBtn" class="cbtn mode-trigger" title="${ui.approvalMode}">🛡 Manual <span class="mode-chev">▾</span></button>
+          <button id="modeBtn" class="cbtn mode-trigger" title="${ui.approvalMode}"><i class="codicon codicon-shield"></i> Manual <span class="mode-chev">▾</span></button>
           <div id="modeDrop" class="mode-drop" style="display:none"></div>
         </div>
+        <button id="fastThinkingBtn" class="cbtn" type="button" title="${ui.fastThinking}">⏩</button>
       </div>
       <button id="sbtn" title="${ui.send}">↑</button>
     </div>

@@ -341,15 +341,18 @@ body.drawer-open #session-backdrop{display:none!important}
 .pending-edits-panel .pe-actions .pe-act-discard:hover{color:var(--vscode-gitDecoration-deletedResourceForeground,#ad0707)}
 #inp{flex:1 1 auto;min-width:0;resize:none;background:transparent;color:var(--vscode-input-foreground);border:none;border-radius:10px 10px 0 0;padding:9px 12px 6px;font-family:inherit;font-size:13px;line-height:1.45;min-height:36px;max-height:200px;outline:none;overflow-y:hidden;box-sizing:border-box;display:block}
 #composer-bar{display:flex;align-items:center;gap:4px;padding:4px 6px 6px}
-#composer-bar .cb-left{flex:1;display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
-#composer-bar .cbtn{background:none;border:none;color:var(--vscode-icon-foreground);cursor:pointer;padding:3px 7px;border-radius:6px;font-size:13px;line-height:1;height:24px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
+#composer-bar .cb-left{flex:1;display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0}
+#composer-bar .cbtn{background:none;border:none;color:var(--vscode-icon-foreground);cursor:pointer;padding:2px 3px;border-radius:6px;font-size:12px;letter-spacing:-.3px;line-height:1;height:22px;display:inline-flex;align-items:center;justify-content:center;opacity:.85}
 #composer-bar .cbtn:hover{background:var(--vscode-toolbar-hoverBackground);opacity:1}
 #composer-bar .cbtn.active{color:var(--vscode-button-background);background:rgba(100,160,255,.10);opacity:1}
+#composer-bar #fastThinkingBtn{opacity:.65}
+#composer-bar #fastThinkingBtn:hover{background:var(--vscode-toolbar-hoverBackground);opacity:.85}
+#composer-bar #fastThinkingBtn.active{background:var(--vscode-radio-activeBackground);opacity:1}
 /* ── Mode Picker (custom dropdown) ── */
 .mode-picker{position:relative;display:inline-flex;align-items:center}
 .mode-trigger{font-size:11px;padding:2px 7px;height:24px;display:inline-flex;align-items:center;gap:3px;white-space:nowrap;border-radius:6px;border:1px solid transparent}
 .mode-trigger:hover{background:var(--vscode-toolbar-hoverBackground);border-color:rgba(127,127,127,.3)}
-.mode-chev{font-size:9px;opacity:.7}
+.mode-chev{margin-left:-2px;font-size:9px;opacity:.7}
 #modePicker[data-m="autopilot"] .mode-trigger{color:var(--vscode-errorForeground)}
 #modePicker[data-m="auto-edit"] .mode-trigger{color:#e8b86d}
 #modePicker[data-m="readonly"] .mode-trigger{color:#7ec99a}
@@ -361,7 +364,7 @@ body.drawer-open #session-backdrop{display:none!important}
 .mo:hover{background:var(--vscode-list-hoverBackground)}
 .mo.sel{background:var(--vscode-list-activeSelectionBackground,rgba(0,116,204,.12))}
 .mo-icon{font-size:16px;width:22px;text-align:center;flex-shrink:0;display:flex;align-items:center;justify-content:center}
-.mode-trigger .codicon{font-size:13px;line-height:1}
+.mode-trigger .codicon{font-size:11px;line-height:1}
 .mo-body{flex:1;display:flex;flex-direction:column;gap:1px;min-width:0}
 .mo-name{font-size:12px;font-weight:600;color:var(--vscode-foreground)}
 .mo-desc{font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.4}

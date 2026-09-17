@@ -191,6 +191,7 @@ Chat, tool and shell settings live under the `deepseekAgent.*` namespace in
 | `deepseekAgent.defaultModel` | *(empty → provider default)* | Chat model override |
 | `deepseekAgent.subAgentModel` | *(empty → provider `subAgentModel`)* | Model used by `spawn_agent` sub-agents |
 | `deepseekAgent.approvalMode` | `manual` | Tool approval policy for `write_file` / `run_shell` |
+| `deepseekAgent.fastThinking` | `false` | Fold reasoning (Thinking) sections while a turn runs: they appear collapsed and their text is not rendered per delta. Click a section to expand it |
 | `deepseekAgent.interactionMode` | `agent` | `agent` (full tools) / `ask` / `plan` (read-only) |
 | `deepseekAgent.autoApproveTools` | `[]` | Tool names to always auto-approve |
 | `deepseekAgent.denyTools` | `[]` | Tool names to always deny |

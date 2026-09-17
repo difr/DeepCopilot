@@ -185,6 +185,11 @@
           ],
           "description": "Tool approval policy for write_file / run_shell."
         },
+        "deepseekAgent.fastThinking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fold reasoning (Thinking) sections while a turn runs: they appear collapsed, and their text is not rendered token by token, so a long think-aloud does not slow the panel down. Click a section to expand it."
+        },
         "deepseekAgent.autoApproveTools": {
           "type": "array",
           "items": {

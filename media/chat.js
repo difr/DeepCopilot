@@ -83,7 +83,7 @@
     if (modelPicker) modelPicker.dataset.model = effectiveVal;
     if (modelBtn) {
       modelBtn.textContent = '';
-      var tn = document.createTextNode('⚡ ' + displayName + '\u00a0');
+      var tn = document.createTextNode('⚡ ' + displayName + ' ');
       var chev = document.createElement('span');
       chev.className = 'mode-chev';
       chev.textContent = '\u25BE';
@@ -153,7 +153,7 @@
     var md = INTERACTION_MODES.find(function(x){ return x.value === mode; }) || INTERACTION_MODES[0];
     _curIMode = md.value;
     if (iModePicker) iModePicker.dataset.im = mode;
-    if (iModeBtn) iModeBtn.innerHTML = "<i class='codicon codicon-" + md.icon + "'></i>\u00a0" + md.name + "\u00a0<span class='mode-chev'>\u25be</span>";
+    if (iModeBtn) iModeBtn.innerHTML = "<i class='codicon codicon-" + md.icon + "'></i> " + md.name + " <span class='mode-chev'>\u25BE</span>";
   }
 
   /* ── Approval Mode picker (Manual / Auto-Edit / Autopilot / Read-Only) ── */
@@ -172,6 +172,40 @@
     if (modePicker) modePicker.dataset.m = mode;
     if (modeBtn) modeBtn.innerHTML = "<i class='codicon codicon-" + md.icon + "'></i> " + md.name + " <span class='mode-chev'>\u25BE</span>";
     if (modeDrop){ var opts = modeDrop.querySelectorAll(".mo"); for (var i=0;i<opts.length;i++) opts[i].classList.toggle("sel", opts[i].dataset.mode === mode); }
+  }
+
+  /* ── Fast thinking: keep reasoning sections folded while a turn runs ──────
+     A long think-aloud is folded AND its text is kept out of the DOM until the
+     user opens it: writing every delta into a <pre> is what makes the section
+     feel slow, not the model. */
+  var fastThinkingBtn = document.getElementById("fastThinkingBtn");
+  var _fastThinking   = false;
+  // Reasoning text that is not in the DOM yet. Its emptiness is the whole state:
+  // a non-empty buffer IS text waiting to be flushed (see thinkingDelta and the
+  // chip's expand handler), so no separate flag is needed.
+  var _thkBuf         = '';
+
+  /* Fold an active thinking chip: display and chevron only, text stays buffered. */
+  function collapseThk(head, body){
+    if (!body) return;
+    body.style.display = "none";
+    if (head){
+      head.style.display = "inline-block";
+      var chev = head.querySelector(".th-chev");
+      if (chev) chev.textContent = "\u25b8";
+    }
+  }
+
+  function setFastThinkingUI(on){
+    _fastThinking = !!on;
+    if (fastThinkingBtn){
+      fastThinkingBtn.classList.toggle("active", _fastThinking);
+      fastThinkingBtn.title = _fastThinking
+        ? "Fast thinking: on — reasoning sections stay folded"
+        : "Fast thinking: off — reasoning streams expanded";
+    }
+    /* Turning it on mid-turn folds whatever is streaming right now. */
+    if (_fastThinking && curThk) collapseThk(curThkHead, curThk);
   }
   function openModeDrop(){
     if (!modeDrop || _modeOpen) return;
@@ -1003,18 +1037,28 @@
 
     var head = document.createElement('div');
     head.className = 'thinkhead';
-    head.style.display = 'none'; // revealed on first thinkingDelta token
+    // Fast mode reveals the header immediately: the user still has to see that
+    // reasoning is happening, just not its text.
+    head.style.display = _fastThinking ? 'inline-block' : 'none';
     head.innerHTML =
-      '<span class="th-chev">\u25be</span>' +
+      '<span class="th-chev">' + (_fastThinking ? '\u25b8' : '\u25be') + '</span>' +
       '<span class="th-lbl">Thinking\u2026</span>';
 
     var body = document.createElement('pre');
     body.className = 'thinkblk';
-    body.style.display = 'block'; // expanded while streaming; collapsed on reply
+    body.style.display = _fastThinking ? 'none' : 'block'; // fast: folded from the first token
 
     head.addEventListener('click', function() {
       var open = body.style.display === 'block';
-      body.style.display = open ? 'none' : 'block';
+      if (open) {
+        body.style.display = 'none';
+      } else {
+        // Fast mode buffered the text outside the DOM; flush before revealing.
+        // Append, not assign: the section may already hold text written before
+        // fast mode was switched on, and the buffer holds only the tail since.
+        if (_thkBuf){ body.textContent += _thkBuf; _thkBuf = ''; }
+        body.style.display = 'block';
+      }
       var chev = head.querySelector('.th-chev');
       if (chev) chev.textContent = open ? '\u25b8' : '\u25be';
     });
@@ -1025,6 +1069,7 @@
 
     curThkHead = head;
     curThk = body;
+    _thkBuf = '';
   }
 
   /* Group the trailing run of consecutive tool elements (.tl-wrap and .tool
@@ -2361,6 +2406,11 @@
     setIModeUI(next);
     vscode.postMessage({type:"setInteractionMode", mode: next});
   });
+  fastThinkingBtn && fastThinkingBtn.addEventListener("click", function(e){
+    e.stopPropagation();
+    setFastThinkingUI(!_fastThinking);
+    vscode.postMessage({type:"setFastThinking", value: _fastThinking});
+  });
   modeBtn && modeBtn.addEventListener("click", function(e){
     e.stopPropagation();
     _modeOpen ? closeModeDrop() : openModeDrop();
@@ -2697,9 +2747,19 @@
         th.dataset.start = th.dataset.start || String(Date.now());
         /* default-collapsed — user can click to expand */
       }
-      if (curThk) curThk.textContent += (m.text || "");
-      /* keep view pinned to the latest reasoning text */
-      if (curThk) curThk.scrollTop = curThk.scrollHeight;
+      if (curThk) {
+        if (_fastThinking && curThk.style.display === "none") {
+          /* Fast mode: keep the text out of the DOM while the section is folded.
+             Appending on every delta is what makes a long think-aloud feel slow. */
+          _thkBuf += (m.text || "");
+        } else {
+          // Flush whatever fast mode buffered, then append this delta.
+          if (_thkBuf){ curThk.textContent += _thkBuf; _thkBuf = ''; }
+          curThk.textContent += (m.text || "");
+          /* keep view pinned to the latest reasoning text */
+          curThk.scrollTop = curThk.scrollHeight;
+        }
+      }
       ascroll();
     } else if (m.type === "toolStart"){
       /* Shell, web-search and sub-agent calls get an expandable card so the
@@ -3079,6 +3139,7 @@
         setIModeUI(m.interactionMode);
       }
       if (m.approvalMode){ setModeUI(m.approvalMode); }
+      if (typeof m.fastThinking === "boolean"){ setFastThinkingUI(m.fastThinking); }
     } else if (m.type === "balanceUpdate"){
       updateBalance(m);
     } else if (m.type === "status"){

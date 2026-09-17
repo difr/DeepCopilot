@@ -281,6 +281,7 @@ class ChatViewProvider {
                     model: require('../providers').resolveModel(provider, str(cfg.get('defaultModel'))),
                     interactionMode: str(cfg.get('interactionMode')) || 'agent',
                     approvalMode: str(cfg.get('approvalMode')) || 'manual',
+                    fastThinking: !!cfg.get('fastThinking'),
                 });
                 // Hourly vendors (DeepSeek) price by the clock, so the footer
                 // needs an initial mode; the webview refreshes it on a timer.
@@ -377,6 +378,12 @@ class ChatViewProvider {
                 const cfg = vscode.workspace.getConfiguration('deepseekAgent');
                 cfg.update('approvalMode', msg.mode, vscode.ConfigurationTarget.Global)
                     .then(() => this._post({ type: 'modelInfo', approvalMode: msg.mode }));
+                break;
+            }
+            case 'setFastThinking': {
+                const cfg = vscode.workspace.getConfiguration('deepseekAgent');
+                cfg.update('fastThinking', !!msg.value, vscode.ConfigurationTarget.Global)
+                    .then(() => this._post({ type: 'modelInfo', fastThinking: !!msg.value }));
                 break;
             }
             case 'setModel': {

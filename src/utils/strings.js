@@ -111,6 +111,7 @@ const STRINGS = {
     wvSwitchModel:       'Switch model',
     wvApprovalMode:      'Approval Mode',
     wvInteractionMode:   'Interaction Mode',
+    wvFastThinking:      'Fast thinking — fold reasoning sections while a turn runs',
     wvBalanceRefresh:    'Click to refresh',
     wvBalanceInit:       '💰 Checking...',
 
