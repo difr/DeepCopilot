@@ -313,7 +313,10 @@
   }
   if (ftCtxBtn) ftCtxBtn.addEventListener('click', function(e){ e.stopPropagation(); openCtxPop(); });
   var ftTokens = document.getElementById("ft-tokens");
-  var ftOffPeak = document.getElementById("ft-off-peak");
+  var ftHours = document.getElementById("ft-hours");
+  var ftHoursRing = document.getElementById("ft-hours-ring"); // grey: time spent
+  var ftHoursBgPeak = document.getElementById("ft-hours-bg-peak-ring");
+  var ftHoursBgOffPeak = document.getElementById("ft-hours-bg-off-peak-ring");
   var todoPop = document.getElementById("todo-pop");
   var todoPopList = document.getElementById("todo-pop-list");
   var todoPopCnt = document.getElementById("todo-pop-cnt");
@@ -1722,17 +1725,29 @@
     renderSessionTip();
   }
 
-  /* Peak / off-peak marker: the pill shows the state, the tooltip spells it out
-     with the multiplier straight from the price list. */
+  /* Peak / off-peak marker: ⏳ next to a two-layer ring. The background ring is the
+     mode (green off-peak / red peak); the grey ring on top covers the share of the
+     window already gone, so the mode colour shows in full when a window opens and
+     is fully covered by the time it closes. The visible arc is HOURS_C minus
+     dashoffset, which is why the offset counts what is LEFT. Everything drawn here
+     (share of the window left, minutes left) arrives in `mode`. */
   function setPricingMode(mode){
-    if (!ftOffPeak) return;
-    if (!mode || !mode.hourly){ ftOffPeak.style.display = "none"; return; }
-    var off = !!mode.off_peak;
-    ftOffPeak.style.display = "";
-    ftOffPeak.textContent = (off ? "🍃" : "🔥") + "⏳";
-    ftOffPeak.title = off
-      ? String(ftOffPeak.dataset.off || "").replace("{0}", mode.multiplier != null ? mode.multiplier : "")
-      : (ftOffPeak.dataset.peak || "");
+    if (!ftHours) return;
+    if (!mode || !mode.hourly){ ftHours.style.display = "none"; return; }
+    ftHours.style.display = "flex";
+    if (ftHoursBgPeak) ftHoursBgPeak.style.display = mode.off_peak ? "none" : "";
+    if (ftHoursBgOffPeak) ftHoursBgOffPeak.style.display = mode.off_peak ? "" : "none";
+    if (ftHoursRing) {
+      // No window to measure (unknown policy or timezone): nothing to count down, so
+      // the grey ring disappears and the mode colour shows in full.
+      const HOURS_C = 50.265; // ring circumference: 2πr with r = 8
+      ftHoursRing.setAttribute("stroke-dashoffset",
+        String(mode.window ? HOURS_C * mode.windowLeft / mode.window : HOURS_C));
+    }
+    ftHours.title = (mode.off_peak ? String(ftHours.dataset.offPeak || "") : String(ftHours.dataset.peak || ""))
+      .replace("{0}", mode.multiplier != null ? mode.multiplier : "?") + " — " +
+      String(ftHours.dataset.left || "{0}").replace("{0}",
+        mode.windowLeft >= 60 ? ((mode.windowLeft / 60) | 0) + "h " + (mode.windowLeft % 60) + "m" : mode.windowLeft + "m");
   }
   function askPricingMode(){ try { vscode.postMessage({type:"getPricingMode"}); } catch(e){} }
 
@@ -1745,9 +1760,9 @@
     sess.promptTotal += (b.prompt_tokens || 0);
     renderTurn(u.turn_usage || null);
     renderSessionTip();
-    if (b.pricing && b.pricing.hourly) {
-      setPricingMode({ hourly: true, off_peak: !!b.pricing.off_peak, multiplier: b.pricing.multiplier });
-    }
+    // A turn's usage carries the mode but not the window bounds the ring needs,
+    // so re-ask for the full record instead of rebuilding a partial one here.
+    if (b.pricing && b.pricing.hourly) askPricingMode();
   }
 
   /* ─── Account balance display ────────────────────────────────────────── */
@@ -3752,9 +3767,8 @@
     }
   });
 
-  /* Keep the peak/off-peak marker honest while the panel sits idle: a pricing
-     window can close without any request being made, and the marker would keep
-     claiming the old mode. */
+  /* A pricing window closes on its own schedule; this poll notices the new mode and
+     redraws the ring from the bounds that come back in the answer. */
   setInterval(askPricingMode, 60000);
   document.addEventListener("visibilitychange", function(){ if (!document.hidden) askPricingMode(); });
 

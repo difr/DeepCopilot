@@ -108,6 +108,7 @@ const STRINGS = {
     wvSettings:          'Settings',
     wvPeakHours:         'Peak hours',
     wvOffPeakHours:      'Off-peak hours ({0} discount)',
+    wvWindowLeft:        '{0} left',
     wvSwitchModel:       'Switch model',
     wvApprovalMode:      'Approval Mode',
     wvInteractionMode:   'Interaction Mode',

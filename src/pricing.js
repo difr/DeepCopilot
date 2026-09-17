@@ -148,19 +148,76 @@ function getModelPricing(model, at) {
 }
 
 /**
+ * Bounds of the window `at` falls into: peak windows come from the provider JSON,
+ * everything outside them is off-peak. Minutes are counted from Sunday 00:00 and
+ * windows are weekly, so "the next peak starts" can be days away — this is what
+ * lets the UI show how much of the current window is left.
+ */
+function _pricingWindow(policy, at) {
+    let local;
+    try {
+        local = _localTime(policy.timezone || 'UTC', at);
+    } catch {
+        return null; // unknown timezone: no window to draw
+    }
+    const nowAbs = local.weekday * 1440 + local.minutes;
+
+    // Peak spans as [start, end) in weekly minutes. A window crossing midnight is
+    // kept as one span longer than a day, which compares correctly against nowAbs.
+    const spans = [];
+    for (const w of policy.peakWindows || []) {
+        if (!Array.isArray(w.weekdays)) continue;
+        const from = _hhmm(w.from);
+        const to = _hhmm(w.to);
+        if (from == null || to == null) continue;
+        for (const day of w.weekdays) {
+            const start = day * 1440 + from;
+            spans.push([start, start + (to > from ? to - from : 1440 - from + to)]);
+        }
+    }
+    if (!spans.length) return null;
+
+    const toMs = (minute) => at + (minute - nowAbs) * 60000;
+    const peak = spans.find(([s, e]) => nowAbs >= s && nowAbs < e);
+    if (peak) return { offPeak: false, startsAt: toMs(peak[0]), endsAt: toMs(peak[1]) };
+
+    // Off-peak: it began when the previous peak ended and runs until the next
+    // peak starts. Peak spans repeat weekly, so this week's copy plus the two
+    // neighbours cover the nearest boundary on either side of now.
+    let started = -Infinity;
+    let ends = Infinity;
+    for (const [s, e] of spans) {
+        for (const shift of [-10080, 0, 10080]) {
+            const e2 = e + shift;
+            const s2 = s + shift;
+            if (e2 <= nowAbs && e2 > started) started = e2;
+            if (s2 > nowAbs && s2 < ends) ends = s2;
+        }
+    }
+    return { offPeak: true, startsAt: toMs(started), endsAt: toMs(ends) };
+}
+
+/**
  * Hourly-price mode for a model at `at`: whether the vendor has an off-peak
  * policy at all (`hourly`) and, when it does, whether that price is in force
- * right now. Exists so the UI can label the mode without re-deriving windows.
+ * right now plus the bounds of the current window, so the UI can label the mode
+ * and draw how much of it is left without re-deriving any of this. The `when`
+ * field is the instant all of that describes: callers should measure against it
+ * rather than against their own clock, so both sides agree on "now".
  */
 function getPricingMode(model, at) {
     const when = at == null ? Date.now() : at;
     const found = _findModelPricing(model);
     const policy = found && found.policy && found.policy.offPeakDiscount;
     if (!policy) return { hourly: false };
-    return {
-        hourly:     true,
+    const win = _pricingWindow(policy, when);
+    // The window in whole minutes: how much of it is left right now, and how long
+    // it lasts in total. Nothing else is needed to draw the share.
+    return { hourly: true, when,
         off_peak:   !_insidePeakWindows(policy, when),
         multiplier: policy.multiplier,
+        window:     win ? Math.round((win.endsAt - win.startsAt) / 60000) : 0,
+        windowLeft: win ? Math.round(Math.max(0, win.endsAt - when) / 60000) : 0,
     };
 }
 

@@ -36,6 +36,7 @@ function buildWebviewHtml(webview, extensionUri) {
         balanceInit:     t('wvBalanceInit'),
         peakHours:       t('wvPeakHours'),
         offPeakHours:    t('wvOffPeakHours'),
+        windowLeft:      t('wvWindowLeft'),
         pendingEditsTitle:      t('wvPendingEditsTitle'),
         pendingEditsKeep:       t('wvPendingEditsKeep'),
         pendingEditsKeepAll:    t('wvPendingEditsKeepAll'),
@@ -144,7 +145,7 @@ function buildWebviewHtml(webview, extensionUri) {
   <div class="ft-left">
     <button class="ft-btn" id="ft-stg" type="button" title="${ui.settingsTitle}">🔑</button>
     <button class="ft-btn" id="ft-ctx" type="button" title="Context usage — click for details" aria-label="Context usage">
-      <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
         <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.25"></circle>
         <circle id="ft-ctx-ring" cx="10" cy="10" r="8" fill="none" stroke="#66bb6a" stroke-width="2.5"
                 stroke-dasharray="50.27" stroke-dashoffset="50.27" stroke-linecap="round"
@@ -156,7 +157,14 @@ function buildWebviewHtml(webview, extensionUri) {
   <div class="ft-right">
     <span class="ft-pill" id="ft-tokens">—</span>
     <span class="ft-pill" id="ft-balance" data-refresh="${ui.balanceRefresh}" style="display:none">${ui.balanceInit}</span>
-    <span class="ft-pill" id="ft-off-peak" data-peak="${ui.peakHours}" data-off="${ui.offPeakHours}" style="display:none">🔥⏳</span>
+    <span class="ft-pill" id="ft-hours" data-peak="${ui.peakHours}" data-off-peak="${ui.offPeakHours}" data-left="${ui.windowLeft}" style="display:none">
+      <span>⏳</span>
+      <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+        <circle id="ft-hours-bg-peak-ring" cx="10" cy="10" r="8" fill="none" stroke="#e64a19" stroke-width="2.5"></circle>
+        <circle id="ft-hours-bg-off-peak-ring" cx="10" cy="10" r="8" fill="none" stroke="#2e7d32" stroke-width="2.5" style="display:none"></circle>
+        <circle id="ft-hours-ring" cx="10" cy="10" r="8" fill="none" stroke="#e0e0e0" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="50.27" transform="rotate(-90 10 10)"></circle>
+      </svg>
+    </span>
   </div>
 </div>
 <!-- ── Session drawer backdrop (always-overlay drawer) ── -->
