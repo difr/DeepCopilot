@@ -2,7 +2,7 @@
   "name": "deep-copilot",
   "displayName": "Deep Copilot (difred)",
   "description": "Deep Copilot — AI coding agent embedded in VS Code. Authored by ZhouChaunge, modded by difr.",
-  "version": "0.43.1",
+  "version": "1.0.0",
   "publisher": "difr",
   "icon": "imgs/logo.png",
   "repository": {
