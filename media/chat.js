@@ -1767,14 +1767,29 @@
 
   /* ─── Account balance display ────────────────────────────────────────── */
   var ftBalance = document.getElementById("ft-balance");
+  var _balShown = false; // a figure has been on screen at least once
+  var _balText  = '';    // its text, so a failed refresh can restore it
   function updateBalance(b){
     if (!ftBalance) return;
-    if (b.unsupported){ ftBalance.style.display = "none"; return; }
+    if (b.unsupported){ ftBalance.style.display = "none"; _balShown = false; return; }
+    /* A failed refresh is transient: keep the figure that is already on screen
+       (dimmed), instead of dropping the pill — one flaky request used to be enough
+       to make the balance vanish from the footer. With nothing to keep, stay hidden. */
+    if (b.error){
+      if (!_balShown) return;
+      ftBalance.textContent = _balText; // the click handler wrote "Checking…"
+      ftBalance.classList.add("val-stale");
+      ftBalance.title = b.error + " — showing the last known value";
+      return;
+    }
     ftBalance.style.display = "";
+    ftBalance.classList.remove("val-stale");
     if (!b.available){
       ftBalance.textContent = "⛔ Account unavailable";
       ftBalance.className = "ft-pill val-unavail";
       ftBalance.title = "Account unavailable, check your API Key";
+      _balShown = true;
+      _balText  = ftBalance.textContent;
       return;
     }
     var cny = b.balance_cny || 0;
@@ -1782,6 +1797,8 @@
     ftBalance.textContent = (low ? "⚠️" : "💰") + fmtCny(cny).replace("¥", "");
     ftBalance.className = "ft-pill " + (low ? "val-low" : "val-ok");
     ftBalance.title = ftBalance.dataset.refresh || "Click to refresh";
+    _balShown = true;
+    _balText  = ftBalance.textContent;
   }
   if (ftBalance){
     ftBalance.addEventListener("click", function(){

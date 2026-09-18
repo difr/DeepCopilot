@@ -146,8 +146,14 @@ async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoic
 
 /**
  * Query account balance from the provider's declared balance endpoint.
- * Returns null silently when the provider has no `balanceEndpoint` quirk set.
- * @returns {Promise<{available: boolean, balance_cny: number, balance_usd: number, topped_up_cny: number, granted_cny: number}|null>}
+ * Distinguishes three outcomes, because they need different UI treatment:
+ *   - `null` — the provider cannot report a balance at all (no `balanceEndpoint`
+ *     quirk, empty base URL, unusable endpoint URL). The pill is hidden for this;
+ *   - `{ error }` — the request itself failed (network, timeout, bad status,
+ *     unexpected payload). That is transient, so callers keep showing the last
+ *     known value rather than dropping the number from the footer;
+ *   - otherwise the balance record.
+ * @returns {Promise<{available: boolean, balance_cny: number, balance_usd: number, topped_up_cny: number, granted_cny: number}|{error: string}|null>}
  */
 function fetchBalance({ apiKey, baseUrl, balanceEndpoint }) {
   if (!balanceEndpoint) return Promise.resolve(null);
@@ -175,9 +181,16 @@ function fetchBalance({ apiKey, baseUrl, balanceEndpoint }) {
       let raw = '';
       res.on('data', (c) => { raw += c; });
       res.on('end', () => {
+        if (res.statusCode !== 200) {
+          resolve({ error: `balance endpoint returned HTTP ${res.statusCode}` });
+          return;
+        }
         try {
           const data = JSON.parse(raw);
-          if (!data || typeof data.is_available === 'undefined') { resolve(null); return; }
+          if (!data || typeof data.is_available === 'undefined') {
+            resolve({ error: 'unexpected balance payload' });
+            return;
+          }
           const infos = Array.isArray(data.balance_infos) ? data.balance_infos : [];
           const cnyInfo = infos.find(i => i.currency === 'CNY') || {};
           const usdInfo = infos.find(i => i.currency === 'USD') || {};
@@ -188,12 +201,14 @@ function fetchBalance({ apiKey, baseUrl, balanceEndpoint }) {
             granted_cny:  parseFloat(cnyInfo.granted_balance || '0'),
             balance_usd:  parseFloat(usdInfo.total_balance || '0'),
           });
-        } catch { resolve(null); }
+        } catch {
+          resolve({ error: `balance response is not JSON (${raw.length} bytes)` });
+        }
       });
-      res.on('error', () => resolve(null));
+      res.on('error', (e) => resolve({ error: `balance response error: ${(e && e.message) || e}` }));
     });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', (e) => resolve({ error: `balance request failed: ${(e && e.message) || e}` }));
+    req.on('timeout', () => { req.destroy(); resolve({ error: 'balance request timed out after 8s' }); });
     req.end();
   });
 }

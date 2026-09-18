@@ -392,6 +392,8 @@ body.drawer-open #session-backdrop{display:none!important}
 .ft-pill#ft-balance.val-ok{color:var(--vscode-charts-green,#2e7d32)}
 .ft-pill#ft-balance.val-low{color:var(--vscode-notificationsWarningIcon-foreground,#e8b86d);animation:balance-warn 1.6s ease-in-out infinite}
 .ft-pill#ft-balance.val-unavail{color:var(--vscode-notificationsErrorIcon-foreground,#f48771)}
+/* Last known balance kept after a failed refresh: readable, but visibly stale. */
+.ft-pill#ft-balance.val-stale{opacity:.55}
 .ft-pill#ft-hours{display:inline-flex;align-items:center}
 @keyframes balance-warn{0%,100%{opacity:1}50%{opacity:.45}}
 #es{padding:24px;text-align:center;opacity:.85;align-self:center;margin:auto}

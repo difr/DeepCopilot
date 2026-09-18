@@ -1637,7 +1637,15 @@ class ChatViewProvider {
         const resolved = resolveProviderConfig(provider, str(cfg.get('apiBaseUrl')), '');
         if (!apiKey) { this._post({ type: 'balanceUpdate', unsupported: true }); return; }
         const result = await fetchBalance({ apiKey, baseUrl: resolved.baseUrl, balanceEndpoint: resolved.balanceEndpoint });
+        // null means the provider cannot report a balance at all; an error means we
+        // simply could not read it this time. Report the two separately, so the
+        // webview can keep the last known figure instead of blanking the footer.
         if (result === null) { this._post({ type: 'balanceUpdate', unsupported: true }); return; }
+        if (result.error) {
+            Logger.info('BALANCE_FETCH_FAILED', { provider, error: result.error });
+            this._post({ type: 'balanceUpdate', error: result.error });
+            return;
+        }
         this._balanceLastAt = Date.now();
         this._post({ type: 'balanceUpdate', ...result });
     }
