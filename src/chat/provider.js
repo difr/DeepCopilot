@@ -23,6 +23,7 @@ const { mcpManager }       = require('../mcp');
 
 const { SessionStore } = require('./session-store');
 const { ToolExecutor } = require('./tool-executor');
+const { chatToolsFromSettings, chatSystemPrompt, resolveInteractionMode, buildCompactApiConfig } = require('./compact-request');
 const { AgentLoop }    = require('./agent-loop');
 const { readCompactPolicy } = require('./compact-policy');
 
@@ -48,6 +49,10 @@ class ChatViewProvider {
         this._views      = new Set();  // all live WebviewView instances
         this._panel      = null;
         this._runs       = new Map();
+        // Snapshot of the messages the last request actually carried, per session. The run
+        // holding it is reaped at the end of each turn, yet a manual `/compact` happens
+        // between turns — without this it could only rebuild an approximate prefix.
+        this._lastRequestBySession = new Map();
         // pendingEdits live at the *session* level (not the per-turn run) so
         // that the review panel stays clickable after the agent's reply ends
         // and the run is reaped by AgentLoop.
@@ -62,6 +67,7 @@ class ChatViewProvider {
                 if (run) { run.discarded = true; try { run.abortCtrl?.abort(); } catch {} this._runs.delete(id); }
                 // Session was deleted → drop its pending edits map too.
                 this._pendingEditsBySession.delete(id);
+                this._lastRequestBySession.delete(id);
                 // Also cancel any armed wake watchers for the session.
                 try { require('./wake-scheduler').cancelAll(id); } catch {}
             },
@@ -81,6 +87,7 @@ class ChatViewProvider {
             getRun:          (sid) => this._runs.get(sid),
             newRun:          (sid, seed) => this._newRun(sid, seed),
             deleteRun:       (sid) => this._runs.delete(sid),
+            saveLastRequest: (sid, msgs) => this._lastRequestBySession.set(sid, msgs),
             postToRun:       (run, msg) => this._runPost(run, msg),
             post:            (msg) => this._post(msg),
             postSessionList: () => this._store.postList(),
@@ -164,6 +171,12 @@ class ChatViewProvider {
         const run = {
             sessionId,
             messages:      seedMessages.length ? seedMessages.slice() : [],
+            // The request the previous turn put on the wire, when the session has one. The first
+            // auto-compaction of a turn fires before that turn has sent anything, and without this
+            // it rebuilds the prefix instead of replaying it -- paying full price for the whole
+            // history. Nothing is trusted merely for being here: compact.js compares the snapshot
+            // against the live history and falls back to a rebuild once the two diverge.
+            lastRequestMessages: this._lastRequestBySession.get(sessionId) || null,
             abortCtrl:     null,
             reply:         { user: '', asst: '', thoughts: '' },
             busy:          false,
@@ -344,9 +357,24 @@ class ChatViewProvider {
             }
             case 'balanceRefresh': this._refreshBalance(true); break;
             case 'sessionList':    this._store.postList(); break;
-            case 'sessionLoad':    await this._loadSession(msg.id); break;
-            case 'sessionNew':     this._store.newSession(); break;
-            case 'sessionDelete':  this._store.delete(msg.id); break;
+            case 'sessionLoad': {
+                await this._loadSession(msg.id);
+                // The ring describes a session, not the panel: without this the
+                // footer kept the previous session's numbers until a turn or a
+                // popup refresh happened to push new ones.
+                this._pushCtxUsage();
+                break;
+            }
+            case 'sessionNew': {
+                this._store.newSession();
+                this._pushCtxUsage();
+                break;
+            }
+            case 'sessionDelete': {
+                await this._store.delete(msg.id);
+                this._pushCtxUsage();
+                break;
+            }
             case 'sessionRename':  this._store.rename(msg.id, msg.title); break;
             case 'sessionPin':     this._store.pin(msg.id); break;
             case 'sessionUnread':  this._store.unread(msg.id); break;
@@ -847,21 +875,51 @@ class ChatViewProvider {
                 }
             }
         } catch { /* best effort */ }
-        const apiConfig = { apiKey, baseUrl, model, provider, focus: effectiveFocus };
+        // Same request shape as the chat itself — mode, system prompt and tool set come from one
+        // source (compact-request.js) — so the summariser's prefill is served from the prompt
+        // cache instead of being paid for in full.
+        const interactionMode = resolveInteractionMode(cfg);
+        const apiConfig = buildCompactApiConfig({
+            apiKey, baseUrl, model, provider, focus: effectiveFocus,
+            systemPrompt: chatSystemPrompt(interactionMode),
+            tools: chatToolsFromSettings({
+                cfg,
+                noTools: interactionMode === 'ask',
+                mcpDefs: mcpManager.getToolDefs(),
+            }),
+            // Preferred summary source: the exact messages the last request carried. The run
+            // is reaped at the end of every turn, so fall back to the snapshot the loop
+            // handed us for this session.
+            lastRequestMessages: (run && run.lastRequestMessages) || this._lastRequestBySession.get(sid),
+        });
 
         const detBefore = this._ctxDetail(0, provider, model, messages);
-        // Force compaction by setting a budget well below the current size.
+        // Two conditions have to hold before a squeeze can succeed.
+        // 1. The tail. The shared policy counts messages, not tokens: with 292 messages and
+        //    keepTail 300 the tail covers the entire history, the drop comes out empty, and
+        //    `/compact` answers "already compact" while the context still holds 176k tokens.
+        //    A manual squeeze is an explicit request, so the tail is also capped at a fraction
+        //    of the history.
+        const policyTail = readCompactPolicy(cfg, modelCfg, Logger).keepTail;
+        // A squeeze keeps at least this many messages: below that there is nothing left to
+        // summarise, and the tail would span the whole history anyway.
+        const MANUAL_TAIL_MIN = 20;
+        const MANUAL_KEEP_TAIL = Math.max(MANUAL_TAIL_MIN, Math.min(policyTail, Math.floor(messages.length * 0.4)));
+        // 2. The budget. One below the weight of the tail that must survive can never be met:
+        //    the body-truncation pass would shred every kept message and still miss the target.
+        let tailWeight = 0;
+        try {
+            // The raw message estimate alone: `_ctxDetail` would also rebuild the system prompt
+            // for its breakdown, which this number never uses.
+            tailWeight = estimateMessagesTokens(messages.slice(-MANUAL_KEEP_TAIL), { provider, model });
+        } catch { /* the floor is best-effort, exactly like the budget below */ }
         // The budget has to come from `rawMsgsTok`, the unscaled heuristic:
         // autoCompactIfNeeded measures `estimateMessagesTokens(messages)` and,
         // with actualTokens = 0 below, does not calibrate, so both sides of that
         // comparison must share one scale. `msgsTok` and `estTok` carry the
         // provider-unit factor for readouts — feeding either of them here would
         // raise the budget by the scale factor against an unraised measurement.
-        const budget = Math.max(2000, Math.floor(detBefore.rawMsgsTok * (focus ? 0.3 : 0.4)));
-        // /compact is an explicit squeeze — it keeps only 30-40% of the current
-        // size — but the tail itself comes from the shared policy, so a manual
-        // squeeze can never cut deeper than an automatic one.
-        const MANUAL_KEEP_TAIL = readCompactPolicy(cfg, modelCfg, Logger).keepTail;
+        const budget = Math.max(2000, Math.floor(detBefore.rawMsgsTok * (focus ? 0.3 : 0.4)), tailWeight);
 
         this._post({ type: 'status', text: '🗜 Compacting…' });
         try {
@@ -871,6 +929,12 @@ class ChatViewProvider {
             const res = await autoCompactIfNeeded(messages, budget, MANUAL_KEEP_TAIL, apiConfig, 0);
             if (res && res.compacted) {
                 if (run) run.messages = res.messages;
+                // The snapshot describes messages this squeeze just dropped. Left in place, a
+                // second /compact before the next turn would summarise history that no longer
+                // exists — the loop mints a fresh snapshot on its next request, this map is
+                // the one that survives between turns.
+                if (run) run.lastRequestMessages = null;
+                this._lastRequestBySession.delete(sid);
                 // Persist the compacted state — no userText / asstText so
                 // append() only updates apiMessages.
                 try {
@@ -899,7 +963,9 @@ class ChatViewProvider {
                     tok_after  : detail.estTok,
                     dropped: res.dropped,
                     truncated: res.truncated,
+                    bodies: res.bodiesTruncated || 0,
                     deduped: res.deduped,
+                    summary: res.summarySource,
                 });
                 this._post({
                     type: 'status',

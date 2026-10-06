@@ -11,18 +11,17 @@ const path                 = require('path');
 const { Logger }           = require('../logger');
 const { friendlyError }    = require('../errors');
 const { computeCost }      = require('../pricing');
-const { buildSystemPrompt }= require('../prompts/system');
 const { streamChat } = require('../api/adapter');
 const { getProvider, getModel, resolveModel } = require('../providers');
 const { sumUsage } = require('./usage-sum');
 const { str } = require('../utils/settings');
-const { getToolDefs }      = require('../tools/schema');
 const { mcpManager }       = require('../mcp');
 const { t, tf }            = require('../utils/strings');
 const {
     estimateMessagesTokens, autoCompactIfNeeded, nuclearCompact, ToolArgsStreamer,
 } = require('./compact');
 const { readCompactPolicy } = require('./compact-policy');
+const { chatToolsFromSettings, chatSystemPrompt, resolveInteractionMode, buildCompactApiConfig } = require('./compact-request');
 const { _dropOrphanToolCallGroups } = require('./session-store');
 const { sanitizeForReminder } = require('./digest');
 const {
@@ -114,6 +113,7 @@ class AgentLoop {
         this._getRun         = opts.getRun;
         this._newRun         = opts.newRun;
         this._deleteRun      = opts.deleteRun;
+        this._saveLastRequest = opts.saveLastRequest;
         this._postToRun      = opts.postToRun;
         this._post           = opts.post;
         this._postSessionList = opts.postSessionList;
@@ -274,8 +274,8 @@ class AgentLoop {
             });
         };
 
-        const interactionMode = str(cfg.get('interactionMode')) || 'agent';
-        const sysPrompt = buildSystemPrompt({ includeWorkspaceInstructions: true, mode: interactionMode });
+        const interactionMode = resolveInteractionMode(cfg);
+        const sysPrompt = chatSystemPrompt(interactionMode);
         const _itersRaw = Number(cfg.get('maxIterations'));
         // 0 (or unset) means "run until task is complete" — stagnation detection
         // (repeat-tool hints + ABAB cycle guard) is the real runaway guard.
@@ -293,6 +293,18 @@ class AgentLoop {
         const COMPACT_KEEP_TAIL    = policy.keepTail;
         const MODEL_CTX_HARD_LIMIT = policy.hardLimit;
         const askMode = interactionMode === 'ask';
+        // Assembled on demand, never captured: the force-final path at the end of the turn
+        // lives outside the iteration loop, and MCP tools can change between iterations.
+        // Both the turn and this config build their tool set through the same helper with
+        // the same flags, so the two requests cannot drift apart -- and a drift is what
+        // costs the prompt cache.
+        const compactApiConfig = () => buildCompactApiConfig({
+            apiKey, baseUrl, model, provider,
+            systemPrompt: sysPrompt,
+            tools: chatToolsFromSettings({ cfg, noTools: askMode, mcpDefs: mcpManager.getToolDefs() }),
+            // Preferred source: the exact messages the previous request carried.
+            lastRequestMessages: run.lastRequestMessages,
+        });
         Logger.info('INTERACTION_MODE', { mode: interactionMode });
 
         // spawn_agent is included here so multiple sub-agent calls issued in the
@@ -455,7 +467,15 @@ class AgentLoop {
                         });
                     }
                 }
-                const compactApiConfig = { apiKey, baseUrl, model, provider };
+                // Issue #142 P2-3: users can disable MCP tool injection for sessions that do
+                // not need it. The turn and compaction have to agree on that set — the prompt
+                // cache keys on the whole request, so MCP tools present on one side only miss
+                // the persisted prefix unit.
+                const chatTools = chatToolsFromSettings({
+                    cfg,
+                    noTools: askMode,
+                    mcpDefs: mcpManager.getToolDefs(),
+                });
                 // DeepSeek prefix-cache tuning: compaction rewrites the head of
                 // the history, so it must fire as rarely as possible. Earlier
                 // revisions dropped the "every 12 iterations" trigger and the
@@ -514,7 +534,7 @@ class AgentLoop {
                     ), compactBudget);
                 }
                 const compactRes = (overByCount || overByTokens)
-                    ? await autoCompactIfNeeded(run.messages, compactBudget, COMPACT_KEEP_TAIL, compactApiConfig, _lastCtxTokens)
+                    ? await autoCompactIfNeeded(run.messages, compactBudget, COMPACT_KEEP_TAIL, compactApiConfig(), _lastCtxTokens)
                     : { compacted: false };
                 if (compactRes.compacted) {
                     // Issue #145: compaction may slice between an
@@ -539,7 +559,15 @@ class AgentLoop {
                         keep_tail : COMPACT_KEEP_TAIL,
                         dropped   : compactRes.dropped,
                         truncated : compactRes.truncated,
+                        // Kept messages whose body was rewritten by the tiered fallback — the
+                        // number that explains a mangled history. Assistant turns and the checkpoint
+                        // are never touched there; user turns only above the 600-token tier, so any
+                        // steady value above zero is worth a look.
+                        bodies    : compactRes.bodiesTruncated || 0,
                         deduped   : compactRes.deduped,
+                        // Which summariser produced the text: 'llm', 'facts' (fallback),
+                        // or 'none'. Without it a silent LLM timeout is invisible here.
+                        summary   : compactRes.summarySource,
                         msgs_after: run.messages.length,
                         ctx_before: ctxBefore,
                         ctx_after : ctxExpected, // estimate: no fact for the new history yet
@@ -721,20 +749,11 @@ class AgentLoop {
                 const argStreamers = new Map();
                 if (!run._earlyStartedTools) run._earlyStartedTools = new Set();
                 const STREAMABLE_TOOLS = new Set(['write_file', 'str_replace_in_file', 'apply_patch']);
-                // Issue #142 P2-3: allow users to disable MCP tool injection
-                // for sessions that don't need them — saves the prompt-side
-                // tokens spent declaring them.
-                const includeMcpTools = vscode.workspace
-                    .getConfiguration('deepseekAgent')
-                    .get('includeMcpTools', true);
-                const mcpDefs  = includeMcpTools ? mcpManager.getToolDefs() : [];
-                const allTools = getToolDefs(mcpDefs);
-
                 postProgress('waiting_first_token');
 
                 let _gotFirstToken = false;
-                const { toolCalls, usage } = await streamChat(
-                    { provider, apiKey, baseUrl, messages: finalMsgs, model, noTools: askMode, tools: allTools },
+                const { toolCalls, usage, sentMessages } = await streamChat(
+                    { provider, apiKey, baseUrl, messages: finalMsgs, model, noTools: askMode, tools: chatTools },
                     {
                         onDelta: (delta) => {
                             if (!_gotFirstToken) { _gotFirstToken = true; postProgress('streaming'); }
@@ -772,6 +791,15 @@ class AgentLoop {
                     signal,
                 );
                 flushDelta();
+                // The request an iteration actually puts on the wire. That is the unit DeepSeek
+                // persists, so compaction replays this array to have the prefix served from its
+                // prompt cache instead of paying for it again. Mirrored outside the run: the run
+                // is reaped at the end of the turn, while a manual /compact fires between turns
+                // and still wants it.
+                if (Array.isArray(sentMessages)) {
+                    run.lastRequestMessages = sentMessages;
+                    if (typeof this._saveLastRequest === 'function') this._saveLastRequest(sid, sentMessages);
+                }
                 if (usage) {
                     lastUsageAt = iterT0;
                     turnUsage = sumUsage(turnUsage, usage);
@@ -1262,7 +1290,7 @@ class AgentLoop {
                 Logger.info('FORCE_FINAL_SUMMARY', { iter });
                 const compactRes = await autoCompactIfNeeded(
                     run.messages, Math.floor(COMPACT_BUDGET * 0.6), COMPACT_KEEP_TAIL,
-                    { apiKey, baseUrl, model, provider },
+                    compactApiConfig(),
                     _lastCtxTokens
                 );
                 const _srcMsgs  = compactRes.compacted ? compactRes.messages : run.messages;
@@ -1277,6 +1305,10 @@ class AgentLoop {
                 ];
                 let tail = '';
                 let tailThoughts = '';
+                // Deliberately not saved as the session snapshot: this request carries the stop
+                // instruction and drops the tool set, so it is not the shape a compaction has to
+                // replay. The iteration above left a snapshot of the real request in place, and it
+                // is still a prefix of the history after the reply below is appended.
                 await streamChat(
                     { provider, apiKey, baseUrl, messages: finalMsgs, model, noTools: true },
                     {
@@ -1284,7 +1316,7 @@ class AgentLoop {
                         onThinking: t => { tailThoughts += t; run.reply.thoughts += t; this._postToRun(run, { type: 'thinkingDelta', text: t }); },
                     },
                     signal,
-                ).catch(e => Logger.info('FORCE_FINAL_SUMMARY_ERROR', { message: e.message }));
+                ).catch(e => { Logger.info('FORCE_FINAL_SUMMARY_ERROR', { message: e.message }); return {}; });
                 if (tail) run.messages.push({
                     role: 'assistant',
                     content: tail,

@@ -65,6 +65,12 @@ function streamChat({ provider, apiKey, baseUrl, model, messages, ...rest }, cal
     // `reasoning_content` for non-reasoning models; reasoning models are exempt
     // because the API requires reasoning_content to be passed back each turn).
     const cleanMessages = sanitizeMessages(pid, messages, effModel);
+    // This array is what the client puts on the wire; the request-level fields (stream,
+    // tools, max_tokens) are added afterwards and sit behind it in the payload. Callers
+    // that re-issue the very same request — history compaction replays it so DeepSeek
+    // serves the prefix from its prompt cache — need this sanitised array, not the raw
+    // input, which has not been through provider sanitisation yet.
+    const withSentMessages = res => ({ ...(res || {}), sentMessages: cleanMessages });
 
     if (effProtocol === 'anthropic') {
         return streamChatAnthropic(
@@ -78,7 +84,7 @@ function streamChat({ provider, apiKey, baseUrl, model, messages, ...rest }, cal
             },
             callbacks,
             abortSignal,
-        );
+        ).then(withSentMessages);
     }
 
     // OpenAI-compatible path (DeepSeek / OpenAI / Custom / etc.)
@@ -98,7 +104,7 @@ function streamChat({ provider, apiKey, baseUrl, model, messages, ...rest }, cal
         },
         callbacks,
         abortSignal,
-    );
+    ).then(withSentMessages);
 }
 
 module.exports = {

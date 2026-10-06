@@ -18,7 +18,7 @@ const { Logger }         = require('../logger');
 const { streamChat } = require('../api/adapter');
 const { getProvider, getModel } = require('../providers');
 const { str } = require('../utils/settings');
-const { getToolDefs }    = require('../tools/schema');
+const { chatToolDefs }   = require('./compact-request');
 const { mcpManager }     = require('../mcp');
 const { autoCompactIfNeeded } = require('./compact');
 const { readCompactPolicy } = require('./compact-policy');
@@ -143,10 +143,18 @@ class SubAgentRunner {
         const MAX_ITERS = Math.min(40, Math.max(1, Number(max_iters) || 40));
         const agentType = agent_type === 'general' ? 'general' : 'explore';
 
+        // Reasoning depth by kind of work. `explore` is gather-and-report: low effort is
+        // enough there, and reasoning is most of the output, so it is the cheap win.
+        // `general` analyses and writes, so it keeps the provider default.
+        const childReasoningEffort = agentType === 'explore' ? 'low' : null;
+
         // ── Tool list ──────────────────────────────────────────────────────
         // Exclude spawn_agent itself from the child tool list to prevent recursion
         // even if agentType === 'general'.
-        const allToolDefs = getToolDefs(mcpManager.getToolDefs());
+        const allToolDefs = chatToolDefs({
+            includeMcpTools: cfg.get('includeMcpTools', true),
+            mcpDefs: mcpManager.getToolDefs(),
+        });
         const childTools = agentType === 'explore'
             ? allToolDefs.filter(t => READ_ONLY_TOOLS.has(t.function && t.function.name))
             : allToolDefs.filter(t => (t.function && t.function.name) !== 'spawn_agent');
@@ -233,17 +241,31 @@ class SubAgentRunner {
 
             while (iters < MAX_ITERS) {
                 iters++;
+                const iterT0 = Date.now();
 
                 // LLM summarisation is on: dropping the facts a research task has
                 // just collected costs more than one cheap flash call. The
                 // structured fallback still covers a failed summary request.
+                // Same request shape as the child's own turns (its system prompt and tool
+                // set), so the summary prefill comes from the prompt cache. The effort level
+                // belongs to that shape too: it is part of what the cache keys on, so a child
+                // summarised at the provider default would never match its own `low` turns.
                 const compact = await autoCompactIfNeeded(
                     childRun.messages, COMPACT_BUDGET, COMPACT_KEEP_TAIL,
-                    { provider, model, apiKey, baseUrl },
+                    {
+                        provider, model, apiKey, baseUrl,
+                        prefixMessages: [{ role: 'system', content: sysPrompt }],
+                        tools: childTools,
+                        reasoningEffort: childReasoningEffort,
+                        lastRequestMessages: childRun.lastRequestMessages,
+                    },
                     childFactTokens,
                 );
                 if (compact.compacted) {
                     childRun.messages = compact.messages;
+                    // The snapshot describes messages this squeeze just dropped; the next request
+                    // mints a fresh one.
+                    childRun.lastRequestMessages = null;
                     Logger.info('SUB_AGENT_COMPACT', { child: childRun.sessionId, dropped: compact.dropped });
                 }
 
@@ -254,15 +276,38 @@ class SubAgentRunner {
 
                 let assistantText = '';
                 let reasoningText  = ''; // must be passed back to DeepSeek in thinking mode
-                const { toolCalls, usage } = await streamWithRetry(
-                    { provider, apiKey, baseUrl, messages: apiMessages, model, noTools: false, tools: childTools },
+                const { toolCalls, usage, sentMessages } = await streamWithRetry(
+                    { provider, apiKey, baseUrl, messages: apiMessages, model, noTools: false, tools: childTools, reasoningEffort: childReasoningEffort },
                     {
                         onDelta:    d => { assistantText += d; },
                         onThinking: d => { reasoningText  += d; }, // keep — API requires passback
                     },
                 );
+                // The request this iteration actually sent. The child's own compaction replays it
+                // exactly like the parent's does (see agent-loop.js), so its summary rides the
+                // cached prefix instead of being paid for again.
+                if (Array.isArray(sentMessages)) childRun.lastRequestMessages = sentMessages;
 
                 if (usage && Number(usage.prompt_tokens) > 0) childFactTokens = Number(usage.prompt_tokens);
+
+                // Sub-agents wrote no usage line of their own, so the effect of
+                // `reasoning_effort` was invisible in the logs. Reasoning is most of their
+                // output, so make it measurable: effort, prompt, completion, reasoning,
+                // cache hit.
+                if (usage) {
+                    Logger.info('SUB_AGENT_USAGE', {
+                        child: childRun.sessionId,
+                        agentType,
+                        model,
+                        iter: iters,
+                        elapsed_ms: Date.now() - iterT0,
+                        effort: childReasoningEffort || 'default',
+                        prompt_tokens: usage.prompt_tokens,
+                        completion_tokens: usage.completion_tokens,
+                        reasoning_tokens: usage.completion_tokens_details?.reasoning_tokens,
+                        cache_hit_tokens: usage.prompt_cache_hit_tokens,
+                    });
+                }
 
                 if (!toolCalls || !toolCalls.length) {
                     // No more tool calls — sub-agent has finished
@@ -335,7 +380,7 @@ class SubAgentRunner {
                     ];
                     let wrapText = '';
                     await streamWithRetry(
-                        { provider, apiKey, baseUrl, messages: wrapMsgs, model, noTools: true },
+                        { provider, apiKey, baseUrl, messages: wrapMsgs, model, noTools: true, reasoningEffort: childReasoningEffort },
                         { onDelta: d => { wrapText += d; }, onThinking: () => {} },
                     );
                     if (wrapText.trim()) {

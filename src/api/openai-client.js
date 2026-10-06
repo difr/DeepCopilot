@@ -10,7 +10,7 @@ const { TOOL_DEFS } = require('../tools/schema');
 /**
  * @returns Promise<{ toolCalls: Array<{id, name, args}>, usage: object|null }>
  */
-async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoice, tools, httpAgent, streamOptions, parallelTools, useMaxCompletionTokens, reasoningField, maxOutputTokens }, callbacks, abortSignal) {
+async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoice, tools, httpAgent, streamOptions, parallelTools, useMaxCompletionTokens, reasoningField, maxOutputTokens, reasoningEffort }, callbacks, abortSignal) {
   const client = new OpenAI({
     apiKey,
     baseURL: (baseUrl || 'https://api.deepseek.com').replace(/\/$/, ''),
@@ -25,6 +25,9 @@ async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoic
     messages,
     stream: true,
     ...(useMaxCompletionTokens ? { max_completion_tokens: maxOutputTokens || 32768 } : { max_tokens: maxOutputTokens || 32768 }),
+    // Optional reasoning depth (DeepSeek `reasoning_effort`: low | high | max). Omitted
+    // when not set so the provider default (thinking on, effort high) stays in force.
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   };
   // Only include stream_options when the provider supports it (e.g. DeepSeek, OpenAI).
   if (streamOptions !== false) {

@@ -2333,8 +2333,15 @@
     vscode.postMessage(toSend);
   }
   function resetChat(){
-    var nodes = msgs.querySelectorAll(".msgU,.msgA,.err,.errCard");
-    for (var i=0;i<nodes.length;i++) nodes[i].remove();
+    /* Everything in #main is transcript except the three static nodes: the welcome
+       panel, the thinking box and the jump button. Clearing by class list missed
+       the sys-notice cards, so each session load stacked another copy of every
+       compaction card on top of the ones already rendered. */
+    var keep = [es, thk, jumpBtn];
+    for (var k = msgs.children.length - 1; k >= 0; k--){
+      var node = msgs.children[k];
+      if (keep.indexOf(node) === -1) node.remove();
+    }
     if (es) es.style.display = "block";
     sess = { tokens:0, completion:0, cost:0, cacheHit:0, promptTotal:0, turns:0 };
     renderTurn(null);
