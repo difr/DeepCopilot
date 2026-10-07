@@ -101,6 +101,11 @@ function streamChat({ provider, apiKey, baseUrl, model, messages, ...rest }, cal
             useMaxCompletionTokens: !!quirks.useMaxCompletionTokens,
             reasoningField:        quirks.reasoningField || null,
             maxOutputTokens:       modelCfg.maxOutputTokens,
+            // The caller's explicit effort (sub-agents pin low/high) wins; otherwise the
+            // model's declared default applies. The value therefore goes out on every
+            // request for this model, so the turn and the compaction that replays it
+            // cannot drift apart -- and a drift is what costs the prompt cache.
+            reasoningEffort:       rest.reasoningEffort || modelCfg.reasoningEffort || undefined,
         },
         callbacks,
         abortSignal,

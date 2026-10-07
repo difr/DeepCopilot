@@ -144,6 +144,11 @@
           "displayName": { "type": "string" },
           "contextWindow": { "type": "integer" },
           "maxOutputTokens": { "type": "integer" },
+          "reasoningEffort": {
+            "type": "string",
+            "enum": ["low", "high", "max"],
+            "description": "Thinking-effort level sent with every request for this model (DeepSeek `reasoning_effort`). Declared per model rather than per turn, so the request shape never changes and the prompt cache keeps matching."
+          },
           "capabilities": {
             "type": "object",
             "additionalProperties": false,

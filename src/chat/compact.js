@@ -350,7 +350,7 @@ async function summariseHead(headMessages, apiConfig, fullHistory) {
     if (!model) return null;
 
     // Resolve effective base URL from the provider registry (single source of truth).
-    const { getProvider } = require('../providers');
+    const { getProvider, getModel } = require('../providers');
     const { Logger } = require('../logger');
     const presetUrl = getProvider(provider)?.baseUrl || 'https://api.deepseek.com';
     const effectiveBaseUrl = (rawBaseUrl || presetUrl).replace(/\/$/, '');
@@ -517,10 +517,11 @@ async function summariseHead(headMessages, apiConfig, fullHistory) {
             // cache. Forcing `reasoning_effort: 'none'` was tried and cost exactly that: with
             // thinking off the API drops `reasoning_content` from the replayed history, so the
             // request stopped being a prefix of the turn's own (64 353 prompt tokens against its
-            // 188 796 for the very same array) and the whole prefill was paid at full price.
-            // Lowering it was measured on an identical snapshot and does not pay: `'low'` returned
+            // 188 796 for the very same array). Lowering it does not pay either: `'low'` returned
             // 12 544 cached tokens where the default took 90 752 of 90 925 on the same array.
-            const effort = reasoningEffort || null;
+            const effort = reasoningEffort
+                || (getModel(provider, model) || {}).reasoningEffort
+                || null;
             const startedAt = Date.now();
             const resp = await fetch(url.toString(), {
                 method: 'POST',

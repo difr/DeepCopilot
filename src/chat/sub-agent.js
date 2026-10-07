@@ -143,10 +143,10 @@ class SubAgentRunner {
         const MAX_ITERS = Math.min(40, Math.max(1, Number(max_iters) || 40));
         const agentType = agent_type === 'general' ? 'general' : 'explore';
 
-        // Reasoning depth by kind of work. `explore` is gather-and-report: low effort is
-        // enough there, and reasoning is most of the output, so it is the cheap win.
-        // `general` analyses and writes, so it keeps the provider default.
-        const childReasoningEffort = agentType === 'explore' ? 'low' : null;
+        // Reasoning depth by kind of work, pinned rather than inherited from the model so a
+        // child never runs deeper than the caller intends: `explore` is gather-and-report and
+        // the cheap win, `general` analyses and writes and needs the full depth.
+        const childReasoningEffort = agentType === 'explore' ? 'low' : 'high';
 
         // ── Tool list ──────────────────────────────────────────────────────
         // Exclude spawn_agent itself from the child tool list to prevent recursion
