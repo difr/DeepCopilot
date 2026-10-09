@@ -92,7 +92,31 @@ async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoic
         throw normalizeError(retryErr);
       }
     } else {
-      throw normalizeError(err);
+      // The provider validates `prompt + max_tokens` against its window, so a long history plus
+      // the model's own output cap is rejected even when the history alone would fit: 665 184
+      // billed tokens against a 1 048 576 window fails by 608 with a 384 000 cap. The rejection
+      // names both numbers, so trim the cap to what is actually left and retry once.
+      const text = `${err.message || ''} ${JSON.stringify(err.error || '')}`;
+      const win    = Number((/maximum context length is (\d+)/i.exec(text) || [])[1] || 0);
+      const inMsgs = Number((/(\d+)\s+in the messages/i.exec(text) || [])[1] || 0);
+      const left   = win - inMsgs;
+      if (err.status === 400 && win > 0 && inMsgs > 0 && left > 4096) {
+        const trimmed = Math.max(1024, left - 2048);
+        Logger.info('CONTEXT_LIMIT_RETRY', {
+          window: win, messages: inMsgs,
+          requested: reqPayload.max_tokens || reqPayload.max_completion_tokens,
+          trimmed,
+        });
+        if (useMaxCompletionTokens) reqPayload.max_completion_tokens = trimmed;
+        else reqPayload.max_tokens = trimmed;
+        try {
+          stream = await client.chat.completions.create(reqPayload, { signal: abortSignal });
+        } catch (retryErr) {
+          throw normalizeError(retryErr);
+        }
+      } else {
+        throw normalizeError(err);
+      }
     }
   }
 

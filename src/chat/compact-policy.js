@@ -44,6 +44,17 @@ function readCompactPolicy(cfg, modelCfg, logger) {
     const warnings = [];
     const window   = _positive(modelCfg && modelCfg.contextWindow, DEFAULTS.fallbackWindow);
 
+    // The provider validates `prompt + max_tokens` against its window, so the declared output
+    // cap is space the history can never occupy — whatever share the budget is built from. A 1M
+    // window with a 384k cap rejects every request past 664k, while a 75% budget would not fire
+    // until 750k: an 85k-wide dead zone where compaction stays silent and the turn still fails.
+    // No extra slack is kept here: the declared window already sits below the provider's own,
+    // and a mis-estimate that still slips through is caught by the client's retry.
+    const outputCap = _positive(modelCfg && modelCfg.maxOutputTokens, 0);
+    const usable    = outputCap > 0
+        ? Math.max(DEFAULTS.minBudget, window - outputCap)
+        : window;
+
     const share      = Math.min(DEFAULTS.maxBudgetShare, _positive(cfg.get('compactBudgetShare'), DEFAULTS.budgetShare));
     const configured = Number(cfg.get('compactBudgetTokens'));
 
@@ -55,6 +66,10 @@ function readCompactPolicy(cfg, modelCfg, logger) {
         }
     } else {
         budget = Math.max(DEFAULTS.minBudget, Math.floor(window * share));
+    }
+    if (budget > usable) {
+        warnings.push(`compact budget ${budget} exceeds the ${usable} left by the ${outputCap}-token output cap, using ${usable}`);
+        budget = usable;
     }
 
     const maxMessages = Math.max(
@@ -73,7 +88,11 @@ function readCompactPolicy(cfg, modelCfg, logger) {
     }
 
     const hardLimitShare = Math.min(0.98, _positive(cfg.get('compactHardLimitShare'), DEFAULTS.hardLimitShare));
-    const hardLimit      = Math.floor(window * hardLimitShare);
+    let hardLimit        = Math.floor(window * hardLimitShare);
+    if (hardLimit > usable) {
+        warnings.push(`compact hard limit ${hardLimit} exceeds the ${usable} left by the ${outputCap}-token output cap, using ${usable}`);
+        hardLimit = usable;
+    }
     if (hardLimit <= budget) {
         warnings.push(`compactHardLimitShare ${hardLimitShare} puts the hard limit (${hardLimit}) at or below the compact budget (${budget})`);
     }
