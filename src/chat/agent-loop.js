@@ -576,13 +576,17 @@ class AgentLoop {
                     this._postToRun(run, { type: 'status', text: t('statusCompacting') });
                     postProgress('compacting');
                     // The in-conversation card the README promises (issue #82): it
-                    // explains why older tool output is gone. The permanent record
-                    // of the same event is the summary card in the session panel.
+                    // explains why older tool output is gone. Two events reach this
+                    // point — history replaced by a checkpoint, and tool bodies
+                    // shortened in place. Only the first has a summary to point at;
+                    // promising one for the second is how the card ends up lying.
+                    const replaced = compactRes.dropped > 0;
+                    const range = `${Math.round(ctxBefore / 1000)}K → ${Math.round(ctxExpected / 1000)}K tokens`;
                     this._postToRun(run, {
                         type: 'systemNotice',
                         kind: 'compact',
-                        title: `History compacted — ${Math.round(ctxBefore / 1000)}K → ${Math.round(ctxExpected / 1000)}K tokens`,
-                        body: 'Older turns were replaced by a summary of themselves; it is kept as a card in the session panel.',
+                        title: tf(replaced ? 'noticeCompactedTitle' : 'noticeTrimmedTitle', { range }),
+                        body:  t(replaced ? 'noticeCompactedBody' : 'noticeTrimmedBody'),
                     });
                     // Same for the persisted copy that /context reads.
                     this._store.notePromptTokens(sid, 0, 0);

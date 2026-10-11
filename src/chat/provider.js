@@ -26,6 +26,7 @@ const { ToolExecutor } = require('./tool-executor');
 const { chatToolsFromSettings, chatSystemPrompt, resolveInteractionMode, buildCompactApiConfig } = require('./compact-request');
 const { AgentLoop }    = require('./agent-loop');
 const { readCompactPolicy } = require('./compact-policy');
+const { t, tf }             = require('../utils/strings');
 
 // ─── Module-level constants ───────────────────────────────────────────────────
 /** Maximum bytes of file content attached via the Explorer context menu. */
@@ -973,12 +974,20 @@ class ChatViewProvider {
                 });
                 // Unlike the status line, this card stays in the transcript, and
                 // it is the only place the user learns what happened to history
-                // they can no longer see. The summary itself lands in the panel.
+                // they can no longer see. The summary itself lands in the panel —
+                // but only when there is one: a run that merely shortened tool
+                // bodies removed no messages and wrote no checkpoint.
+                const replaced = res.dropped > 0;
+                // Messages only change when history is replaced; a trim leaves the count
+                // untouched, so that case reports tokens instead of a 759 → 759 "range".
+                const range = replaced
+                    ? `${detBefore.msgsLen} → ${detail.msgsLen} messages`
+                    : `${Math.round(detBefore.estTok / 1000)}K → ${Math.round(detail.estTok / 1000)}K tokens`;
                 this._post({
                     type: 'systemNotice',
                     kind: 'compact',
-                    title: `History compacted — ${detBefore.msgsLen} → ${detail.msgsLen} messages`,
-                    body: 'Older turns were replaced by a summary of themselves; it is kept as a card in the session panel.',
+                    title: tf(replaced ? 'noticeCompactedTitle' : 'noticeTrimmedTitle', { range }),
+                    body:  t(replaced ? 'noticeCompactedBody' : 'noticeTrimmedBody'),
                 });
                 // Issue #142 P3-3: broadcast fresh ctxUsage so the footer ring
                 // and popup reflect the compacted count immediately.

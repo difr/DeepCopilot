@@ -144,6 +144,15 @@ const STRINGS = {
     statusNuclearCompact:   '🔥 Nuclear compaction applied ({before}K→{after}K tokens)…',
     statusSuspended:        '💤 Suspended: {reason} ({count} watcher(s) armed)',
 
+    // ── Compaction notices posted into the transcript ─────────────────────
+    // Two different events wear the same card: history replaced by a checkpoint, and
+    // tool output shortened in place. The dropped-message count tells them apart, and
+    // promising a summary that was never written is worse than saying nothing.
+    noticeCompactedTitle: 'History compacted — {range}',
+    noticeCompactedBody:  'Older turns were replaced by a summary of themselves; it is kept as a card in the session panel.',
+    noticeTrimmedTitle:   'Tool output trimmed — {range}',
+    noticeTrimmedBody:    'Oversized tool results were shortened; the conversation itself is unchanged.',
+
     // ── Session archive → Markdown export (issue #165) ────────────────────
     archiveSaved:         'Session archived to {path}',
     archiveFailed:        'Deep Copilot: failed to archive session — {msg}',
