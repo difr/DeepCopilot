@@ -216,69 +216,6 @@ function _truncateAnyLongMessage(m, headKeep, tailKeep, threshold) {
     return m;
 }
 
-// ─── File-read deduplication (Issue #142 P1-3) ─────────────────────────────
-// When the same file path is read multiple times in a session, all but the
-// LAST occurrence are replaced with a tiny placeholder.  The latest read is
-// always the most up-to-date snapshot, so older copies waste tokens.
-//
-// Detection: walks assistant{tool_calls} entries where function.name is
-// `read_file` (or list_dir / web_fetch) with a `path` (or `url`) argument.
-// The matching tool result message (by tool_call_id) gets its content
-// replaced.  Returns { messages, replaced }.
-function dedupRepeatedReads(messages) {
-    if (!Array.isArray(messages) || messages.length === 0) {
-        return { messages, replaced: 0 };
-    }
-    // Build (tool_call_id → {key, name}) for repeatable read tools.
-    const idMeta = new Map();
-    for (const m of messages) {
-        if (m.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue;
-        for (const tc of m.tool_calls) {
-            const name = tc?.function?.name;
-            if (!name || !tc.id) continue;
-            if (name !== 'read_file' && name !== 'web_fetch' && name !== 'list_dir') continue;
-            let args = {};
-            try { args = JSON.parse(tc.function?.arguments || '{}'); } catch {}
-            const target = args.path || args.url || args.file || args.file_path;
-            if (!target) continue;
-            // Range-aware key for read_file: same path + range is the "same read".
-            const range = (args.start_line || args.end_line)
-                ? `:${args.start_line || ''}-${args.end_line || ''}`
-                : '';
-            idMeta.set(tc.id, { key: `${name}::${target}${range}`, name });
-        }
-    }
-    // Find the LAST tool_call_id for each key.
-    const lastIdForKey = new Map();
-    for (const m of messages) {
-        if (m.role !== 'tool' || !m.tool_call_id) continue;
-        const meta = idMeta.get(m.tool_call_id);
-        if (!meta) continue;
-        lastIdForKey.set(meta.key, m.tool_call_id);
-    }
-    // Replace any non-last tool message body with a placeholder.
-    let replaced = 0;
-    const out = messages.map(m => {
-        if (m.role !== 'tool' || !m.tool_call_id) return m;
-        const meta = idMeta.get(m.tool_call_id);
-        if (!meta) return m;
-        const lastId = lastIdForKey.get(meta.key);
-        if (!lastId || lastId === m.tool_call_id) return m;
-        const body = typeof m.content === 'string' ? m.content : '';
-        if (body.length < 400) return m; // not worth replacing small ones
-        replaced++;
-        // Use a structured placeholder tag so the LLM (and any downstream
-        // post-processing) can reliably detect collapsed reads — matches the
-        // shape documented in the PR description (Copilot review feedback).
-        const path = meta.key.split('::')[1] || '';
-        return {
-            ...m,
-            content: `<${meta.name} path="${path}" read-collapsed="true" reason="re-read later in conversation; see the later tool result for current contents"/>`,
-        };
-    });
-    return { messages: out, replaced };
-}
-
 // ─── Head-facts extractor ──────────────────────────────────────────────────
 // Pulls key structured events from messages about to be dropped: tool calls
 // with their primary argument (file path, command, URL) and short snippets
@@ -727,17 +664,14 @@ function _hasAttachment(m) {
  * Auto-compact a message history when it approaches the budget.
  *
  * Pipeline (each step is conditional on the previous one still being over budget):
- *   0. dedup repeated file reads (lossless — collapses earlier copies)
- *   1. truncate long tool-result bodies
- *   2. head-drop with summary (optional LLM-backed via apiConfig)
- *   3. body-truncate fallback for single oversized messages
+ *   1. head-drop with summary (optional LLM-backed via apiConfig)
+ *   2. body-truncate fallback for single oversized messages
  *
  * @returns {{
  *   messages: Array,
  *   compacted: boolean,
- *   dropped: number,    // # of head messages dropped in step 2
+ *   dropped: number,    // # of head messages dropped in step 1
  *   truncated: number,  // # of tool results whose bodies were shortened
- *   deduped: number,    // # of earlier duplicate read tool results collapsed
  * }}
  */
 // keepTail deliberately has no default: it used to be 12, new call sites
@@ -752,10 +686,8 @@ function _hasAttachment(m) {
 // one side would make budget and measurement disagree by the scale factor.
 async function autoCompactIfNeeded(messages, budgetTokens, keepTail, apiConfig = null, actualTokens) {
     let working = messages;
-    // PR #155 review: track dedup and truncation separately so the returned
-    // `truncated` field keeps its original semantic ("tool results actually
-    // shortened") and dedup numbers don't pollute it.
-    let dedupCount = 0;
+    // PR #155 review: `truncated` keeps its original semantic — tool results actually
+    // shortened — so nothing else may add to it.
     let truncCount = 0;
     // Provider/model context for the modular token counter — issue #149.
     // apiConfig carries either { provider, model, apiKey, baseUrl } for the
@@ -784,48 +716,38 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail, apiConfig =
     _measureScale = (actualTokens > 0 && _measureVal > 0) ? actualTokens / _measureVal : 1;
     _measureVal = Math.round(_measureVal * _measureScale);
 
-    // Step 0 (Issue #142 P1-3 / DeepSeek prefix-cache tuning):
-    // dedup repeated file reads rewrites middle-of-history tool messages,
-    // which fully invalidates the DeepSeek server-side KV prefix cache from
-    // the first rewritten byte onward. Defer it to a near-overflow trigger
-    // (95% of budget) so we only pay the cache-bust cost when truly
-    // necessary — the cheaper head-drop and tail truncation usually free
-    // enough tokens first without disturbing the byte-stable prefix.
-    if (measure(working) > budgetTokens * 0.95) {
-        const ded = dedupRepeatedReads(working);
-        if (ded.replaced > 0) {
-            working = ded.messages;
-            dedupCount += ded.replaced;
-        }
-    }
-
-    // Step 1: truncate long tool results to recover tokens without dropping messages.
-    if (measure(working) > budgetTokens) {
-        const res = truncateLongToolResults(working);
-        if (res.truncCount > 0) {
-            working = res.messages;
-            truncCount += res.truncCount;
-        }
-    }
-
+    // Nothing runs ahead of the drop any more. Repeated file reads used to be collapsed here
+    // and long tool bodies shortened, all before a single message was removed: a live run
+    // freed 50k tokens, rewrote 61 kept messages, spent the cache, and still crossed the
+    // budget eight iterations later, so the summary happened anyway on a history that was
+    // now both smaller and mangled. The one exception is below, where there is nothing left
+    // to drop and shortening bodies is the only lever there is.
     if (measure(working) <= budgetTokens) {
-        const anyChange = (dedupCount + truncCount) > 0;
+        const anyChange = truncCount > 0;
         return anyChange
-            ? { messages: working, compacted: true,  dropped: 0, truncated: truncCount, deduped: dedupCount }
-            : { messages: working, compacted: false, dropped: 0, truncated: 0,          deduped: 0 };
+            ? { messages: working, compacted: true,  dropped: 0, truncated: truncCount }
+            : { messages: working, compacted: false, dropped: 0, truncated: 0 };
     }
 
-    // Step 2: head-drop.
+    // head-drop.
     // (Issue #142 P0-1) When the message array is too short to head-drop but we
     // are still over budget, fall through to a body-truncation pass below so a
     // single oversized message (e.g. a 100KB read_file or huge first user prompt)
     // can still be brought back under budget.
     if (working.length <= keepTail + 2) {
+        // Nothing to drop, so the bodies are all that is left to shorten. The
+        // tool-aware pass keeps errors and tails, and the tiered pass after it is
+        // the blunt instrument that brings one huge body under the budget.
+        const cut = truncateLongToolResults(working);
+        if (cut.truncCount > 0) {
+            working = cut.messages;
+            truncCount = cut.truncCount;
+        }
         const fitted = _bodyTruncateUntilFits(working, budgetTokens, tokCtx, _measureScale);
         if (fitted.changed) {
-            return { messages: fitted.messages, compacted: true, dropped: 0, truncated: truncCount + fitted.touched, bodiesTruncated: fitted.touched, deduped: dedupCount };
+            return { messages: fitted.messages, compacted: true, dropped: 0, truncated: truncCount + fitted.touched, bodiesTruncated: fitted.touched };
         }
-        return { messages: working, compacted: (dedupCount + truncCount) > 0, dropped: 0, truncated: truncCount, deduped: dedupCount };
+        return { messages: working, compacted: truncCount > 0, dropped: 0, truncated: truncCount };
     }
 
     // Walk the split point backwards past any leading tool messages so the tail
@@ -835,7 +757,7 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail, apiConfig =
     let splitIdx = working.length - keepTail;
     while (splitIdx > 0 && working[splitIdx].role === 'tool') splitIdx--;
     if (splitIdx <= 0) {
-        return { messages: working, compacted: (dedupCount + truncCount) > 0, dropped: 0, truncated: truncCount, deduped: dedupCount };
+        return { messages: working, compacted: truncCount > 0, dropped: 0, truncated: truncCount };
     }
 
     const tail = working.slice(splitIdx);
@@ -897,8 +819,6 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail, apiConfig =
         summarySource = 'facts';
         const factLines = extractHeadFacts(toDropMsgs);
         summaryBody = `${dropped} messages dropped`;
-        if (dedupCount > 0) summaryBody += `, ${dedupCount} repeated reads collapsed`;
-        if (truncCount > 0) summaryBody += `, ${truncCount} tool results truncated`;
         // The panel renders this as Markdown, where a single newline collapses into a
         // space. Hence the blank line and the "- " markers: without them the fact list
         // arrives as one unreadable run-on line.
@@ -949,7 +869,7 @@ async function autoCompactIfNeeded(messages, budgetTokens, keepTail, apiConfig =
             bodiesTruncated = fitted.touched;
         }
     }
-    return { messages: out, compacted: true, dropped, truncated: truncCount, bodiesTruncated, deduped: dedupCount, summarySource };
+    return { messages: out, compacted: true, dropped, truncated: truncCount, bodiesTruncated, summarySource };
 }
 
 // ─── Body-truncate fallback ────────────────────────────────────────────────
@@ -1158,6 +1078,6 @@ class ToolArgsStreamer {
 
 module.exports = {
     estimateTokens, estimateMessagesTokens,
-    autoCompactIfNeeded, summariseHead, nuclearCompact, dedupRepeatedReads,
+    autoCompactIfNeeded, summariseHead, nuclearCompact,
     ToolArgsStreamer,
 };

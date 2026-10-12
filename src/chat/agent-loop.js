@@ -564,7 +564,6 @@ class AgentLoop {
                         // are never touched there; user turns only above the 600-token tier, so any
                         // steady value above zero is worth a look.
                         bodies    : compactRes.bodiesTruncated || 0,
-                        deduped   : compactRes.deduped,
                         // Which summariser produced the text: 'llm', 'facts' (fallback),
                         // or 'none'. Without it a silent LLM timeout is invisible here.
                         summary   : compactRes.summarySource,

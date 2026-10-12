@@ -965,7 +965,6 @@ class ChatViewProvider {
                     dropped: res.dropped,
                     truncated: res.truncated,
                     bodies: res.bodiesTruncated || 0,
-                    deduped: res.deduped,
                     summary: res.summarySource,
                 });
                 this._post({
