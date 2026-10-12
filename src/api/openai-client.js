@@ -6,6 +6,7 @@ const { OpenAI } = require('openai');
 
 const { Logger } = require('../logger');
 const { TOOL_DEFS } = require('../tools/schema');
+const { hashMessages } = require('../utils/msg-hash');
 
 /**
  * @returns Promise<{ toolCalls: Array<{id, name, args}>, usage: object|null }>
@@ -46,7 +47,13 @@ async function streamChat({ apiKey, baseUrl, messages, model, noTools, toolChoic
   const toolCalls = {};
   let usage = null;
 
-  Logger.info('HTTP_REQUEST', { url: client.baseURL, model, msg_count: messages.length });
+  Logger.info('HTTP_REQUEST', {
+    url: client.baseURL, model, msg_count: messages.length,
+    // Hash of the array as it goes out. Compaction logs the hash of the same array minus its
+    // trailing instruction as `prefix_hash`, so a cache miss can be split into "the two requests
+    // differ" and "the requests match, the provider just had no unit yet" by comparing strings.
+    msgs_hash: hashMessages(messages),
+  });
 
   function normalizeError(err) {
     if (err.name === 'AbortError' || err.message === 'aborted') return new Error('aborted');

@@ -11,6 +11,7 @@
 
 const { getToolDefs } = require('../tools/schema');
 const { str } = require('../utils/settings');
+const { sanitizeMessages } = require('../providers');
 
 // The mode the whole extension agrees on. It picks the system prompt and, in ask mode, decides
 // whether tools travel at all, so a second spelling of this formula is a cache miss waiting to
@@ -52,10 +53,30 @@ function buildCompactApiConfig({ apiKey, baseUrl, model, provider, focus, system
     };
 }
 
+// The one place where a system prompt and a history become the message array a request
+// carries. The turn goes through it, and compaction calls it with `append` — which makes the
+// compaction request literally the turn's request plus one message, so the prefix cache keys on
+// the whole history instead of dying at the first byte that differs.
+//
+// That last part is not theory. Compaction rebuilt its array by hand and skipped
+// `sanitizeMessages`, which backfills `reasoning_content` placeholders onto assistant messages
+// after the first one that thought; the two arrays parted company at the first such message and
+// the cache hit collapsed to the system prompt and tool set.
+function buildRequestMessages({ provider, model, systemPrompt, history, append }) {
+    const msgs = [];
+    // Skipped rather than sent empty: a caller with no system prompt should get the array it
+    // asked for, not a blank system message the request never had before.
+    if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });
+    for (const m of (Array.isArray(history) ? history : [])) msgs.push(m);
+    if (append) msgs.push(append);
+    return sanitizeMessages(provider, msgs, model);
+}
+
 module.exports = {
     chatToolDefs,
     chatToolsFromSettings,
     chatSystemPrompt,
     resolveInteractionMode,
     buildCompactApiConfig,
+    buildRequestMessages,
 };

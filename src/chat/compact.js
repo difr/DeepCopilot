@@ -288,6 +288,8 @@ async function summariseHead(headMessages, apiConfig, fullHistory) {
 
     // Resolve effective base URL from the provider registry (single source of truth).
     const { getProvider, getModel } = require('../providers');
+    const { buildRequestMessages } = require('./compact-request');
+    const { hashMessages } = require('../utils/msg-hash');
     const { Logger } = require('../logger');
     const presetUrl = getProvider(provider)?.baseUrl || 'https://api.deepseek.com';
     const effectiveBaseUrl = (rawBaseUrl || presetUrl).replace(/\/$/, '');
@@ -372,24 +374,19 @@ async function summariseHead(headMessages, apiConfig, fullHistory) {
         ];
     } else if (Array.isArray(prefixMessages) && prefixMessages.length && Array.isArray(fullHistory) && fullHistory.length) {
         prefixSource = 'rebuilt';
-        const hist = fullHistory.map((m) => {
-            // Keep only API-facing fields: internal bookkeeping properties would either be
-            // rejected or break the byte-identical prefix the cache keys on.
-            const out = { role: m.role };
-            if (m.content !== undefined) out.content = m.content;
-            if (m.tool_calls) out.tool_calls = m.tool_calls;
-            if (m.tool_call_id) out.tool_call_id = m.tool_call_id;
-            if (m.name) out.name = m.name;
-            if (m.reasoning_content) out.reasoning_content = m.reasoning_content;
-            return out;
+        // Built by the same function the turn uses, with the instruction appended as one more
+        // message — so this array is the turn's own array plus a line, not a lookalike. It used
+        // to be assembled by hand here, and the difference (this branch kept `reasoning_content`
+        // as it found it, while the turn's sanitizer backfills placeholders) cost the cache from
+        // the first assistant message that thought onward.
+        const sys = prefixMessages.find(m => m && m.role === 'system');
+        requestMessages = buildRequestMessages({
+            provider,
+            model,
+            systemPrompt: sys && sys.content,
+            history: fullHistory,
+            append: { role: 'user', content: instruction },
         });
-        let lastUser = -1;
-        for (let i = hist.length - 1; i >= 0; i--) {
-            if (hist[i].role === 'user') { lastUser = i; break; }
-        }
-        if (lastUser >= 0) hist[lastUser] = { role: 'user', content: instruction };
-        else hist.push({ role: 'user', content: instruction });
-        requestMessages = [...prefixMessages, ...hist];
     } else {
         const lines = [];
         for (const m of headMessages) {
@@ -508,6 +505,14 @@ async function summariseHead(headMessages, apiConfig, fullHistory) {
                 snapshot_state: snapshotState,
                 head_len: headMessages.length,
                 sent_msgs: requestMessages.length,
+                // Hash of everything except the trailing instruction, so it is directly
+                // comparable with the `msgs_hash` the turn logs in HTTP_REQUEST: equal strings
+                // mean this request is the turn's array plus one message, and a low cache hit is
+                // then the provider's business rather than ours. The text fallback packs the
+                // whole history into its second message, so it has no such prefix and says null.
+                prefix_hash: prefixSource === 'text'
+                    ? null
+                    : hashMessages(requestMessages.slice(0, -1)),
                 prompt_tokens: usage.prompt_tokens,
                 cache_hit_tokens: usage.prompt_cache_hit_tokens,
                 completion_tokens: usage.completion_tokens,

@@ -18,7 +18,7 @@ const { Logger }         = require('../logger');
 const { streamChat } = require('../api/adapter');
 const { getProvider, getModel } = require('../providers');
 const { str } = require('../utils/settings');
-const { chatToolDefs }   = require('./compact-request');
+const { chatToolDefs, buildRequestMessages } = require('./compact-request');
 const { mcpManager }     = require('../mcp');
 const { autoCompactIfNeeded } = require('./compact');
 const { readCompactPolicy } = require('./compact-policy');
@@ -269,10 +269,11 @@ class SubAgentRunner {
                     Logger.info('SUB_AGENT_COMPACT', { child: childRun.sessionId, dropped: compact.dropped });
                 }
 
-                const apiMessages = [
-                    { role: 'system', content: sysPrompt },
-                    ...childRun.messages,
-                ];
+                const apiMessages = buildRequestMessages({
+                    provider, model,
+                    systemPrompt: sysPrompt,
+                    history: childRun.messages,
+                });
 
                 let assistantText = '';
                 let reasoningText  = ''; // must be passed back to DeepSeek in thinking mode
@@ -373,11 +374,12 @@ class SubAgentRunner {
             // "produced no output" — the facts are already in the history.
             if ((!finalText || !finalText.trim()) && !childAbort.signal.aborted) {
                 try {
-                    const wrapMsgs = [
-                        { role: 'system', content: sysPrompt },
-                        ...childRun.messages,
-                        { role: 'user', content: '<system-reminder>\nYou have reached the tool-call iteration limit. Stop calling tools. Write a concise Markdown summary of what you found: (1) what you inspected, (2) the facts that answer the task, (3) what remains unknown.\n</system-reminder>' },
-                    ];
+                    const wrapMsgs = buildRequestMessages({
+                        provider, model,
+                        systemPrompt: sysPrompt,
+                        history: childRun.messages,
+                        append: { role: 'user', content: '<system-reminder>\nYou have reached the tool-call iteration limit. Stop calling tools. Write a concise Markdown summary of what you found: (1) what you inspected, (2) the facts that answer the task, (3) what remains unknown.\n</system-reminder>' },
+                    });
                     let wrapText = '';
                     await streamWithRetry(
                         { provider, apiKey, baseUrl, messages: wrapMsgs, model, noTools: true, reasoningEffort: childReasoningEffort },

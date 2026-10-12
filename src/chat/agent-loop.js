@@ -21,7 +21,7 @@ const {
     estimateMessagesTokens, autoCompactIfNeeded, nuclearCompact, ToolArgsStreamer,
 } = require('./compact');
 const { readCompactPolicy } = require('./compact-policy');
-const { chatToolsFromSettings, chatSystemPrompt, resolveInteractionMode, buildCompactApiConfig } = require('./compact-request');
+const { chatToolsFromSettings, chatSystemPrompt, resolveInteractionMode, buildCompactApiConfig, buildRequestMessages } = require('./compact-request');
 const { _dropOrphanToolCallGroups } = require('./session-store');
 const { sanitizeForReminder } = require('./digest');
 const {
@@ -645,15 +645,8 @@ class AgentLoop {
                 // effectiveSysPrompt: no longer modified per-iter; skill is now injected as
                 // synthetic tool call + result in run.messages (see pre-loop section above).
                 const effectiveSysPrompt = sysPrompt;
-                const msgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
                 let assistantText = '';
                 let reasoningText = '';
-                Logger.info('ITER_START', {
-                    sid, iter, msg_count: msgs.length,
-                    ctx_tokens: _lastCtxTokens || null, // provider-reported fact, null until the first call
-                    est_tokens: ctxExpected,            // expected size in provider units (fact + scaled growth)
-                    raw_est_tokens: estTokens,          // raw char heuristic: est_tokens / raw_est_tokens is the scale
-                });
 
                 // Pre-flight hard token cap — prevents HTTP 400 context-too-long errors.
                 // MODEL_CTX_HARD_LIMIT is derived from the active model's contextWindow
@@ -726,8 +719,6 @@ class AgentLoop {
                         // the next iteration recalculates it from scratch.
                     }
                 }
-                checkAbort();
-
                 // Rebuild msgs in case pre-flight compaction modified run.messages
                 // Issue #145: final guard — strip any orphan assistant{tool_calls}
                 // group that may have survived compaction / a mid-turn crash before
@@ -742,7 +733,22 @@ class AgentLoop {
                     });
                     run.messages = _sanitized;
                 }
-                const finalMsgs = [{ role: 'system', content: effectiveSysPrompt }, ...run.messages];
+                const finalMsgs = buildRequestMessages({
+                    provider, model,
+                    systemPrompt: effectiveSysPrompt,
+                    history: run.messages,
+                });
+                // Logged here rather than at the top of the iteration: the pre-flight cap above
+                // and the orphan cleanup just before it can both shorten run.messages, so a count
+                // taken earlier disagreed with the request that followed on the same iteration.
+                Logger.info('ITER_START', {
+                    sid, iter, msg_count: finalMsgs.length,
+                    ctx_tokens: _lastCtxTokens || null, // provider-reported fact, null until the first call
+                    est_tokens: ctxExpected,            // expected size in provider units (fact + scaled growth)
+                    raw_est_tokens: estTokens,          // raw char heuristic: est_tokens / raw_est_tokens is the scale
+                });
+                // After the log, so a stopped turn still records that its iteration had started.
+                checkAbort();
 
                 // Snapshot current (valid) state before the API call. Restored in the
                 // catch block if a protocol error (e.g. HTTP 400) corrupts run.messages.
@@ -1301,11 +1307,12 @@ class AgentLoop {
                 if (baseMsgs.length !== _srcMsgs.length) {
                     Logger.info('ORPHAN_TOOLCALL_DROPPED', { sid, iter, before: _srcMsgs.length, after: baseMsgs.length, site: 'force_final_summary' });
                 }
-                const finalMsgs = [
-                    { role: 'system', content: sysPrompt },
-                    ...baseMsgs,
-                    { role: 'user', content: '<system-reminder>\nYou have reached the tool-call iteration limit without producing a user-facing answer. Stop calling tools. Write a concise plain-text reply that: (1) summarises what you tried, (2) states what you found or could not find, (3) suggests a concrete next step the user can take.\n</system-reminder>' },
-                ];
+                const finalMsgs = buildRequestMessages({
+                    provider, model,
+                    systemPrompt: sysPrompt,
+                    history: baseMsgs,
+                    append: { role: 'user', content: '<system-reminder>\nYou have reached the tool-call iteration limit without producing a user-facing answer. Stop calling tools. Write a concise plain-text reply that: (1) summarises what you tried, (2) states what you found or could not find, (3) suggests a concrete next step the user can take.\n</system-reminder>' },
+                });
                 let tail = '';
                 let tailThoughts = '';
                 // Deliberately not saved as the session snapshot: this request carries the stop
