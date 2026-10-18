@@ -647,11 +647,19 @@
   /* Extract the human-readable text from a run_shell result.
      shell.js returns a JSON object with a `text` field for normal exits;
      error/timeout paths return a plain string.  This helper handles both. */
+  /* run_shell may hand the pane a JSON string or an already-parsed object; both have to end up
+     as the human-readable output, never as the envelope it arrived in. */
   function getShellText(out) {
-    try {
-      var p = JSON.parse(out);
-      if (p && p.text !== undefined) return p.text;
-    } catch(e) {}
+    var p = out;
+    if (typeof out === 'string') {
+      try { p = JSON.parse(out); } catch(e) { p = null; }
+    }
+    if (p && typeof p === 'object') {
+      if (p.text !== undefined && p.text !== null) return String(p.text);
+      if (typeof p.stdout === 'string') {
+        return p.stderr ? p.stdout + '\n' + p.stderr : p.stdout;
+      }
+    }
     return out;
   }
 

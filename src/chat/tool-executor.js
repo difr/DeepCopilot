@@ -171,7 +171,70 @@ class ToolExecutor {
             ? (exitCode === 0)
             : !result.startsWith('Error');
         Logger.info('TOOL_RESULT', { id: tc.id, name: tc.name, elapsed_ms: elapsedMs, ok, output: result.slice(0, 2000) });
-        this._postToRun(run, { type: 'toolResult', id: tc.id, name: tc.name, ok, exitCode, output: result.slice(0, 600) });
+        // The webview renders this string, so it is capped — but the cap belongs to the payload,
+        // not to the JSON envelope: chopping the envelope leaves invalid JSON, and the pane falls
+        // back to raw text instead of showing the output.
+        const VIEW_LIMIT = 8000;
+        const STDERR_LIMIT = 2000;
+        let shown = result;
+        if (shown.length > VIEW_LIMIT) {
+            /* Trim a field only when that field is the long one: a big stderr must not brand a
+               short stdout as truncated. And never split a surrogate pair — the tail would
+               render as a replacement character. */
+            const trim = (s, limit) => {
+                if (typeof s !== 'string' || s.length <= limit) return s;
+                let cut = limit;
+                const code = s.charCodeAt(cut - 1);
+                if (code >= 0xD800 && code <= 0xDBFF) cut -= 1;
+                return s.slice(0, cut) + '\n\n…[truncated]';
+            };
+            /* A structured result keeps its shape — only long string values are shortened, so
+               the envelope stays parseable. No depth limit: the tree came out of JSON.parse, so
+               it is finite, and a cap on depth would let a deep megabyte string through and
+               force the whole envelope to be cut as text.
+
+               Trimming is addressed, not blanket: only stdout/text (and stderr, at its own
+               smaller cap) are output-sized fields. A trimmed url stops being a url, and the
+               pane renders everything as text anyway. Arrays are capped as well: thousands of
+               short records are individually fine but add up to megabytes. The marker added
+               when an array is cut is a plain string sitting in a list of objects — harmless
+               for rendering, but code reading fields off those items would trip on it. Cutting
+               the stringified object stays the last resort. */
+            const ARRAY_CAP = 40;
+            const LONG_FIELDS = new Set(['stdout', 'text']);
+            const trimDeep = (v, key) => {
+                if (typeof v === 'string') {
+                    if (key === 'stderr') return trim(v, STDERR_LIMIT);
+                    if (LONG_FIELDS.has(key)) return trim(v, VIEW_LIMIT);
+                    return v;
+                }
+                if (Array.isArray(v)) {
+                    const head = v.slice(0, ARRAY_CAP).map(x => trimDeep(x, key));
+                    if (v.length > ARRAY_CAP) head.push(`…[${v.length - ARRAY_CAP} more items]`);
+                    return head;
+                }
+                if (v && typeof v === 'object') {
+                    const out = {};
+                    for (const k of Object.keys(v)) out[k] = trimDeep(v[k], k);
+                    return out;
+                }
+                return v;
+            };
+            try {
+                const p = JSON.parse(shown);
+                if (p && typeof p === 'object') {
+                    let s = JSON.stringify(p);
+                    if (s.length > VIEW_LIMIT) s = JSON.stringify(trimDeep(p, ''));
+                    if (s.length > VIEW_LIMIT) s = trim(s, VIEW_LIMIT);
+                    shown = s;
+                } else {
+                    shown = trim(shown, VIEW_LIMIT);
+                }
+            } catch {
+                shown = trim(shown, VIEW_LIMIT);
+            }
+        }
+        this._postToRun(run, { type: 'toolResult', id: tc.id, name: tc.name, ok, exitCode, output: shown });
         return result;
     }
 
