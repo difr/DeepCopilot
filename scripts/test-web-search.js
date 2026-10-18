@@ -28,6 +28,7 @@ const {
     _isChallengePage,
     _runSearchChain,
     _formatResults,
+    _resolveSearchSetting,
     formatDeepFetchContent,
     _deepFetchPages,
     _parseBingRss,
@@ -415,7 +416,7 @@ test('formatSearchResults produces the expected markdown shape', () => {
     const md = _formatResults('test query', [
         { title: 'A', url: 'https://a.com', snippet: 'Snippet A' },
         { title: 'B', url: 'https://b.com', snippet: 'Snippet B' },
-    ], 'DuckDuckGo');
+    ]);
     assert.ok(md.includes('Query: test query'));
     assert.ok(md.includes('## Top 2 result(s)'));
     assert.ok(md.includes('### 1. A'));
@@ -425,10 +426,43 @@ test('formatSearchResults produces the expected markdown shape', () => {
     assert.ok(md.includes('Snippet B'));
 });
 
-test('format includes synthesized answer when provided', () => {
-    const md = _formatResults('q', [{ title: 'A', url: 'https://a.com', snippet: 's' }], 'Tavily', 'an answer');
-    assert.ok(md.includes('## Synthesized answer'));
-    assert.ok(md.includes('an answer'));
+test('format shows publication date and authority when the backend reports them', () => {
+    const md = _formatResults('q', [
+        { title: 'A', url: 'https://a.com', snippet: 's', date: '2026-06-01T00:00:00+00:00', authority: 3 },
+        { title: 'B', url: 'https://b.com', snippet: 's', authority: -1 },
+    ]);
+    assert.ok(md.includes('published 2026-06-01'));
+    assert.ok(md.includes('authority 3/4'));
+    // An unknown grade (-1) must not be printed as if it were one.
+    assert.ok(!/authority -1/.test(md));
+});
+
+test('format trims a long summary so one search cannot flood the context', () => {
+    const long = 'x'.repeat(3000);
+    const md = _formatResults('q', [{ title: 'A', url: 'https://a.com', snippet: long }]);
+    assert.ok(md.includes('…'), 'trimmed summary is marked with an ellipsis');
+    assert.ok(!md.includes('x'.repeat(900)), 'the tail is gone');
+});
+
+test('parses pubDate from a Bing RSS item', () => {
+    const rss = '<?xml version="1.0"?><rss><channel>' +
+        '<item><title>Example</title><link>https://example.com/a</link>' +
+        '<description>Short desc</description><pubDate>Thu, 23 Apr 2026 12:00:00 GMT</pubDate></item>' +
+        '</channel></rss>';
+    const [hit] = _parseBingRss(rss);
+    assert.strictEqual(hit.date, '2026-04-23T12:00:00.000Z');
+    assert.strictEqual(hit.title, 'Example');
+});
+
+test('legacy and unknown search settings resolve to auto', () => {
+    assert.strictEqual(_resolveSearchSetting('tavily'), 'auto');
+    assert.strictEqual(_resolveSearchSetting('nonsense'), 'auto');
+    assert.strictEqual(_resolveSearchSetting(''), 'auto');
+    assert.strictEqual(_resolveSearchSetting(undefined), 'auto');
+    assert.strictEqual(_resolveSearchSetting('deepseek'), 'deepseek');
+    assert.strictEqual(_resolveSearchSetting('free'), 'free');
+    assert.strictEqual(_resolveSearchSetting('bing'), 'bing');
+    assert.strictEqual(_resolveSearchSetting('duckduckgo'), 'duckduckgo');
 });
 
 // ─── deep fetch (ported from bds search-reader.test.js) ──────────────────

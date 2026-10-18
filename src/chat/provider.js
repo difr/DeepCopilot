@@ -424,18 +424,18 @@ class ChatViewProvider {
             case 'openApiSettings': {
                 const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
                 const dsKey     = await this._context.secrets.get('deepseekAgent.apiKey') || '';
-                const tvKey     = await this._context.secrets.get('deepseekAgent.tavilyKey') || '';
                 const baseUrl   = str(cfg.get('apiBaseUrl'));
                 const provider  = str(cfg.get('provider')) || 'deepseek';
                 const rawWsProvider = str(cfg.get('webSearchProvider'));
-                const wsProvider = ['auto', 'tavily', 'duckduckgo', 'bing'].includes(rawWsProvider) ? rawWsProvider : 'auto';
+                // 'tavily' from an older settings file: that backend is gone, so treat it as auto.
+                const wsProvider = rawWsProvider === 'tavily'
+                    ? 'auto'
+                    : (['auto', 'deepseek', 'free', 'duckduckgo', 'bing'].includes(rawWsProvider) ? rawWsProvider : 'auto');
                 const maskKey   = (k) => k ? (k.slice(0, 6) + '...' + k.slice(-4)) : '';
                 this._post({
                     type:              'settingsLoaded',
                     dsKeySet:          !!dsKey,
                     dsKeyHint:         maskKey(dsKey),
-                    tvKeySet:          !!tvKey,
-                    tvKeyHint:         maskKey(tvKey),
                     baseUrl:           baseUrl,
                     provider:          provider,
                     webSearchProvider: wsProvider,
@@ -443,7 +443,7 @@ class ChatViewProvider {
                 break;
             }
             case 'testApiKey': {
-                const which = msg.which; // 'ds' | 'tv'
+                const which = msg.which; // 'ds'
                 const t0    = Date.now();
                 if (which === 'ds') {
                     const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.apiKey') || '');
@@ -511,44 +511,6 @@ class ChatViewProvider {
                     } catch (e) {
                         this._post({ type: 'testApiKeyResult', which, ok: false, error: e.message });
                     }
-                } else if (which === 'tv') {
-                    const testKey = msg.key || (await this._context.secrets.get('deepseekAgent.tavilyKey') || '');
-                    if (!testKey) {
-                        this._post({ type: 'testApiKeyResult', which, ok: false, error: 'No Tavily key set' });
-                        break;
-                    }
-                    try {
-                        const https  = require('https');
-                        const body   = JSON.stringify({ api_key: testKey, query: 'test', max_results: 1 });
-                        const result = await new Promise((resolve) => {
-                            const req = https.request({
-                                hostname: 'api.tavily.com',
-                                port: 443,
-                                path: '/search',
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-                                timeout: 10000,
-                            }, (res) => {
-                                let raw = '';
-                                res.on('data', c => { raw += c; });
-                                res.on('end', () => {
-                                    if (res.statusCode === 200) { resolve({ ok: true }); return; }
-                                    try {
-                                        const d = JSON.parse(raw);
-                                        resolve({ ok: false, error: (d.detail || d.message || `HTTP ${res.statusCode}`) });
-                                    } catch { resolve({ ok: false, error: `HTTP ${res.statusCode}` }); }
-                                });
-                                res.on('error', e => resolve({ ok: false, error: e.message }));
-                            });
-                            req.on('error', e => resolve({ ok: false, error: e.message }));
-                            req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Timeout' }); });
-                            req.write(body);
-                            req.end();
-                        });
-                        this._post({ type: 'testApiKeyResult', which, ok: result.ok, latency: Date.now() - t0, error: result.error });
-                    } catch (e) {
-                        this._post({ type: 'testApiKeyResult', which, ok: false, error: e.message });
-                    }
                 }
                 break;
             }
@@ -557,13 +519,10 @@ class ChatViewProvider {
                 if (msg.dsKey) {
                     await this._context.secrets.store('deepseekAgent.apiKey', msg.dsKey);
                 }
-                if (msg.tvKey) {
-                    await this._context.secrets.store('deepseekAgent.tavilyKey', msg.tvKey);
-                }
                 if (msg.provider) {
                     await cfg.update('provider', msg.provider, vscode.ConfigurationTarget.Global);
                 }
-                if (msg.webSearchProvider && ['auto', 'tavily', 'duckduckgo', 'bing'].includes(msg.webSearchProvider)) {
+                if (msg.webSearchProvider && ['auto', 'deepseek', 'free', 'duckduckgo', 'bing'].includes(msg.webSearchProvider)) {
                     await cfg.update('webSearchProvider', msg.webSearchProvider, vscode.ConfigurationTarget.Global);
                 }
                 // If the UI sent the currently selected model alongside the provider,

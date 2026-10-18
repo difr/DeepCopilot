@@ -145,40 +145,19 @@ function activate(context) {
             await cfg.update('apiBaseUrl', url, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(t('baseUrlSet') + (url || t('baseUrlDefaultNote')));
         }),
-        vscode.commands.registerCommand('deepseekAgent.setTavilyKey', async () => {
-            const existing = await context.secrets.get('deepseekAgent.tavilyKey');
-            const key = await vscode.window.showInputBox({
-                prompt: t('tavilyKeyPrompt'),
-                placeHolder: 'tvly-...',
-                value: existing || '',
-                password: true,
-                ignoreFocusOut: true,
-            });
-            if (key === undefined) return;
-            if (key.trim() === '') {
-                await context.secrets.delete('deepseekAgent.tavilyKey');
-                vscode.window.showInformationMessage(t('tavilyKeyRemoved'));
-            } else {
-                await context.secrets.store('deepseekAgent.tavilyKey', key.trim());
-                vscode.window.showInformationMessage(t('tavilyKeySaved'));
-            }
-        }),
         vscode.commands.registerCommand('deepseekAgent.showApiStatus', async () => {
             // Looped QuickPick: shows all key/URL settings with live status in one place.
-            // Users can configure DeepSeek key, Tavily key, and Base URL without hunting
+            // Users can configure the DeepSeek key and the Base URL without hunting
             // through the command palette. Re-opens after each action until dismissed.
             while (true) {
                 const cfg       = vscode.workspace.getConfiguration('deepseekAgent');
                 const dsKey     = await context.secrets.get('deepseekAgent.apiKey');
-                const tvKey     = await context.secrets.get('deepseekAgent.tavilyKey');
                 const baseUrl   = str(cfg.get('apiBaseUrl')) || 'https://api.deepseek.com';
                 const model     = require('./providers').resolveModel(str(cfg.get('provider')) || 'deepseek', str(cfg.get('defaultModel')));
                 const mode      = str(cfg.get('approvalMode')) || 'manual';
 
                 const dsLabel   = t('apiStatusApiKey');
                 const dsTag     = t('apiStatusRequired');
-                const tvLabel   = t('apiStatusTavily');
-                const tvTag     = t('apiStatusOptional');
 
                 const items = [
                     {
@@ -188,14 +167,6 @@ function activate(context) {
                             : t('apiStatusNotSet'),
                         detail: t('apiStatusApiKeyDetail'),
                         action: 'deepseekAgent.setApiKey',
-                    },
-                    {
-                        label: `$(${tvKey ? 'pass-filled' : 'circle-large-outline'}) ${tvLabel}${tvTag}`,
-                        description: tvKey
-                            ? t('apiStatusConfigured') + tvKey.slice(0, 6) + '…' + tvKey.slice(-4)
-                            : t('apiStatusNotSetSearch'),
-                        detail: t('apiStatusTavilyDetail'),
-                        action: 'deepseekAgent.setTavilyKey',
                     },
                     {
                         label: `$(globe) ${t('apiStatusBaseUrl')}`,

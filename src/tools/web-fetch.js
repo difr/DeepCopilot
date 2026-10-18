@@ -173,6 +173,50 @@ function htmlToText(html) {
 
 // ─── Tool entry points ───────────────────────────────────────────────────────
 
+// Below this the page is treated as empty: a consent wall, a JS shell or a soft block.
+const MIN_USABLE_TEXT = 200;
+
+// DeepSeek Fetch is paid: 0.005 per successful page. A deep_fetch of five pages against a site
+// that blocks us must not become five billed calls, so one tool call gets at most this many.
+const MAX_DEEPSEEK_FALLBACKS = 2;
+
+function _searchCfg() {
+    try { return require('vscode').workspace.getConfiguration('deepseekAgent'); } catch { return null; }
+}
+
+// DeepSeek Fetch is the same service its own agents use. Reached only when the local client
+// could not produce text — a 403, a captcha wall, a page that renders entirely in JS — so it
+// costs nothing on the ordinary path. It is billed per successful request (0.005 CNY).
+async function _fetchViaDeepSeek(url, ctx, reason) {
+    const used = Number(ctx && ctx._deepseekFetches) || 0;
+    if (used >= MAX_DEEPSEEK_FALLBACKS) return null;
+    const dw = require('./deepseek-web');
+    let apiKey;
+    try { apiKey = await dw.keyFrom(ctx); } catch { apiKey = undefined; }
+    if (!apiKey) return null;
+    try {
+        const page = await dw.fetchPage({
+            url,
+            apiKey,
+            baseUrl:     dw.resolveBaseUrl(_searchCfg()),
+            abortSignal: ctx && ctx.abortSignal,
+        });
+        if (!page.content || page.content.trim().length < MIN_USABLE_TEXT) return null;
+        if (ctx) ctx._deepseekFetches = used + 1;
+        try {
+            require('../logger').Logger.info('WEB_FETCH_FALLBACK', { reason: String(reason).slice(0, 120), chars: page.content.length });
+        } catch { /* logging must never break a fetch */ }
+        const header = `URL: ${url}\nSource: DeepSeek Fetch (local fetch: ${reason})` +
+            (page.title ? `\nPage title: ${page.title}` : '') + '\n\n';
+        return { ok: true, body: truncate(header + page.content), finalUrl: url, status: 200, contentType: 'text/markdown' };
+    } catch (e) {
+        try {
+            require('../logger').Logger.info('WEB_FETCH_FALLBACK_FAILED', { reason: String(reason).slice(0, 120), error: e.message });
+        } catch { /* ignore */ }
+        return null;
+    }
+}
+
 // Structured variant: no "Error:" prefix sniffing — for callers (context-refs
 // and friends) that need to tell success from failure. Returns { ok, body?, error? }.
 async function fetchAndExtractText(args, _ctx = {}) {
@@ -185,15 +229,23 @@ async function fetchAndExtractText(args, _ctx = {}) {
     const abortSignal = _ctx && _ctx.abortSignal;
     if (abortSignal && abortSignal.aborted) return { ok: false, error: 'aborted' };
 
+    let localFailure;
     try {
         const { body, truncated, url: finalUrl, status, contentType } = await fetchUrl(url, MAX_REDIRECTS, abortSignal);
         const isHtml = contentType.includes('text/html') || contentType.includes('application/xhtml');
         const text   = isHtml ? htmlToText(body) : body;
-        const header = `URL: ${finalUrl}\nHTTP status: ${status}\nContent-Type: ${contentType}${truncated ? '\n⚠️ content truncated (over 2MB)' : ''}\n\n`;
-        return { ok: true, body: truncate(header + text), finalUrl, status, contentType };
+        if (text.trim().length >= MIN_USABLE_TEXT) {
+            const header = `URL: ${finalUrl}\nHTTP status: ${status}\nContent-Type: ${contentType}${truncated ? '\n⚠️ content truncated (over 2MB)' : ''}\n\n`;
+            return { ok: true, body: truncate(header + text), finalUrl, status, contentType };
+        }
+        localFailure = 'no extractable text';
     } catch (e) {
-        return { ok: false, error: e && e.message ? e.message : String(e) };
+        localFailure = e && e.message ? e.message : String(e);
     }
+
+    const viaApi = await _fetchViaDeepSeek(url, _ctx, localFailure);
+    if (viaApi) return viaApi;
+    return { ok: false, error: localFailure };
 }
 
 // String variant: keeps the tool-call contract unchanged (the agent loop expects a string).

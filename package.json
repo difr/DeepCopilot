@@ -90,11 +90,6 @@
         "icon": "$(globe)"
       },
       {
-        "command": "deepseekAgent.setTavilyKey",
-        "title": "Deep Copilot: Set Tavily API Key (Web Search)",
-        "icon": "$(search)"
-      },
-      {
         "command": "deepseekAgent.restartServer",
         "title": "Deep Copilot: Restart Backend",
         "icon": "$(refresh)"
@@ -288,14 +283,15 @@
         "deepseekAgent.webSearchProvider": {
           "type": "string",
           "default": "auto",
-          "enum": ["auto", "tavily", "duckduckgo", "bing"],
+          "enum": ["auto", "deepseek", "free", "duckduckgo", "bing"],
           "enumDescriptions": [
-            "Auto — Tavily when a key is set, otherwise DuckDuckGo chain or Bing as final fallback",
-            "Tavily — best quality, requires API key (1000 free searches/month)",
-            "DuckDuckGo — no API key required, Lite/HTML endpoints with ranking",
-            "Bing — no API key required, uses Bing RSS"
+            "Auto — DeepSeek Search first, fallback to the free providers when it fails",
+            "DeepSeek — DeepSeek Search only, no fallback",
+            "Free — DuckDuckGo, then Bing RSS",
+            "DuckDuckGo — DuckDuckGo only",
+            "Bing — Bing RSS only"
           ],
-          "description": "Web search backend. Tavily requires an API key; DuckDuckGo and Bing work out of the box without an API key. Auto uses Tavily when a key is configured and falls back to the DuckDuckGo chain otherwise."
+          "description": "Web search backend. DeepSeek Search needs the DeepSeek API key that is already configured and is billed per successful request; DuckDuckGo and Bing need no key. Auto uses DeepSeek while it answers, falls back to DuckDuckGo then Bing, and reports when it had to."
         },
         "deepseekAgent.postEditDiagnostics": {
           "type": "boolean",

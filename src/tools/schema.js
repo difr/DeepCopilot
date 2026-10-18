@@ -215,15 +215,13 @@ const TOOL_DEFS = [
         type: 'function',
         function: {
             name: 'web_search',
-            description: 'Search the live web for up-to-date information. Use ONLY when the user asks about recent events, current versions, latest documentation, news, or facts that may have changed after your training data. Do NOT use for code that lives in the workspace (use grep_search/read_file). Returns a single Markdown-formatted text report (not a JSON array): a "Query:" line, then a numbered list of results (title, URL, snippet). With Tavily, an optional "## Synthesized answer" section may precede the results; when no provider found strongly relevant matches, the report is prepended with a "> Low-confidence results ... Verify before citing." notice instead — treat those results as unverified leads. Backend is chosen by the user via the "deepseekAgent.webSearchProvider" setting: "auto" (default — Tavily when a key is configured, otherwise the no-key chain DuckDuckGo Lite → DuckDuckGo HTML → Bing), "tavily" (requires API key set via command "Deep Copilot: Set Tavily API Key"), "duckduckgo" (the same no-key chain) or "bing" (Bing RSS only). Safe to call without any API key.',
+            description: 'Search the live web for up-to-date information. Use ONLY when the user asks about recent events, current versions, latest documentation, news, or facts that may have changed after your training data. Do NOT use for code that lives in the workspace (use grep_search/read_file). Returns a single Markdown-formatted text report (not a JSON array): a "Query:" line, then a numbered list of results with title, URL, a publication date and authority grade when the backend reports them, and a summary or snippet. When no provider found strongly relevant matches, the report is prepended with a "> Low-confidence results ... Verify before citing." notice — treat those results as unverified leads. Backend is chosen by the user via the "deepseekAgent.webSearchProvider" setting: "auto" (default — DeepSeek Search while it answers, then DuckDuckGo and Bing), "deepseek" (DeepSeek Search only, failures reported rather than silently substituted), "free" (DuckDuckGo then Bing), "duckduckgo" or "bing" (that backend alone). Safe to call without any API key.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'The search query. Be specific. Use natural language; do not include site: operators unless necessary.' },
                     max_results: { type: 'integer', description: 'Maximum number of results to return (1–10, default 5).' },
                     deep_fetch: { type: 'integer', description: 'Also fetch full content of the top N ranked results (0–5, default 0 = snippets only). Use when you need detailed page content, not just snippets — one call instead of web_search + web_fetch per URL.' },
-                    search_depth: { type: 'string', enum: ['basic', 'advanced'], description: 'basic = fast; advanced = deeper crawl, slower but higher quality. Default basic.' },
-                    include_answer: { type: 'boolean', description: 'If true, ask Tavily to also return a synthesized answer paragraph (default true).' },
                 },
                 required: ['query'],
             },
@@ -247,7 +245,7 @@ const TOOL_DEFS = [
         type: 'function',
         function: {
             name: 'fetch_top',
-            description: 'Deep fetch: run a web search and return the extracted page content of the top N results in one call. Use ONLY when you need the actual content of several pages (compare articles, read docs across sources) and calling web_search + web_fetch repeatedly would be wasteful. Same backends/settings as web_search (Tavily if a key is configured, otherwise DuckDuckGo with Bing fallback — no API key required). Results are truncated to save tokens; the underlying URL fetches block private/internal IPs. Prefer plain web_search when snippets suffice, or web_fetch when you already have the URL.',
+            description: 'Deep fetch: run a web search and return the extracted page content of the top N results in one call. Use ONLY when you need the actual content of several pages (compare articles, read docs across sources) and calling web_search + web_fetch repeatedly would be wasteful. Same backends/settings as web_search (DeepSeek Search when available, otherwise DuckDuckGo / Bing — no API key required). Results are truncated to save tokens; the underlying URL fetches block private/internal IPs. Prefer plain web_search when snippets suffice, or web_fetch when you already have the URL.',
             parameters: {
                 type: 'object',
                 properties: {

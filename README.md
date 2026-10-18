@@ -26,14 +26,13 @@ You only need the following keys to get started — at minimum just the first on
 
 | # | API Key | Purpose | Get it here | Required |
 | --- | --- | --- | --- | --- |
-| 1 | **DeepSeek API Key** | Powers all AI chat & agent tool calls | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) | Required |
-| 2 | **Tavily API Key** | Enables the `web_search` tool | [app.tavily.com](https://app.tavily.com) | Optional |
+| 1 | **DeepSeek API Key** | Powers chat, agent tool calls, and web search | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) | Required |
 
 ### How to set them
 
 1. After installing, click the 🐋 icon in the activity bar to open the Deep Copilot panel
 2. Click the 🔑 button in the **bottom-right** of the panel → paste your **DeepSeek API Key** → save
-3. For web search, fill in your **Tavily API Key** in the same dialog
+3. Web search uses that same key: DeepSeek Search while it answers, with DuckDuckGo and Bing as free fallbacks. Choose the backend with the `webSearchProvider` setting
 
 > China users: if `api.deepseek.com` is slow, set Base URL to `https://api.deepseeki.com` in the 🔑 dialog.
 
@@ -65,7 +64,7 @@ You only need the following keys to get started — at minimum just the first on
 | **Agentic loop** with multi-turn tool calling on DeepSeek V4 (Pro / Flash / Reasoner) |
 | **File tools**: read, write, str-replace, apply_patch, list dir, find files, ripgrep search |
 | **Shell tool** with configurable approval policy |
-| **Web search** via Tavily (optional API key) |
+| **Web search** via DeepSeek Search, with DuckDuckGo and Bing as free fallbacks |
 | **Plan & Todos** panel — agent maintains a structured plan you can watch tick off |
 | **Revert last turn** — one-click rollback of all file edits in the current agent turn |
 | **Pending edits panel** — GH-Copilot-style review popover above the composer: per-file `+N/-M`, hover Keep/Discard, click row to open native diff editor; survives turn end |
@@ -205,7 +204,7 @@ Chat, tool and shell settings live under the `deepseekAgent.*` namespace in
 | `deepseekAgent.compactHardLimitShare` | `0.9` | Emergency ceiling as a share of the model window (avoids HTTP 400) |
 | `deepseekAgent.postEditDiagnostics` | `true` | Append LSP diagnostics after every file edit |
 | `deepseekAgent.autoResumeMaxPerHour` | `12` | Auto-resumes per session per hour (background wake scheduler) |
-| `deepseekAgent.webSearchProvider` | `auto` | `auto` / `tavily` / `duckduckgo` / `bing` |
+| `deepseekAgent.webSearchProvider` | `auto` | `auto` / `deepseek` / `free` / `duckduckgo` / `bing` |
 | `deepseekAgent.terminal.captureHistory` | `true` | Let `read_terminal` read the integrated terminal's recent output |
 | `deepseekAgent.contextRefs.terminalUseClipboard` | `false` | Let `#terminal` capture the selection through the clipboard |
 | `deepseekAgent.enableDebugLog` | `true` | Log thoughts / tool calls / API events to `.deep-copilot/logs/` |
@@ -274,7 +273,7 @@ Deep Copilot exposes a small, deliberately-minimal tool set to the model:
 | `run_shell` | Run a shell command (approval-gated) |
 | `run_shell_bg` | Run a long-running command in the background with live output |
 | `read_terminal` | Read the recent output of a VS Code integrated terminal |
-| `web_search` | Search the web (Tavily / DuckDuckGo / Bing) |
+| `web_search` | Search the web (DeepSeek Search / Bing / DuckDuckGo) |
 | `web_fetch` | Fetch a URL and return it as plain text |
 | `fetch_top` | Search, then fetch the content of the top results |
 | `update_plan` | Push / update the structured plan & todos panel |

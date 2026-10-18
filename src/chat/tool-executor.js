@@ -527,6 +527,18 @@ class ToolExecutor {
             // the webview tagged with the tool-call id so the card can render
             // a live tail (GH-Copilot-style terminal card).
             const ctx = { abortSignal, secrets: this._context.secrets, sessionId: run?.sessionId ?? null };
+            // The question that put the model here, so a web search can read the intent rather
+            // than only the keywords the model chose. Reminders and checkpoints are skipped:
+            // they are history bookkeeping, not something the user asked.
+            if (run && Array.isArray(run.messages)) {
+                for (let i = run.messages.length - 1; i >= 0; i--) {
+                    const m = run.messages[i];
+                    const text = m && m.role === 'user' && typeof m.content === 'string' ? m.content.trim() : '';
+                    if (!text || /^<(system-reminder|compact-summary)/i.test(text)) continue;
+                    ctx.lastUserText = text.slice(0, 400);
+                    break;
+                }
+            }
             // Issue #167: let run_shell_bg register the just-started jobId
             // into the run's own "session-started" set, so agent-loop's
             // BG_WAIT_SKIPPED_MODEL_DONE guard can refuse to end the turn while

@@ -24,20 +24,12 @@ const STRINGS = {
     firstRunLater:      'Later',
     statusBarTooltip:   'Click to open Deep Copilot',
 
-    // ── Tavily key (web_search) ───────────────────────────────────────────
-    tavilyKeyPrompt:  'Enter your Tavily API key (for web_search; get one at https://app.tavily.com — 1000 free searches/month)',
-    tavilyKeySaved:   'Deep Copilot: Tavily API key saved.',
-    tavilyKeyRemoved: 'Deep Copilot: Tavily API key deleted.',
-
     // ── "API settings" quick pick ─────────────────────────────────────────
     apiStatusTitle:         'Deep Copilot · API Settings',
     apiStatusPlaceholder:   'Pick an item to configure (Esc to close)',
     apiStatusApiKey:        'API key',
     apiStatusRequired:      '(required)',
     apiStatusApiKeyDetail:  'Powers chat and tool calls · get one at platform.deepseek.com/api_keys',
-    apiStatusTavily:        'Tavily API key',
-    apiStatusOptional:      '(optional)',
-    apiStatusTavilyDetail:  'Turns on the web_search tool · app.tavily.com (1000 free/month)',
     apiStatusConfigured:    'Configured · ',
     apiStatusNotSet:        'Not set',
     apiStatusNotSetSearch:  'Not set (web_search disabled)',

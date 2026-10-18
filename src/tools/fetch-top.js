@@ -29,7 +29,7 @@ async function toolFetchTop(args, ctx = {}) {
         if (!query) return 'Error: query is empty.';
 
         const top = _normalizeTop(args.top);
-        const { results, providerName, answer, lowConfidence, deepFetchOutput } = await searchWeb(query, {
+        const { results, providerName, lowConfidence, deepFetchOutput } = await searchWeb(query, {
             max: top,
             deepFetch: top,
             ctx,
@@ -47,9 +47,15 @@ async function toolFetchTop(args, ctx = {}) {
         // searchWeb already truncated the appendix; only guard the whole
         // output so a huge page set cannot blow the context budget.
         return truncate(preamble + `Query: ${query}\nProvider: ${providerName}` +
-            (answer ? `\n\n## Synthesized answer\n${answer}` : '') +
             `\n\n## Top ${list.length} result(s)` +
-            list.map((r, i) => `\n\n### ${i + 1}. ${r.title || r.url}\n${r.url}${r.snippet ? '\n' + r.snippet : ''}`).join('') +
+            list.map((r, i) => {
+                const meta = [];
+                if (r.date) meta.push(`published ${String(r.date).slice(0, 10)}`);
+                if (Number.isFinite(r.authority) && r.authority >= 0) meta.push(`authority ${r.authority}/4`);
+                return `\n\n### ${i + 1}. ${r.title || r.url}\n${r.url}` +
+                    (meta.length ? `\n_${meta.join(' · ')}_` : '') +
+                    (r.snippet ? '\n' + r.snippet : '');
+            }).join('') +
             (deepFetchOutput ? '\n' + deepFetchOutput : ''));
     } catch (e) {
         return `Error: ${e.message || String(e)}`;

@@ -1,16 +1,17 @@
 // web_search: multi-backend web search.
 // Backends:
-//   - Tavily  (requires API key, best quality, synthesized answer)
-//   - DuckDuckGo Lite / HTML (no API key; rotation chain with ranking)
-//   - Bing RSS (no API key, fallback in the chain)
+//   - DeepSeek Search (REST, billed per successful request, uses the DeepSeek API key)
+//   - Bing RSS (no API key)
+//   - DuckDuckGo Lite / HTML (no API key; anti-bot throttling kicks in after a few calls)
 //
 // Provider selection is driven by the 'deepseekAgent.webSearchProvider'
-// setting: 'auto' | 'tavily' | 'duckduckgo' | 'bing'.
-//   - 'auto' (default): Tavily when a key is configured, otherwise a
-//     DuckDuckGo Lite → DuckDuckGo HTML → Bing chain. For `site:` queries the
-//     chain starts with Bing (DDG handles site: poorly).
-//   - 'duckduckgo' / 'bing': that provider's chain (DDG chain includes Bing
-//     as the last fallback).
+// setting: 'auto' | 'deepseek' | 'free' | 'duckduckgo' | 'bing'.
+//   - 'auto' (default): DeepSeek first. On failure (no key, 402, 429, 5xx,
+//     network, empty) it falls back to the free chain and says so in the reply.
+//   - 'deepseek': DeepSeek only. A failure is reported as an error, never
+//     silently replaced by a weaker source.
+//   - 'free': DuckDuckGo, then Bing RSS. Never calls DeepSeek.
+//   - 'duckduckgo' / 'bing': that provider alone.
 //
 // The provider chain is adapted from better-deepseek
 // src/content/files/search-reader.js:
@@ -45,7 +46,7 @@ const { rankSearchResults, extractSearchSignals } = require('./search-quality');
 const { str } = require('../utils/settings');
 
 // Cap on a single HTTP response body to bound memory usage. Web search
-// endpoints (Tavily JSON / Bing RSS / DDG HTML) normally return well under
+// endpoints (DeepSeek Search JSON / Bing RSS / DDG HTML) normally return well under
 // 100 KB; anything bigger than this is almost certainly anomalous.
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
@@ -269,6 +270,13 @@ function _decodeXmlEntities(s) {
     return out.replace(/\s{2,}/g, ' ').trim();
 }
 
+// RSS pubDate is RFC 822 ("Thu, 23 Apr 2026 12:00:00 GMT"). Normalised to ISO so the report
+// prints the same thing for every backend: only the date part is shown.
+function _parseRssDate(value) {
+    const t = Date.parse(String(value || '').trim());
+    return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
 function _parseBingRss(xml) {
     const results = [];
     const items = String(xml || '').split('<item>').slice(1);
@@ -277,11 +285,13 @@ function _parseBingRss(xml) {
         const linkM  = item.match(/<link>([\s\S]*?)<\/link>/i)
                     || item.match(/<link\s+[^>]*href="([^"]+)"/i);
         const descM  = item.match(/<description>([\s\S]*?)<\/description>/i);
+        const dateM  = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/i);
         if (titleM && linkM) {
             results.push({
                 title:   _decodeXmlEntities(titleM[1]).slice(0, 120),
                 url:     _decodeXmlEntities(linkM[1]).trim(),
                 snippet: descM ? _decodeXmlEntities(descM[1]).slice(0, 300) : '',
+                date:    dateM ? _parseRssDate(_decodeXmlEntities(dateM[1])) : null,
             });
         }
     }
@@ -302,46 +312,11 @@ function _bingRssProvider(query, { max, abortSignal }) {
     };
 }
 
-function _ddgProvider(name, url, abortSignal) {
-    return {
-        name,
-        fetch: () => _get(url, { abortSignal }),
-        parse: (resp) => ({ results: _parseDdgResults(resp.body) }),
-    };
-}
-
-function _ddgProviders(query, { abortSignal }) {
-    const q = encodeURIComponent(query);
-    return [
-        _ddgProvider('DuckDuckGo', DDG_LITE_URL + q, abortSignal),
-        _ddgProvider('DuckDuckGo', DDG_HTML_URL + q, abortSignal),
-    ];
-}
-
-// ─── Tavily backend ────────────────────────────────────────────────────────────
-
-function _tavilySearch(query, { apiKey, max = 5, depth = 'basic', includeAnswer = true, abortSignal } = {}) {
-    const body = JSON.stringify({
-        api_key: apiKey, query, max_results: max,
-        search_depth: depth, include_answer: includeAnswer,
-        include_raw_content: false, include_images: false,
-    });
-    return _request({
-        method: 'POST', protocol: 'https:', hostname: 'api.tavily.com', path: '/search',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-    }, body, 20000, abortSignal).then((res) => {
-        if (res.status < 200 || res.status >= 300)
-            throw new Error(`Tavily HTTP ${res.status}: ${res.body.slice(0, 200)}`);
-        let data;
-        try { data = JSON.parse(res.body); }
-        catch (e) { throw new Error(`Tavily returned non-JSON response: ${e.message} (body preview: ${res.body.slice(0, 200)})`); }
-        const results = (Array.isArray(data.results) ? data.results : []).map(r => ({
-            title:   cleanSearchText(r.title),
-            url:     r.url,
-            snippet: cleanSearchText(r.content),
-        }));
-        return { results, answer: (includeAnswer && data.answer) ? data.answer : undefined };
-    });
+// ─── DeepSeek Search backend ──────────────────────────────────────────────────
+// The endpoint itself lives in deepseek-web.js, next to the Fetch call web_fetch falls back
+// to, so both know one place for the base URL, the key and the billing model.
+function _deepseekSearch(query, opts = {}) {
+    return require('./deepseek-web').search({ ...opts, query });
 }
 
 // ─── Provider rotation chain ──────────────────────────────────────────────────
@@ -446,11 +421,14 @@ async function _runSearchChain(query, { max, providers }) {
 const LOW_CONFIDENCE_NOTICE =
     '> ⚠️ Low-confidence results: no search provider returned strongly relevant matches. Verify before citing.';
 
-function _formatResults(query, results, providerName, answer, lowConfidence) {
+// Characters of a result's summary kept in the report. DeepSeek writes 2000-3000 here against
+// a documented 600-800; the opening part is what gets cited, the rest is context budget.
+const RESULT_SNIPPET_MAX = 700;
+
+function _formatResults(query, results, lowConfidence) {
     const lines = [];
     if (lowConfidence) lines.push(LOW_CONFIDENCE_NOTICE, '');
     lines.push(`Query: ${query}`);
-    if (answer) lines.push('', '## Synthesized answer', answer);
     if (!results.length) {
         lines.push('', '(No results.)');
     } else {
@@ -463,7 +441,16 @@ function _formatResults(query, results, providerName, answer, lowConfidence) {
             }
             lines.push('', `### ${i + 1}. ${title}`);
             if (r.url) lines.push(r.url);
-            const snippet = cleanSearchText(r.snippet);
+            // DeepSeek Search also reports a publication date and an authority grade. Showing
+            // them lets the model weigh a two-year-old blog post against a current document.
+            const meta = [];
+            if (r.date) meta.push(`published ${String(r.date).slice(0, 10)}`);
+            if (Number.isFinite(r.authority) && r.authority >= 0) meta.push(`authority ${r.authority}/4`);
+            if (meta.length) lines.push(`_${meta.join(' · ')}_`);
+            // DeepSeek's summary runs 2000-3000 characters against a documented 600-800. The
+            // first part is what actually gets cited; the rest is context budget spent.
+            let snippet = cleanSearchText(r.snippet);
+            if (snippet.length > RESULT_SNIPPET_MAX) snippet = snippet.slice(0, RESULT_SNIPPET_MAX).trimEnd() + '…';
             if (snippet) lines.push(snippet);
         });
     }
@@ -519,6 +506,48 @@ async function _deepFetchPages(results, top, fetchPage, abortSignal = null) {
 
 // ─── Main dispatch ─────────────────────────────────────────────────────────────
 
+// Settings from an older version may still say 'tavily'; that backend is gone, so it behaves
+// like 'auto' rather than silently disabling search.
+function _resolveSearchSetting(raw) {
+    const v = String(raw || '').trim();
+    if (v === 'tavily') return 'auto';
+    return ['auto', 'deepseek', 'free', 'duckduckgo', 'bing'].includes(v) ? v : 'auto';
+}
+
+async function _deepseekKey(ctx) {
+    return require('./deepseek-web').keyFrom(ctx);
+}
+
+// The Search endpoints live on the DeepSeek host. A custom apiBaseUrl counts only when the
+// chat provider is DeepSeek itself, otherwise the registry default is the right host.
+function _deepseekBaseUrl(cfg) {
+    return require('./deepseek-web').resolveBaseUrl(cfg);
+}
+
+// One DuckDuckGo provider that does not burn two requests on a throttled IP: HTTP 202 means
+// the block is per-address, so the HTML endpoint would answer the same. The second request
+// only runs when the Lite page came back empty without being throttled.
+function _ddgProviderResilient(query, abortSignal) {
+    const q = encodeURIComponent(query);
+    return {
+        name: 'DuckDuckGo',
+        fetch: async () => {
+            const lite = await _get(DDG_LITE_URL + q, { abortSignal });
+            const liteResults = _parseDdgResults(lite.body);
+            if (liteResults.length || _isChallengePage(lite.body, lite.status)) return lite;
+            return _get(DDG_HTML_URL + q, { abortSignal });
+        },
+        parse: (resp) => ({ results: _parseDdgResults(resp.body) }),
+    };
+}
+
+function _logSearch(entry) {
+    try {
+        const { Logger } = require('../logger');
+        Logger.info('WEB_SEARCH', entry);
+    } catch { /* logging must never break a search */ }
+}
+
 /**
  * Run a web search and return structured results.
  *
@@ -527,59 +556,121 @@ async function _deepFetchPages(results, top, fetchPage, abortSignal = null) {
  * `deepFetch > 0` additionally fetches the top N ranked pages and returns
  * the content appendix in `deepFetchOutput` (port of bds searchWeb deepFetch).
  *
+ * Backend selection follows `deepseekAgent.webSearchProvider`; see the header.
+ *
  * @param {string} query
- * @param {{ max?: number, deepFetch?: number, searchDepth?: string, includeAnswer?: boolean, ctx?: object }} opts
+ * @param {{ max?: number, deepFetch?: number, ctx?: object }} opts
  * @returns {Promise<{ results: Array<{title,url,snippet}>, providerName: string, answer?: string, lowConfidence?: boolean, deepFetchOutput?: string }>}
  * @throws {Error} when no results / all providers fail / key missing.
  */
-async function searchWeb(query, { max = 5, deepFetch = 0, searchDepth = 'basic', includeAnswer = true, ctx = {} } = {}) {
+async function searchWeb(query, { max = 5, deepFetch = 0, ctx = {} } = {}) {
     const abortSignal = ctx.abortSignal;
 
     const vscode  = require('vscode');
     const cfg     = vscode.workspace.getConfiguration('deepseekAgent');
-    const setting = str(cfg.get('webSearchProvider')) || 'auto';
+    const setting = _resolveSearchSetting(str(cfg.get('webSearchProvider')));
+    const startedAt = Date.now();
 
-    if (setting === 'tavily' || setting === 'auto') {
-        const secrets = ctx.secrets;
-        const apiKey  = secrets ? await secrets.get('deepseekAgent.tavilyKey') : undefined;
-        if (setting === 'tavily' && !apiKey) {
-            throw new Error('Tavily API key not configured. Run command "Deep Copilot: Set Tavily API Key" or switch webSearchProvider to "auto"/"duckduckgo"/"bing" in settings (no key required).');
-        }
-        if (apiKey) {
-            const depth = searchDepth === 'advanced' ? 'advanced' : 'basic';
-            const { results, answer } = await _tavilySearch(query, { apiKey, max, depth, includeAnswer, abortSignal });
-            const deepFetchOutput = deepFetch > 0
-                ? await _deepFetchPages(results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
-                : '';
-            return { results, providerName: 'Tavily', answer, lowConfidence: false, deepFetchOutput };
-        }
-        // 'auto' without a key — fall through to the DDG chain.
-    }
-
-    if (setting === 'bing') {
-        const { results, providerName, answer, lowConfidence } = await _runSearchChain(query, {
-            max,
-            providers: [_bingRssProvider(query, { max, abortSignal })],
-        });
+    const finish = async (payload) => {
         const deepFetchOutput = deepFetch > 0
-            ? await _deepFetchPages(results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
+            ? await _deepFetchPages(payload.results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
             : '';
-        return { results, providerName, answer, lowConfidence, deepFetchOutput };
+        _logSearch({
+            setting,
+            provider:       payload.providerName,
+            level:          payload.level,
+            results:        payload.results.length,
+            low_confidence: !!payload.lowConfidence,
+            fallback_reason: payload.fallbackReason || null,
+            elapsed_ms:     Date.now() - startedAt,
+        });
+        return { ...payload, deepFetchOutput };
+    };
+
+    // A failed search used to leave nothing in the log — exactly when the log is needed.
+    const fail = (e) => {
+        _logSearch({
+            setting,
+            provider:        null,
+            level:           'failed',
+            results:         0,
+            low_confidence:  true,
+            fallback_reason: fallbackReason,
+            error:           String((e && e.message) || e).slice(0, 200),
+            elapsed_ms:      Date.now() - startedAt,
+        });
+        return e;
+    };
+
+    // Level 1: DeepSeek Search. The only backend that returns ready-to-read summaries,
+    // publication dates and its own relevance and authority grades.
+    let fallbackReason = null;
+    if (setting === 'auto' || setting === 'deepseek') {
+        const apiKey = await _deepseekKey(ctx);
+        if (!apiKey) {
+            if (setting === 'deepseek') {
+                throw new Error('DeepSeek API key is not configured, and webSearchProvider is "deepseek". Set the key or switch the setting to "auto".');
+            }
+            fallbackReason = 'no_key';
+        } else {
+            try {
+                const { results } = await _deepseekSearch(query, {
+                    apiKey,
+                    baseUrl:    _deepseekBaseUrl(cfg),
+                    max,
+                    oriQuestion: ctx.lastUserText,
+                    abortSignal,
+                });
+                if (results.length) {
+                    return finish({
+                        results,
+                        providerName: 'DeepSeek',
+                        level:        'primary',
+                        // Its own rerank score is the honest quality signal we have.
+                        lowConfidence: !results.some(r => r.score >= 1.5),
+                    });
+                }
+                if (setting === 'deepseek') throw fail(new Error(`No search results found for query: ${query}.`));
+                fallbackReason = 'empty';
+            } catch (e) {
+                // 400/401/403 are our mistakes, not a reason to substitute a weaker source.
+                const status = Number(e.status) || 0;
+                const recoverable = !status || status === 402 || status === 408 || status === 429 || status >= 500;
+                if (setting === 'deepseek' || !recoverable) throw fail(e);
+                fallbackReason = status ? `http_${status}` : 'error';
+            }
+        }
     }
 
-    // 'auto' (no key) / 'duckduckgo' — DDG chain with Bing as last fallback.
-    // site: queries start with Bing (DDG ranks site: poorly).
-    const ddg = _ddgProviders(query, { abortSignal });
+    // Level 2: the free providers. DuckDuckGo first — it reads technical queries far better —
+    // with Bing as the safety net, because DDG throttles the address after a handful of calls
+    // and Bing never does. The explicit 'duckduckgo' / 'bing' modes run only that one.
     const bing = _bingRssProvider(query, { max, abortSignal });
-    const providers = extractSearchSignals(query).includeSites.length > 0
-        ? [bing, ...ddg]
-        : [...ddg, bing];
+    const ddg  = _ddgProviderResilient(query, abortSignal);
+    let providers;
+    if (setting === 'bing') providers = [bing];
+    else if (setting === 'duckduckgo') providers = [ddg];
+    else providers = [ddg, bing];
 
-    const chainResult = await _runSearchChain(query, { max, providers });
-    const deepFetchOutput = deepFetch > 0
-        ? await _deepFetchPages(chainResult.results, deepFetch, (url) => _fetchPageText(url, ctx), abortSignal)
-        : '';
-    return { ...chainResult, deepFetchOutput };
+    let free;
+    try {
+        free = await _runSearchChain(query, { max, providers });
+    } catch (e) {
+        throw fail(e);
+    }
+    // Bing tokenises non-ASCII queries badly (a Russian question matches its first word),
+    // so a lone Bing answer to such a query is never presented as a confident result.
+    const nonAscii = /[^\x00-\x7F]/.test(query);
+    const lowConfidence = !!free.lowConfidence || (free.providerName === 'Bing' && nonAscii);
+    return finish({
+        results:      free.results,
+        providerName: free.providerName,
+        // 'fallback' means "DeepSeek failed and we are covering for it", which only happens in
+        // auto. In free/bing/duckduckgo this is the chosen backend, not a substitute.
+        level:        setting === 'auto' ? 'fallback' : 'primary',
+        lowConfidence,
+        fallbackReason,
+    });
 }
 
 /** Fetch one page's text via web-fetch (SSRF-blocked). */
@@ -597,14 +688,12 @@ async function toolWebSearch(args, ctx = {}) {
 
         const max      = Math.max(1, Math.min(10, Number.isFinite(args.max_results) ? args.max_results : 5));
         const deepFetch = Math.max(0, Math.min(5, Number.isFinite(args.deep_fetch) ? args.deep_fetch : 0));
-        const { results, providerName, answer, lowConfidence, deepFetchOutput } = await searchWeb(query, {
+        const { results, lowConfidence, deepFetchOutput } = await searchWeb(query, {
             max,
             deepFetch,
-            searchDepth: args.search_depth,
-            includeAnswer: args.include_answer !== false,
             ctx,
         });
-        const base = _formatResults(query, results, providerName, answer, lowConfidence);
+        const base = _formatResults(query, results, lowConfidence);
         return deepFetchOutput ? truncate(base + '\n' + deepFetchOutput) : base;
     } catch (e) { return `Error: ${e.message || String(e)}`; }
 }
@@ -619,6 +708,8 @@ module.exports = {
     _isChallengePage,
     _runSearchChain,
     _formatResults,
+    _resolveSearchSetting,
+    _ddgProviderResilient,
     formatDeepFetchContent,
     _deepFetchPages,
     _parseBingRss,

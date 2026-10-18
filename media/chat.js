@@ -2467,7 +2467,7 @@
   });
   /* ── Settings Modal state ── */
   var _stgOpen = false;
-  var _stgDsKeySet = false, _stgTvKeySet = false;
+  var _stgDsKeySet = false;
   var _stgOrigBaseUrl = '';
   var _stgOrigProvider = 'deepseek';
   var _stgOrigWsProvider = 'auto';
@@ -2483,12 +2483,6 @@
   var stgBaseUrl   = document.getElementById('s-base-url');
   var stgBaseReset = document.getElementById('s-base-url-reset');
   var stgWsProvider = document.getElementById('s-ws-provider');
-  var stgTvSection  = document.getElementById('s-tv-section');
-  var stgTvKey     = document.getElementById('s-tv-key');
-  var stgTvEye     = document.getElementById('s-tv-key-eye');
-  var stgTvTest    = document.getElementById('s-tv-test');
-  var stgTvResult  = document.getElementById('s-tv-result');
-  var stgTvLink    = document.getElementById('s-tv-link');
   var stgDirtyBar  = document.getElementById('s-dirty-bar');
   var stgDiscard   = document.getElementById('s-discard');
   var stgCancelBtn = document.getElementById('settingsCancelBtn');
@@ -2497,7 +2491,6 @@
 
   function _stgIsDirty(){
     return (stgDsKey && stgDsKey.value !== '') ||
-           (stgTvKey && stgTvKey.value !== '') ||
            (stgBaseUrl && stgBaseUrl.value !== _stgOrigBaseUrl) ||
            (stgProvider && stgProvider.value !== _stgOrigProvider) ||
            (stgWsProvider && stgWsProvider.value !== _stgOrigWsProvider);
@@ -2517,29 +2510,19 @@
       }, 5000);
     }
   }
-  function _stgUpdateWsProvider(){
-    var v = stgWsProvider ? stgWsProvider.value : 'auto';
-    if (stgTvSection) stgTvSection.style.display = (v === 'tavily' || v === 'auto') ? '' : 'none';
-  }
-  if (stgWsProvider) stgWsProvider.addEventListener('change', function(){
-    _stgUpdateWsProvider();
-    _stgUpdateDirtyBar();
-  });
 
   function openSettingsModal(){
     if (_stgOpen) return;
     _stgOpen = true;
     if (stgOverlay) stgOverlay.style.display = 'flex';
     if (stgDsKey) stgDsKey.value = '';
-    if (stgTvKey) stgTvKey.value = '';
     if (stgBaseUrl) stgBaseUrl.value = '';
     _stgOrigBaseUrl = '';
     _stgOrigProvider = 'deepseek';
     _stgOrigWsProvider = 'auto';
-    _stgDsKeySet = false; _stgTvKeySet = false;
+    _stgDsKeySet = false;
     if (stgDirtyBar) stgDirtyBar.style.display = 'none';
     _stgSetResult(stgDsResult, 'ds', '', '');
-    _stgSetResult(stgTvResult, 'tv', '', '');
     vscode.postMessage({ type: 'openApiSettings' });
     setTimeout(function(){ if (stgDsKey) stgDsKey.focus(); }, 80);
     document.addEventListener('keydown', _stgEscHandler);
@@ -2565,18 +2548,14 @@
   stgCancelBtn && stgCancelBtn.addEventListener('click', function(){ closeSettingsModal(true); });
   stgDiscard   && stgDiscard.addEventListener('click',   function(){
     if (stgDsKey) stgDsKey.value = '';
-    if (stgTvKey) stgTvKey.value = '';
     if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
     if (stgProvider) stgProvider.value = _stgOrigProvider;
-    if (stgWsProvider) {
-      stgWsProvider.value = _stgOrigWsProvider;
-      _stgUpdateWsProvider();
-    }
+    if (stgWsProvider) stgWsProvider.value = _stgOrigWsProvider;
     closeSettingsModal(true);
   });
   stgDsKey  && stgDsKey.addEventListener('input',  _stgUpdateDirtyBar);
-  stgTvKey  && stgTvKey.addEventListener('input',  _stgUpdateDirtyBar);
   stgBaseUrl && stgBaseUrl.addEventListener('input', _stgUpdateDirtyBar);
+  stgWsProvider && stgWsProvider.addEventListener('change', _stgUpdateDirtyBar);
   stgProvider && stgProvider.addEventListener('change', function(){
     var p = stgProvider.value;
     var defaultUrl = PROVIDER_URLS[p] || '';
@@ -2596,10 +2575,6 @@
     if (!stgDsKey) return;
     stgDsKey.type = stgDsKey.type === 'password' ? 'text' : 'password';
   });
-  stgTvEye && stgTvEye.addEventListener('click', function(){
-    if (!stgTvKey) return;
-    stgTvKey.type = stgTvKey.type === 'password' ? 'text' : 'password';
-  });
   stgBaseReset && stgBaseReset.addEventListener('click', function(){
     if (stgBaseUrl) {
       var p = stgProvider ? stgProvider.value : 'deepseek';
@@ -2613,10 +2588,6 @@
     var url = PROVIDER_KEY_LINKS[p] || 'https://platform.deepseek.com/api_keys';
     vscode.postMessage({ type: 'openExternal', url: url });
   });
-  stgTvLink && stgTvLink.addEventListener('click', function(e){
-    e.preventDefault();
-    vscode.postMessage({ type: 'openExternal', url: 'https://app.tavily.com' });
-  });
   stgDsTest && stgDsTest.addEventListener('click', function(){
     var key = stgDsKey ? stgDsKey.value.trim() : '';
     var url = stgBaseUrl ? stgBaseUrl.value.trim() : '';
@@ -2625,22 +2596,14 @@
     if (stgDsTest) stgDsTest.disabled = true;
     vscode.postMessage({ type: 'testApiKey', which: 'ds', key: key || null, baseUrl: url || null, provider: provider });
   });
-  stgTvTest && stgTvTest.addEventListener('click', function(){
-    var key = stgTvKey ? stgTvKey.value.trim() : '';
-    _stgSetResult(stgTvResult, 'tv', 'pending', '⟳ Testing...');
-    if (stgTvTest) stgTvTest.disabled = true;
-    vscode.postMessage({ type: 'testApiKey', which: 'tv', key: key || null });
-  });
   stgSaveBtn && stgSaveBtn.addEventListener('click', function(){
     var dsKey      = stgDsKey     ? stgDsKey.value.trim()     : null;
-    var tvKey      = stgTvKey     ? stgTvKey.value.trim()     : null;
     var baseUrl    = stgBaseUrl   ? stgBaseUrl.value.trim()   : null;
     var provider   = stgProvider  ? stgProvider.value         : 'deepseek';
     var wsProvider = stgWsProvider ? stgWsProvider.value : 'auto';
     vscode.postMessage({
       type: 'saveApiSettings',
       dsKey:          dsKey   || null,
-      tvKey:          tvKey   || null,
       baseUrl:        baseUrl !== null ? baseUrl : _stgOrigBaseUrl,
       provider:       provider,
       webSearchProvider: wsProvider,
@@ -2663,17 +2626,12 @@
       setPricingMode(m.mode);
     } else if (m.type === "settingsLoaded"){
       _stgDsKeySet = !!m.dsKeySet;
-      _stgTvKeySet = !!m.tvKeySet;
       _stgOrigBaseUrl = m.baseUrl || '';
       _stgOrigProvider = m.provider || 'deepseek';
       if (stgDsKey) { stgDsKey.value = ''; stgDsKey.placeholder = _stgDsKeySet ? (m.dsKeyHint || '(configured)') : 'sk-...'; }
-      if (stgTvKey) { stgTvKey.value = ''; stgTvKey.placeholder = _stgTvKeySet ? (m.tvKeyHint || '(configured)') : 'tvly-...'; }
       if (stgBaseUrl) stgBaseUrl.value = _stgOrigBaseUrl;
       _stgOrigWsProvider = m.webSearchProvider || 'auto';
-      if (stgWsProvider) {
-        stgWsProvider.value = _stgOrigWsProvider;
-        _stgUpdateWsProvider();
-      }
+      if (stgWsProvider) stgWsProvider.value = _stgOrigWsProvider;
       if (stgProvider) {
         stgProvider.value = _stgOrigProvider;
         // Update the key link for the current provider
@@ -2688,14 +2646,12 @@
         }
       }
     } else if (m.type === "testApiKeyResult"){
-      var which = m.which;
-      var el = which === 'ds' ? stgDsResult : stgTvResult;
-      var btn = which === 'ds' ? stgDsTest : stgTvTest;
-      if (btn) btn.disabled = false;
+      if (m.which !== 'ds') return;
+      if (stgDsTest) stgDsTest.disabled = false;
       if (m.ok){
-        _stgSetResult(el, which, 'ok', '\u2713 Connected \xb7 ' + (m.latency || 0) + 'ms');
+        _stgSetResult(stgDsResult, 'ds', 'ok', '\u2713 Connected \xb7 ' + (m.latency || 0) + 'ms');
       } else {
-        _stgSetResult(el, which, 'err', '\u2717 ' + (m.error || 'Failed'));
+        _stgSetResult(stgDsResult, 'ds', 'err', '\u2717 ' + (m.error || 'Failed'));
       }
     } else if (m.type === "thinking"){
       thk.style.display = m.show ? "block" : "none";
