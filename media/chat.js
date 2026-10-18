@@ -1026,6 +1026,165 @@
     return d;
   }
 
+  /* Stored replies keep their <ask> block so the prompt prefix still matches what the model
+     produced; when replaying history the block is dropped from the view. Same rules as the
+     streaming gate: only at the start of a line, never inside a fenced code block — otherwise
+     an example in ``` would vanish from an old reply. */
+  function stripAskMarkup(s){
+    var text = String(s || "");
+    var out = "";
+    var i = 0;
+    for (;;){
+      var at = text.indexOf("<ask>", i);
+      if (at < 0){ out += text.slice(i); break; }
+      var lineStart = at === 0 || text.charAt(at - 1) === "\n";
+      var fences = (text.slice(0, at).match(/^```/gm) || []).length;
+      if (!lineStart || fences % 2 === 1){
+        out += text.slice(i, at + 5);
+        i = at + 5;
+        continue;
+      }
+      out += text.slice(i, at);
+      var close = text.indexOf("</ask>", at + 5);
+      i = close < 0 ? text.length : close + 6;
+    }
+    return out.replace(/\s+$/, "");
+  }
+
+  /* ─── <ask> panel: questions the model asked ─────────────────────
+     The answers are assembled into a markdown request and put into the
+     composer ABOVE the draft, so the user can edit before sending. The panel
+     is transient: it disappears after Insert, Dismiss, or the next turn. */
+  function renderAskPanel(questions){
+    if (!Array.isArray(questions) || !questions.length) return;
+    var bubbles = msgs.querySelectorAll(".msgA");
+    var host = curBubble || (bubbles.length ? bubbles[bubbles.length - 1] : ensureBubble());
+    var flow = host.querySelector(".flow") || host;
+    if (flow.querySelector(".askPanel")) return;   /* one panel per reply */
+
+    var card = document.createElement("div");
+    card.className = "askPanel";
+
+    var hd = document.createElement("div");
+    hd.className = "askHd";
+    hd.textContent = "Answer " + questions.length + (questions.length === 1 ? " question" : " questions");
+    card.appendChild(hd);
+
+    var list = document.createElement("div");
+    list.className = "askList";
+    card.appendChild(list);
+
+    var picked = {};
+    var custom = {};
+
+    questions.forEach(function(q, qi){
+      var item = document.createElement("div");
+      item.className = "askItem";
+
+      var qt = document.createElement("div");
+      qt.className = "askQ";
+      qt.innerHTML = '<span class="askNum">' + (qi + 1) + '</span>' + escHtml(q.question);
+      item.appendChild(qt);
+
+      if (q.type === "text"){
+        var ta = document.createElement("textarea");
+        ta.className = "askTa";
+        ta.rows = 2;
+        ta.placeholder = "Your answer…";
+        ta.addEventListener("input", function(){ custom[q.id] = ta.value; });
+        item.appendChild(ta);
+      } else {
+        var opts = document.createElement("div");
+        opts.className = "askOpts";
+        (q.options || []).forEach(function(opt){
+          var lab = document.createElement("label");
+          lab.className = "askOpt";
+          var box = document.createElement("input");
+          box.type = q.type === "multi" ? "checkbox" : "radio";
+          box.name = "ask_" + q.id;
+          box.value = opt;
+          box.addEventListener("change", function(){
+            if (q.type === "multi"){
+              var cur = picked[q.id] || [];
+              var at = cur.indexOf(opt);
+              if (box.checked && at < 0) cur.push(opt);
+              if (!box.checked && at >= 0) cur.splice(at, 1);
+              picked[q.id] = cur;
+            } else {
+              picked[q.id] = opt;
+            }
+          });
+          lab.appendChild(box);
+          lab.appendChild(document.createTextNode(" " + opt));
+          opts.appendChild(lab);
+        });
+        item.appendChild(opts);
+
+        if (q.allowCustom){
+          var own = document.createElement("input");
+          own.type = "text";
+          own.className = "askOwn";
+          own.placeholder = "Or type your own…";
+          own.addEventListener("input", function(){ custom[q.id] = own.value; });
+          item.appendChild(own);
+        }
+      }
+      list.appendChild(item);
+    });
+
+    /* A question may carry newlines: the model writes prose, not one-liners. Every line is
+       quoted on its own so a multi-line question stays one block instead of leaking its tail
+       into the answers. Blocks are separated by a blank line; inside a block there is none. */
+    function quoteLines(text){
+      return String(text || "").split(/\r?\n/).map(function(l){ return "> " + l.trim(); }).join("\n");
+    }
+
+    function collect(){
+      var blocks = [];
+      questions.forEach(function(q){
+        var own = String(custom[q.id] || "").trim();
+        var parts = [];
+        if (q.type === "multi") parts = (picked[q.id] || []).slice();
+        else if (picked[q.id]) parts = [picked[q.id]];
+        if (own) parts.push(own);
+        /* The quoted question is the prompt, the plain lines under it are the answer. No
+           bullets: a bullet would force every answer onto one line, and a multi-line answer
+           is something the user types on purpose. */
+        blocks.push([quoteLines(q.question), parts.length ? parts.join("\n") : "(no answer)"].join("\n"));
+      });
+      return blocks.join("\n\n");
+    }
+
+    var ft = document.createElement("div");
+    ft.className = "askFt";
+
+    var ins = document.createElement("button");
+    ins.className = "askBtn";
+    ins.textContent = "Done";
+    ins.addEventListener("click", function(){
+      var text = collect();
+      var draft = String(inp.value || "").trim();
+      /* Three newlines, not two: the first closes the last answer line, the other two leave a
+         double blank line for whatever the user wants to write next. */
+      inp.value = text + "\n\n\n" + draft;
+      autosize();
+      inp.focus();
+      inp.setSelectionRange(inp.value.length, inp.value.length);
+      if (card.parentNode) card.parentNode.removeChild(card);
+    });
+
+    var dw = document.createElement("button");
+    dw.className = "askBtn askBtnGhost";
+    dw.textContent = "Dismiss";
+    dw.addEventListener("click", function(){ if (card.parentNode) card.parentNode.removeChild(card); });
+
+    ft.appendChild(ins);
+    ft.appendChild(dw);
+    card.appendChild(ft);
+    flow.appendChild(card);
+    ascroll();
+  }
+
   /* Restore reasoning display: create an inline collapsible thinking chip
      inside .flow. Called once per turn when the first thinkingDelta arrives.
      curThkHead / curThk are read by the thinkingDelta, replyDelta and
@@ -2699,6 +2858,10 @@
       inp.value = m.text || ""; autosize(); inp.focus();
       if (es && msgs.querySelectorAll(".msgU,.msgA").length === 0) es.style.display = "block";
     } else if (m.type === "replyStart"){
+      /* A new reply retires the previous panel: its questions belonged to the step
+         that has just been answered. */
+      var oldPanels = msgs.querySelectorAll(".askPanel");
+      for (var opi=0; opi<oldPanels.length; opi++) oldPanels[opi].parentNode.removeChild(oldPanels[opi]);
       curBubble = null; cur = null; curThk = null; curThkHead = null; curText = ""; toolMap = new Map();
       ensureBubble(); ascroll();
       setBusy(true); showCursor();
@@ -3106,6 +3269,8 @@
         groupAllToolRuns();
       }
       curBubble = null; cur = null; curThk = null; curText = "";
+    } else if (m.type === "askPanel"){
+      renderAskPanel(m.questions);
     } else if (m.type === "reply"){
       add("assistant", m.text);
     } else if (m.type === "contextRefError"){
@@ -3221,10 +3386,11 @@
           if (es) es.style.display = "none";
           var d = document.createElement("div");
           d.className = "msgA";
-          d.setAttribute("data-raw", mm.text || "");
+          var body = stripAskMarkup(mm.text || "");
+          d.setAttribute("data-raw", body);
           d.innerHTML = "<div class=\"lbl\">DEEP COPILOT</div><div class=\"msgC\"></div>";
           if (thk && thk.parentNode === msgs) msgs.insertBefore(d, thk); else msgs.appendChild(d);
-          d.querySelector(".msgC").innerHTML = renderMd(mm.text || "");
+          d.querySelector(".msgC").innerHTML = renderMd(body);
           /* Action bar only on the very last assistant bubble (post-load) */
           if (k === msgsArr.length - 1) d.insertAdjacentHTML("beforeend", actionBarHtml());
         }

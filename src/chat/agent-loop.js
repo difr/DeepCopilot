@@ -22,6 +22,7 @@ const {
 } = require('./compact');
 const { readCompactPolicy } = require('./compact-policy');
 const { chatToolsFromSettings, chatSystemPrompt, resolveInteractionMode, buildCompactApiConfig, buildRequestMessages } = require('./compact-request');
+const { AskGate, parseAskBlock, brokenBlockAsCode } = require('./ask-block');
 const { _dropOrphanToolCallGroups } = require('./session-store');
 const { sanitizeForReminder } = require('./digest');
 const {
@@ -329,10 +330,13 @@ class AgentLoop {
         let writeErrorCount   = 0;   // consecutive write-category failures (#40)
         let lastDeltaFlush = 0;
         let pendingDelta   = '';
+        // Holds back a trailing <ask> panel so its tags never flash in the chat as text.
+        let askGate = new AskGate();
         const flushDelta = () => {
             if (!pendingDelta) return;
-            const txt = pendingDelta; pendingDelta = '';
-            this._postToRun(run, { type: 'replyDelta', text: txt });
+            const txt = askGate.push(pendingDelta);
+            pendingDelta = '';
+            if (txt) this._postToRun(run, { type: 'replyDelta', text: txt });
         };
 
         let lastUsageAt = null;
@@ -412,6 +416,9 @@ class AgentLoop {
         try { // P0-2: outer guard — run.busy is always cleared even if the catch handler itself throws
         try {
             while (iter++ < MAX_ITERS) {
+                // A fresh gate per iteration: a panel shown in one iteration must not leave the
+                // gate closed for the next one, or its tags would reach the webview as text.
+                askGate = new AskGate();
                 run._iter = iter;
                 checkAbort();
 
@@ -757,6 +764,7 @@ class AgentLoop {
 
                 const argStreamers = new Map();
                 if (!run._earlyStartedTools) run._earlyStartedTools = new Set();
+                askGate = new AskGate();
                 const STREAMABLE_TOOLS = new Set(['write_file', 'str_replace_in_file', 'apply_patch']);
                 postProgress('waiting_first_token');
 
@@ -800,6 +808,19 @@ class AgentLoop {
                     signal,
                 );
                 flushDelta();
+                // A reply may end with an <ask> panel. Its tags never reached the webview: the
+                // gate held them back, and here they become a panel. When the JSON is unusable
+                // the block is shown as a code fence instead — a bad panel must not cost a reply.
+                const askTail = askGate.finish();
+                if (askTail.rest) this._postToRun(run, { type: 'replyDelta', text: askTail.rest });
+                if (askTail.block) {
+                    const askQuestions = parseAskBlock(askTail.block);
+                    if (askQuestions) {
+                        this._postToRun(run, { type: 'askPanel', questions: askQuestions });
+                    } else {
+                        this._postToRun(run, { type: 'replyDelta', text: '\n\n' + brokenBlockAsCode(askTail.block) });
+                    }
+                }
                 // The request an iteration actually puts on the wire. That is the unit DeepSeek
                 // persists, so compaction replays this array to have the prefix served from its
                 // prompt cache instead of paying for it again. Mirrored outside the run: the run
@@ -1315,6 +1336,9 @@ class AgentLoop {
                 });
                 let tail = '';
                 let tailThoughts = '';
+                // Same gate as the main loop: this reply may end with a panel too, and its tags
+                // must not reach the webview as text here either.
+                const forceGate = new AskGate();
                 // Deliberately not saved as the session snapshot: this request carries the stop
                 // instruction and drops the tool set, so it is not the shape a compaction has to
                 // replay. The iteration above left a snapshot of the real request in place, and it
@@ -1322,11 +1346,25 @@ class AgentLoop {
                 await streamChat(
                     { provider, apiKey, baseUrl, messages: finalMsgs, model, noTools: true },
                     {
-                        onDelta:    t => { tail += t; run.reply.asst += t; this._postToRun(run, { type: 'replyDelta', text: t }); },
+                        onDelta:    t => {
+                            tail += t; run.reply.asst += t;
+                            const visible = forceGate.push(t);
+                            if (visible) this._postToRun(run, { type: 'replyDelta', text: visible });
+                        },
                         onThinking: t => { tailThoughts += t; run.reply.thoughts += t; this._postToRun(run, { type: 'thinkingDelta', text: t }); },
                     },
                     signal,
                 ).catch(e => { Logger.info('FORCE_FINAL_SUMMARY_ERROR', { message: e.message }); return {}; });
+                const forceTail = forceGate.finish();
+                if (forceTail.rest) this._postToRun(run, { type: 'replyDelta', text: forceTail.rest });
+                if (forceTail.block) {
+                    const forceQuestions = parseAskBlock(forceTail.block);
+                    if (forceQuestions) {
+                        this._postToRun(run, { type: 'askPanel', questions: forceQuestions });
+                    } else {
+                        this._postToRun(run, { type: 'replyDelta', text: '\n\n' + brokenBlockAsCode(forceTail.block) });
+                    }
+                }
                 if (tail) run.messages.push({
                     role: 'assistant',
                     content: tail,

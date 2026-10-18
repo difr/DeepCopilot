@@ -42,6 +42,7 @@ function buildSubAgentSystemPrompt(agentType) {
 
 # Rules
 - Work autonomously. Do not ask clarifying questions.
+- Never emit an <ask> panel: it renders only in the parent chat, and there is nobody here to answer it.
 - Be efficient: use targeted tool calls rather than broad exploration.
 - When you have enough information to answer the task, stop calling tools and write your final summary.
 - Budget your iterations: reserve the last one for the final summary. When you are running low, stop reading and write up what you already have — a partial answer with named gaps is far more useful to the parent than no answer at all.

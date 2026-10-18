@@ -733,3 +733,60 @@ body.vscode-light .settings-test-result.ok{color:#267f26}
     background: #7bc47f; margin-left: 5px;
     vertical-align: middle; opacity: .85;
 }
+
+/* ─── <ask> panel ─────────────────────────────────────────────────
+   Transient: shown under the reply that asked, removed on Insert,
+   Dismiss or the next turn. Scrolling lives on .askList so the
+   buttons stay reachable with many questions. */
+.askPanel{
+  margin: 10px 0 4px;
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,.35));
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background, transparent);
+  overflow: hidden;
+}
+.askHd{
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  opacity: .9;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,.25));
+}
+.askList{ max-height: 46vh; overflow-y: auto; padding: 4px 12px; }
+.askItem{ padding: 4px; padding-left: 26px; margin-bottom: 4px; border-bottom: 1px solid rgba(128,128,128,.15); }
+.askItem:last-child{ margin-bottom: 0; border-bottom: 0; }
+.askQ{ display: flex; align-items: flex-start; gap: 8px; margin-left: -26px; font-weight: 600; white-space: pre-wrap; }
+.askNum{
+  flex: 0 0 auto; width: 18px; height: 18px; line-height: 18px; text-align: center;
+  border-radius: 50%; font-size: 11px; font-weight: 700;
+  background: var(--vscode-badge-background, rgba(128,128,128,.25));
+  color: var(--vscode-badge-foreground, inherit);
+}
+.askOpts{ display: flex; flex-direction: column; gap: 4px; margin: 4px 0; }
+.askOpt{ display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; }
+.askOwn, .askTa{
+  width: 100%; box-sizing: border-box; margin: 4px 0;
+  padding: 5px 8px; font: inherit; font-size: 12px;
+  color: var(--vscode-input-foreground, inherit);
+  background: var(--vscode-input-background, transparent);
+  border: 1px solid var(--vscode-input-border, rgba(128,128,128,.4));
+  border-radius: 5px; resize: vertical;
+}
+.askFt{
+  display: flex; gap: 8px; padding: 8px 12px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,.25));
+}
+.askBtn{
+  padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer;
+  color: var(--vscode-button-foreground, #fff);
+  background: var(--vscode-button-background, #0e639c);
+  border: 0; border-radius: 5px;
+}
+.askBtn:hover{ background: var(--vscode-button-hoverBackground, #1177bb); }
+.askBtnGhost{
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,.35));
+}
+.askBtnGhost:hover{ background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.12)); }
