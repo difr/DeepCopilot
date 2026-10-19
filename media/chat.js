@@ -3253,18 +3253,24 @@
       setBusy(false);
       flushRender();
       if (curBubble) {
-        /* Aggregate raw text from all flow segments for copy / regenerate. */
-        var segs = curBubble.querySelectorAll(".flow .msgC.seg");
-        var rawAll = "";
-        for (var si=0; si<segs.length; si++){
-          var raw = segs[si].getAttribute("data-raw");
-          rawAll += (raw != null ? raw : (segs[si].textContent || ""));
-          if (si < segs.length-1) rawAll += "\n";
-        }
+        /* The last segment's data-raw must exist before aggregation: written afterwards it is
+           still null when the loop reads it, and the copy falls back to textContent — rendered
+           text with no markdown and with code-block button labels mixed in. */
         if (cur && cur.classList && cur.classList.contains("seg")){
-          flushRender();
           cur.setAttribute("data-raw", curText || "");
         }
+        /* Aggregate raw text from all flow segments for copy / regenerate. A blank line
+           between segments keeps markdown blocks apart: one newline glued a heading or a list
+           to the paragraph above it. */
+        var segs = curBubble.querySelectorAll(".flow .msgC.seg");
+        var rawParts = [];
+        for (var si=0; si<segs.length; si++){
+          var raw = segs[si].getAttribute("data-raw");
+          rawParts.push(raw != null ? raw : (segs[si].textContent || ""));
+        }
+        /* Empty segments (a service fragment, a cleared bubble) must not leave runs of blank
+           lines in the copied text. */
+        var rawAll = rawParts.filter(function(t){ return String(t || "").trim(); }).join("\n\n");
         if (m.empty && !rawAll.trim() && !curBubble.querySelector(".tool")){
           ensureTextSegment(); cur.textContent = "(no response)";
         }
