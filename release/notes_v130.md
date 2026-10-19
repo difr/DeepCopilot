@@ -83,5 +83,5 @@ it produced.
 ### 🔗 Related
 
 - Upstream: Deep Copilot by ZhouChaunge — this fork is `difred` (`github.com/difr/DeepCopilot`)
-- Previous release: `release/notes_v1200.md`
+- Previous release: `release/notes_v120.md`
 - Full list: `git log fcf697f..HEAD --oneline`

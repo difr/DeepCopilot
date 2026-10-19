@@ -93,5 +93,5 @@ follows it.
 ### 🔗 Related
 
 - Upstream: Deep Copilot by ZhouChaunge — this fork is `difred` (`github.com/difr/DeepCopilot`)
-- Previous release: `release/notes_v1100.md`
+- Previous release: `release/notes_v110.md`
 - Full list: `git log 8e9dce0..HEAD --oneline`

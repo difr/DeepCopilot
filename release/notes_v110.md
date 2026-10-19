@@ -73,5 +73,5 @@ on the editor's.
 ### 🔗 Related
 
 - Upstream: Deep Copilot by ZhouChaunge — this fork is `difred` (`github.com/difr/DeepCopilot`)
-- Previous release: `release/notes_v1000.md`
+- Previous release: `release/notes_v100.md`
 - Full list: `git log c1f4a82..HEAD --oneline`
