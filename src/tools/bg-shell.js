@@ -218,8 +218,8 @@ async function toolRunShellBg(args, ctx = {}) {
             `Background job "${jobId}" started.`,
             usedSI
                 ? [
-                    `Shell integration active — agent-loop will KEEP YOU ON DUTY until this job ends.`,
-                    `You CANNOT close this turn by saying "I'll let you know later": the loop ignores any such promise while this job is alive and will re-invoke you with the real exit code + tail output as a <system-reminder> when the process exits.`,
+                    `Shell integration active — this job keeps your turn alive until it ends: the loop refuses to close while it runs, and will re-invoke you with the real exit code + tail output as a <system-reminder> when the process exits. Do not emit pseudo-completion lines like "I'll let you know later".`,
+                    `If the job will outlive a conversational step, hand the turn back with watch(...) + yield_turn — the "Long-running tasks" section of the system prompt has the details.`,
                     `CRITICAL: do NOT call ping, sleep, Start-Sleep, or any wait/poll command — it wastes time and blocks failure detection.`,
                     `CRITICAL: do NOT call read_terminal now — the system delivers the final result automatically. Either narrate genuine progress, or stay silent until you receive the end-of-job system-reminder.`,
                   ].join('\n')

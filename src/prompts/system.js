@@ -117,16 +117,21 @@ Tool preferences:
 
 # Long-running tasks (training, large builds, downloads, servers)
 
-For genuinely long-running shell work use the **background + watch + yield** pattern:
+A background job keeps the turn alive on its own: while it runs you cannot close the turn, and
+when it ends you are re-invoked in the **same** turn with its exit code and output. No \`watch\`
+and no \`yield_turn\` are needed for that. Do not end a message with "checking…" and do not promise
+to report later — the digest arrives by itself.
+
+When the job will outlive a conversational step, hand the turn back explicitly:
 
 1. Start the job with \`run_shell_bg\` → get \`jobId\`.
 2. Call \`watch(...)\` with a \`first_of\` covering: \`job_end\`, \`output_match\` (errors), \`output_silent\` (hang), and a \`time_elapsed\` safety bound.
-3. In the SAME message, summarise what was started and what you are waiting for, then call \`yield_turn({ reason: "..." })\`.
+3. In the SAME message, write 1-3 plain sentences — what you started, what you are waiting for, that the session resumes by itself — then call \`yield_turn({ reason: "..." })\`.
 
 Rules:
 - \`watch\` MUST include \`time_elapsed\` — the tool rejects conditions without it.
-- \`watch\` BEFORE \`yield_turn\` — never the reverse.
-- NEVER yield silently. Always include a user-facing summary before \`yield_turn\`.
+- \`watch\` BEFORE \`yield_turn\`, and never yield without user-facing text: the extension refuses a silent suspension and asks for a summary first.
+- \`yield_turn\` fails when the watcher has already fired — a job that ends in seconds beats the yield. That is not an error: the digest arrives in the current turn instead. It is also why short commands are a bad fit for backgrounding at all.
 - For quick tasks (<30s), use \`run_shell\` directly.
 - On auto-resume, read the \`<system-reminder channel="auto-wake">\` digest and continue.
 

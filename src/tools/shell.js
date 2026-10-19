@@ -173,10 +173,7 @@ const LONG_RUNNING_PATTERNS = [
     /\btensorboard\b/i,
 
     // Builds known to run for several minutes
-    /\bcargo\s+build\s+--release\b/i,
-    /\bnpm\s+run\s+build\b/i,
-    /\bpnpm\s+run\s+build\b/i,
-    /\byarn\s+build\b/i,
+    /\bcargo\s+build\b/i,
     /\bdocker\s+build\b/i,
     /\bdocker\s+compose\s+(up|build)\b/i,
 ];
@@ -378,9 +375,21 @@ async function toolRunShell(args, ctx = {}) {
     //
     // Opt-out: args.force_foreground === true (explicit override).
     if (!args.force_foreground && _looksLongRunning(command)) {
-        try { Logger.info('SHELL_AUTO_BG_REDIRECT', { command, requestedTimeoutMs: requestedTimeout }); } catch {}
+        const matched = LONG_RUNNING_PATTERNS.filter(re => re.test(command)).map(re => re.source);
         const { toolRunShellBg } = require('./bg-shell');
-        const bgResult = await toolRunShellBg({ command }, ctx);
+        let bgResult;
+        try {
+            bgResult = await toolRunShellBg({ command }, ctx);
+        } catch (e) {
+            try { Logger.info('SHELL_AUTO_BG_REDIRECT', { command, matched, error: e && e.message }); } catch {}
+            throw e;
+        }
+        let jobId;
+        try {
+            const parsed = typeof bgResult === 'string' ? JSON.parse(bgResult) : bgResult;
+            jobId = parsed && parsed.jobId;
+        } catch {}
+        try { Logger.info('SHELL_AUTO_BG_REDIRECT', { command, requestedTimeoutMs: requestedTimeout, matched, jobId }); } catch {}
         // toolRunShellBg returns a JSON string; surface it as-is so the model
         // sees the jobId / status / early-exit details unchanged.
         return typeof bgResult === 'string'
@@ -388,15 +397,15 @@ async function toolRunShell(args, ctx = {}) {
             : JSON.stringify({
                 ...bgResult,
                 autoRedirected: true,
-                hint: `[run_shell] Detected long-running command — automatically delegated to run_shell_bg.`,
+                hint: `[run_shell] Detected long-running command — automatically delegated to run_shell_bg. The "Long-running tasks" section of the system prompt says how to hand the turn back.`,
             });
     }
 
     if (inTerminal) {
-        try { Logger.info('SHELL_MODE', { mode: 'terminal', command }); } catch {}
+        try { Logger.info('SHELL_MODE', { mode: 'terminal', command, force_foreground: args.force_foreground === true, in_terminal: args.in_terminal === true, timeout_ms: timeoutMs }); } catch {}
         return _runInVscodeTerminal(command, ctx, timeoutMs);
     }
-    try { Logger.info('SHELL_MODE', { mode: 'silent', command }); } catch {}
+    try { Logger.info('SHELL_MODE', { mode: 'silent', command, force_foreground: args.force_foreground === true, in_terminal: args.in_terminal === true, timeout_ms: timeoutMs }); } catch {}
 
     return new Promise((resolve) => {
         let proc;
