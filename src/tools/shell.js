@@ -28,12 +28,18 @@ function _detectWinCodepage() {
     return null;
 }
 function _decodeShellChunk(chunk) {
+    /* Windows mixes encodings: cmd built-ins (dir, type) write in the console code page, while
+       node, git, findstr and most modern tools write UTF-8 regardless of it. Decode as UTF-8
+       first — valid multi-byte text is almost certainly UTF-8 — and fall back to the detected
+       code page only when the bytes do not form valid UTF-8. */
+    const utf8 = chunk.toString('utf8');
+    if (!utf8.includes('\uFFFD')) return utf8;
     const cp = _detectWinCodepage();
-    if (!cp) return chunk.toString('utf8');
+    if (!cp) return utf8;
     try {
         const iconv = require('iconv-lite');
         return iconv.decode(chunk, cp);
-    } catch { return chunk.toString('utf8'); }
+    } catch { return utf8; }
 }
 
 // Issue #89: Cache normalized danger-command approvals for the current
