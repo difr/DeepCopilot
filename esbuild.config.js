@@ -22,7 +22,13 @@ function syncCodicons() {
 function syncDomPurify() {
     const src = path.join(__dirname, 'node_modules', 'dompurify', 'dist', 'purify.min.js');
     const dst = path.join(__dirname, 'media', 'purify.min.js');
-    if (fs.existsSync(src)) fs.copyFileSync(src, dst);
+    /* The distributed file ends with a sourceMappingURL comment, but the .map stays in
+       node_modules and never ships. The panel's CSP answers that request with
+       "default-src 'none'" and the console fills with noise on every load. */
+    if (fs.existsSync(src)) {
+        const code = fs.readFileSync(src, 'utf8').replace(/^\/\/# sourceMappingURL=.*$/gm, '');
+        fs.writeFileSync(dst, code);
+    }
 }
 
 // Copy provider definition JSONs from src/providers/ → out/providers/.

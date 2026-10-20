@@ -1,4 +1,4 @@
-# VCS / 工程配置
+# VCS / project config
 .gitignore
 .gitleaksignore
 .eslintrc.json
@@ -6,7 +6,7 @@
 .deep-copilot/**
 **/.git/**
 
-# 打包产物 / 日志
+# Package output / logs
 *.vsix
 session-*.log
 **/*.map
@@ -16,20 +16,25 @@ release/**
 .tmp-*.txt
 .tmp-*.md
 
-# 源码（已通过 esbuild 打包到 out/）
+# Sources (esbuild bundles them into out/)
 src/**
 esbuild.config.js
 node_modules/**
 
-# 文档（保留 README.md 给 Marketplace）
+# Docs (README.md stays for the Marketplace)
 **/*.md
 !README.md
 
-# 杂项脚本 / 工具
+# Misc scripts / tools
 scripts/**
 refine-logs/**
 dangerfile.js
 commitlint.config.mjs
 
-# 测试示例
+# Test examples
 demo_test/**
+
+# Local scratch. tmp/ holds a reference checkout, and one of its entries is a directory
+# without an extension: vsce 3.x runs secretlint over every packaged path, reads it as a
+# file and aborts with EISDIR before the VSIX is written.
+tmp/**
