@@ -283,7 +283,13 @@
         "deepseekAgent.webSearchProvider": {
           "type": "string",
           "default": "auto",
-          "enum": ["auto", "deepseek", "free", "duckduckgo", "bing"],
+          "enum": [
+            "auto",
+            "deepseek",
+            "free",
+            "duckduckgo",
+            "bing"
+          ],
           "enumDescriptions": [
             "Auto — DeepSeek Search first, fallback to the free providers when it fails",
             "DeepSeek — DeepSeek Search only, no fallback",
@@ -344,7 +350,9 @@
           "type": "object",
           "default": {},
           "patternProperties": {
-            ".*": { "type": "string" }
+            ".*": {
+              "type": "string"
+            }
           },
           "markdownDescription": "File encoding by glob pattern, relative to workspace root. The `*` key (reserved — not a valid filename) sets the project-wide default. Example: `{ \"*\": \"utf8\", \"trunk/**\": \"cp1251\", \"*.rc\": \"cp866\" }`. Workspace-level — put in `.vscode/settings.json`."
         }
@@ -419,12 +427,12 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.95.0",
     "@vscode/codicons": "^0.0.45",
-    "@vscode/vsce": "^2.24.0",
-    "danger": "^13.0.7",
+    "@vscode/vsce": "^3.9.2",
+    "danger": "^14.0.7",
     "dompurify": "^3.4.2",
     "esbuild": "^0.28.0",
     "eslint": "^8.57.0",
-    "katex": "^0.16.45"
+    "katex": "^0.19.0"
   },
   "overrides": {
     "qs": "^6.15.2"
