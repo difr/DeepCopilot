@@ -98,7 +98,7 @@ body.drawer-open #session-backdrop{display:none!important}
 .msgC a.flink{color:var(--vscode-textLink-foreground);text-decoration:none;background:rgba(100,160,255,.10);padding:0 4px;border-radius:3px;font-family:var(--vscode-editor-font-family,monospace);font-size:11.5px;cursor:pointer;border:1px solid transparent}
 .msgC a.flink:hover{background:rgba(100,160,255,.20);border-color:var(--vscode-textLink-foreground);text-decoration:none}
 .msgC a.flink .ico{opacity:.7;margin-right:2px}
-.jumpbtn{position:absolute;right:12px;bottom:8px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:14px;padding:4px 10px;font-size:11px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.25);display:none;z-index:5}
+.jumpbtn{position:sticky;align-self:flex-end;bottom:8px;margin-top:-30px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:14px;padding:4px 10px;font-size:11px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.25);display:none;z-index:5}
 .jumpbtn.show{display:block}
 #main{position:relative}
 .thinkblk{font-size:0.88em;font-family:inherit;color:var(--vscode-foreground);border-left:2px solid var(--vscode-panel-border);padding:6px 10px;margin:4px 0 8px 0;white-space:pre-wrap;opacity:.55;max-height:120px;overflow-y:auto;background:rgba(255,255,255,.02);border-radius:0 3px 3px 0}
@@ -472,6 +472,9 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
 }
 .msgC pre.cb .cb-fold:hover{ background:rgba(255,255,255,.08); color:var(--vscode-textLink-activeForeground,#3794ff) }
 
+/* Sprite host for the bar icons — no box, no layout impact. */
+.icon-sprite{ position:absolute; width:0; height:0; overflow:hidden }
+
 /* ── #6 Phase 4: per-message action bar (Copilot/ChatGPT-style icon buttons) ── */
 .msgA{ position:relative }
 .msgA .msgActs{
@@ -523,6 +526,51 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
 .msgU .msgU-acts:focus-within{ opacity:1 }
 /* The inline editor replaces the bubble content, so its bar must not stay visible. */
 .msgU.editing .msgU-acts{ display:none }
+
+/* ── Confirmation card (destructive command, write, skill) ──
+   Replaces the modal: the whole command is visible and selectable, and the card stays in the
+   feed until it is answered, because the turn is parked on it. */
+.approval{
+  align-self:stretch;
+  border:1px solid var(--vscode-inputValidation-warningBorder, #b89500);
+  background:var(--vscode-inputValidation-warningBackground, rgba(184,149,0,.1));
+  border-radius:8px;
+  padding:4px 6px;
+  font-size:12px;
+}
+.approval .ap-hd{
+  font-weight:600; font-size:11px; letter-spacing:.04em; text-transform:uppercase;
+  color:var(--vscode-inputValidation-warningBorder,#b89500);
+  margin-bottom:2px;
+}
+.approval .ap-detail{
+  margin:0 0 4px;
+  padding:6px 8px;
+  max-height:260px; overflow:auto;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+  background:var(--vscode-textCodeBlock-background,#1e1e1e);
+  border-radius:4px;
+  font-family:var(--vscode-editor-font-family,monospace);
+  font-size:11px; line-height:1.45;
+  user-select:text;
+}
+.approval .ap-ft{ display:flex; gap:6px; justify-content:flex-start }
+.approval .ap-ft button{
+  font:inherit; font-size:11.5px;
+  padding:4px 12px; border-radius:4px; cursor:pointer;
+  border:1px solid var(--vscode-button-background,#0074cc);
+  background:var(--vscode-button-background,#0074cc);
+  color:var(--vscode-button-foreground,#fff);
+}
+.approval .ap-ft button:hover{ background:var(--vscode-button-hoverBackground,#0066b3) }
+.approval .ap-ft .ap-deny{
+  background:transparent; color:var(--vscode-foreground);
+  border-color:var(--vscode-panel-border,#454545);
+}
+.approval .ap-ft .ap-deny:hover{ background:var(--vscode-toolbar-hoverBackground, rgba(255,255,255,.08)) }
+.approval .ap-done{ font-size:11px; padding:2px 0; font-weight:700; margin-right:auto; text-transform:uppercase; color:var(--vscode-descriptionForeground) }
+.approval .ap-done.denied{ color:red }
+.approval .ap-done.allowed{ color:green }
 
 /* ── Message timestamp (action bar only) ── */
 .msgTime{

@@ -146,19 +146,18 @@ class SubAgentRunner {
 
         // Reasoning depth by kind of work, pinned rather than inherited from the model so a
         // child never runs deeper than the caller intends: `explore` is gather-and-report and
-        // the cheap win, `general` analyses and writes and needs the full depth.
+        // the cheap win, `general` reasons over wider evidence and keeps the full depth.
         const childReasoningEffort = agentType === 'explore' ? 'low' : 'high';
 
         // ── Tool list ──────────────────────────────────────────────────────
-        // Exclude spawn_agent itself from the child tool list to prevent recursion
-        // even if agentType === 'general'.
+        // Both kinds run read-only: the executor dispatches child calls in 'readonly' mode, so a
+        // mutating tool would only come back as deniedReadonly after costing a turn. Offering
+        // the read-only set keeps the refusal in the schema instead of in a wasted call.
         const allToolDefs = chatToolDefs({
             includeMcpTools: cfg.get('includeMcpTools', true),
             mcpDefs: mcpManager.getToolDefs(),
         });
-        const childTools = agentType === 'explore'
-            ? allToolDefs.filter(t => READ_ONLY_TOOLS.has(t.function && t.function.name))
-            : allToolDefs.filter(t => (t.function && t.function.name) !== 'spawn_agent');
+        const childTools = allToolDefs.filter(t => READ_ONLY_TOOLS.has(t.function && t.function.name));
 
         // ── Isolated child context ─────────────────────────────────────────
         const childRun = {
@@ -167,7 +166,7 @@ class SubAgentRunner {
             _subDepth:          (parentRun._subDepth || 0) + 1,
             // Share parent's read cache — sub-agent reads same workspace files; safe for R/O.
             toolCache:          parentRun.toolCache || new Map(),
-            // Isolated write-snapshot map so sub-agent edits (general mode) don't pollute parent revert.
+            // Isolated snapshot map so a child can never touch the parent's revert list.
             turnSnapshots:      new Map(),
             _earlyStartedTools: new Set(),
         };
@@ -344,16 +343,9 @@ class SubAgentRunner {
                     const toolName = tc.name;
                     let result = '(tool not permitted in sub-agent context)';
 
-                    if (agentType === 'explore' && READ_ONLY_TOOLS.has(toolName)) {
+                    if (READ_ONLY_TOOLS.has(toolName)) {
                         try {
                             // 'readonly' mode ensures no approval dialogs or writes occur
-                            result = await this._exec.execute(toolName, tcArgs, 'readonly', childRun, childAbort.signal);
-                            toolCallsRan++;
-                        } catch (e) {
-                            result = `Error: ${e.message}`;
-                        }
-                    } else if (agentType === 'general' && toolName !== 'spawn_agent') {
-                        try {
                             result = await this._exec.execute(toolName, tcArgs, 'readonly', childRun, childAbort.signal);
                             toolCallsRan++;
                         } catch (e) {

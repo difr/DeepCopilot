@@ -54,6 +54,12 @@ class ToolExecutor {
         this._postToRun = postToRun || (() => {});
         this._post      = post      || (() => {});
 
+        /* Confirmations live in the chat instead of a modal: a destructive command can be long
+           enough that the modal truncated it. The executor posts a card and parks the turn on a
+           promise until the webview answers or the turn is aborted. */
+        this._approvals   = new Map();
+        this._approvalSeq = 0;
+
         // Lazy-init SubAgentRunner to avoid circular require at module load time.
         // Assigned on first use inside _handleSpawnAgent().
         this._subAgentRunner = null;
@@ -266,28 +272,44 @@ class ToolExecutor {
     }
 
     async requestApproval(description, abortSignal) {
-        const dialog = vscode.window.showInformationMessage(
-            `${t('approvalRequest')}${description}`,
-            { modal: true },
-            t('approvalApprove'),
-            t('approvalDeny'),
-        );
-        if (!abortSignal) return (await dialog) === t('approvalApprove');
+        const answer = await this._approve({ title: t('approvalRequest').trim(), detail: description, abortSignal });
+        return answer !== false;
+    }
 
+    /* Posts a card and resolves with the answer: false when declined or aborted, 'once' for a
+       single run, 'session' when the user asked not to be asked again for this command. With
+       `scoped` false only Allow and Deny are offered — nothing to remember. */
+    _approve({ title, detail, abortSignal, scoped = false }) {
+        const id = 'ap' + (++this._approvalSeq);
         return new Promise((resolve) => {
             let settled = false;
-            const onAbort = () => { if (settled) return; settled = true; resolve(false); };
-            if (abortSignal.aborted) return onAbort();
-            abortSignal.addEventListener('abort', onAbort, { once: true });
-            dialog.then(
-                (ans) => {
-                    if (settled) return; settled = true;
-                    try { abortSignal.removeEventListener('abort', onAbort); } catch {}
-                    resolve(ans === t('approvalApprove'));
-                },
-                () => { if (settled) return; settled = true; resolve(false); },
-            );
+            const finish = (allow, scope) => {
+                if (settled) return;
+                settled = true;
+                this._approvals.delete(id);
+                try { if (abortSignal) abortSignal.removeEventListener('abort', onAbort); } catch {}
+                resolve(allow === true ? (scope === 'session' ? 'session' : 'once') : false);
+            };
+            const onAbort = () => {
+                /* The turn is gone, so the buttons would answer nobody: tell the webview to
+                   retire the card before the promise resolves. */
+                this._post({ type: 'approvalCancel', id });
+                finish(false);
+            };
+            this._approvals.set(id, finish);
+            if (abortSignal) {
+                if (abortSignal.aborted) { finish(false); return; }
+                abortSignal.addEventListener('abort', onAbort, { once: true });
+            }
+            this._post({ type: 'approvalRequest', id, title, detail, scoped: scoped === true });
         });
+    }
+
+    answerApproval(id, allow, scope) {
+        const finish = this._approvals.get(id);
+        if (!finish) return false;
+        finish(allow === true, scope);
+        return true;
     }
 
     // ─── Pre-edit snapshot ───────────────────────────────────────────────────
@@ -480,6 +502,10 @@ class ToolExecutor {
 
         const skipApproval = autoApprove.includes(name);
 
+        /* Set when this call needed the user's word. Attached to the result below, so the model
+           can tell an approved call from one that never asked. */
+        let approvalNote = null;
+
         // Approval dialogs for write + shell
         if ((name === 'write_file' || name === 'str_replace_in_file' || name === 'apply_patch') &&
             approvalMode === 'manual' && !skipApproval) {
@@ -489,10 +515,16 @@ class ToolExecutor {
                     ? `${t('writeFileLabel')}(patch)`
                     : `${t('writeFileLabel')}${args.path} (str_replace)`;
             if (!await this.requestApproval(desc, abortSignal)) return t('deniedByUser');
+            approvalNote = 'once';
         }
 
-        if (name === 'run_shell' && approvalMode === 'manual' && !skipApproval) {
+        /* A dangerous command has its own gate inside run_shell, with a richer answer — allow
+           once, allow for the session, deny. Asking here first would put two cards in front of
+           one command and let the two answers disagree. */
+        if (name === 'run_shell' && approvalMode === 'manual' && !skipApproval &&
+            !require('../tools/shell').isDangerous(String(args.command || ''))) {
             if (!await this.requestApproval(`${t('runCmdLabel')}${args.command}`, abortSignal)) return t('deniedByUser');
+            approvalNote = 'once';
         }
 
         // Skill creation writes outside the workspace (~/.deepcopilot/skills/...).
@@ -500,6 +532,7 @@ class ToolExecutor {
         if (name === 'skill_create' && approvalMode === 'manual' && !skipApproval) {
             const desc = `${t('createSkillLabel')}"${args && args.name || '?'}" — ${args && args.description || ''}`;
             if (!await this.requestApproval(desc, abortSignal)) return t('deniedByUser');
+            approvalNote = 'once';
         }
 
         // Cache lookup (read-only tools)
@@ -576,6 +609,17 @@ class ToolExecutor {
             }
         }
 
+        return approvalNote ? this._annotateApproval(result, approvalNote) : result;
+    }
+
+    /* Attaches the approval to the tool result so the model can tell an approved call from one
+       that never asked. Objects keep their shape; strings get a trailing line. A result that
+       already carries `approval` (run_shell decides once vs session itself) is left alone. */
+    _annotateApproval(result, note) {
+        if (result && typeof result === 'object' && !Array.isArray(result)) {
+            return result.approval ? result : { ...result, approval: note };
+        }
+        if (typeof result === 'string') return `${result}\n\napproval: ${note}`;
         return result;
     }
 
@@ -589,7 +633,19 @@ class ToolExecutor {
             // ctx.onStreamDelta(chunk) as data arrives; we forward each chunk to
             // the webview tagged with the tool-call id so the card can render
             // a live tail (GH-Copilot-style terminal card).
-            const ctx = { abortSignal, secrets: this._context.secrets, sessionId: run?.sessionId ?? null };
+            const ctx = {
+                abortSignal,
+                secrets: this._context.secrets,
+                sessionId: run?.sessionId ?? null,
+                /* shell.js asks here before running a destructive command: the card shows the
+                   full command, where a modal cut it off. */
+                approveDangerous: (cmd, sig) => this._approve({
+                    title: t('dangerCmdTitle').trim(),
+                    detail: cmd,
+                    abortSignal: sig || abortSignal,
+                    scoped: true,
+                }),
+            };
             // The question that put the model here, so a web search can read the intent rather
             // than only the keywords the model chose. Reminders and checkpoints are skipped:
             // they are history bookkeeping, not something the user asked.

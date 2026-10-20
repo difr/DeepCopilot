@@ -55,7 +55,7 @@ const STRINGS = {
     approvalApprove:      'Approve',
     approvalDeny:         'Deny',
     deniedByUser:         'Denied by user.',
-    dangerCmdTitle:       'Deep Copilot wants to run a potentially destructive command:',
+    dangerCmdTitle:       'Potentially destructive command',
     dangerAllowOnce:      'Allow once',
     dangerDeny:           'Deny',
     dangerBlocked:        'Blocked: command flagged as potentially destructive and the user declined to approve it. Do NOT retry the same command. Explain to the user what you intended and ask whether to proceed, or propose a safer alternative.',

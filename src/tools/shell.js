@@ -42,29 +42,42 @@ function _decodeShellChunk(chunk) {
     } catch { return utf8; }
 }
 
-// Issue #89: Cache normalized danger-command approvals for the current
-// extension session. Once the user grants "Allow once" (or `auto-edit`
-// implicitly approves via this cache), the same command will not re-prompt
-// inside the same session. Survives reloads but not a full VS Code restart.
+// Issue #89: Cache normalized danger-command approvals. Scoped to the extension host process:
+// a window reload starts with an empty set, and "Allow for session" means exactly this run of
+// the window — nothing is persisted.
 const _dangerCmdApprovals = new Set();
 function _normCmd(cmd) { return String(cmd || '').replace(/\s+/g, ' ').trim(); }
 
 // ─── Dangerous-command detection ─────────────────────────────────────────────
 
 const DANGEROUS_PATTERNS = [
-    /\brm\s+-rf?\b/i,
+    // Deleting files. Flag order and long forms count too: `rm -fr`, `rm -r`, `rm --recursive`.
+    /\brm\s+(-[a-z]*[rf][a-z]*\b|--(recursive|force)\b)/i,
     /\brmdir\s+\/s\b/i,
+    /\brd\s+\/[sq]\b/i,
     /\bRemove-Item\b[^\n]*-Recurse/i,
+    /\bdel\s+(\/[a-z]\s+)*\*\.\*/i,
     /\bdel\s+\/[fsq]/i,
+    // Rewriting git state in a way that loses work.
     /\bgit\s+push\b[^\n]*--force\b/i,
     /\bgit\s+push\b[^\n]*\s-f(\s|$)/i,
+    /\bgit\s+push\b[^\n]*--delete\b/i,
     /\bgit\s+reset\s+--hard\b/i,
-    /\bgit\s+clean\s+-[fdx]+\b/i,
+    /\bgit\s+clean\s+-[a-z]*[fdx]/i,
     /\bgit\s+branch\s+-D\b/i,
-    /\bdrop\s+(table|database|schema)\b/i,
+    /\bgit\s+(restore|checkout)\s+(--\s+)?\.(\s|$)/i,
+    // Databases: a delete without a where clause clears the table.
+    /\bdrop\s+(table|database|schema|index)\b/i,
     /\btruncate\s+table\b/i,
+    /\bdelete\s+from\b(?![^;]*\bwhere\b)/i,
+    // Disks and power.
     /\bmkfs\b/, /\bdd\s+if=/i, /\bshutdown\b/i, /\breboot\b/i,
+    // Publishing, permissions, containers.
     /\bnpm\s+publish\b/i,
+    /\bchmod\s+(-[a-z]*R\s+)?[0-7]?777\b/i,
+    /\bchown\s+-[a-z]*R\b/i,
+    /\bdocker\s+(system\s+prune|volume\s+(rm|prune)|rm\s+[^\n]*-f)/i,
+    // Remote code execution.
     /\bcurl\b[^|]*\|\s*(sh|bash|pwsh|powershell)/i,
     /\biwr\b[^|]*\|\s*iex\b/i,
     /Invoke-Expression\b/i,
@@ -323,6 +336,9 @@ async function _runInVscodeTerminal(command, ctx, timeoutMs) {
 
 async function toolRunShell(args, ctx = {}) {
     const command = args.command || '';
+    /* Recorded so the result says whether the user had to approve this command: a silent run
+       and an approved one look identical otherwise. */
+    let approvalNote = null;
     if (isDangerous(command)) {
         // Issue #89: align dangerous-command gate with `approvalMode` /
         // `autoApproveTools`, matching `ensurePathAllowed()` semantics.
@@ -342,9 +358,16 @@ async function toolRunShell(args, ctx = {}) {
             try { Logger.info('SHELL_DANGER_AUTO_APPROVE', { reason: 'autoApproveTools', command }); } catch {}
             _dangerCmdApprovals.add(cacheKey);
         } else if (!_dangerCmdApprovals.has(cacheKey)) {
-            const allowed = await confirmDangerous(command, ctx.abortSignal);
-            if (!allowed) return `${t('dangerBlocked')}\n\nCommand: ${command}`;
-            _dangerCmdApprovals.add(cacheKey);
+            /* The chat card is preferred: it shows the whole command. The modal stays as a
+               fallback for callers that have no webview behind them (sub-agents). */
+            const answer = typeof ctx.approveDangerous === 'function'
+                ? await ctx.approveDangerous(command, ctx.abortSignal)
+                : (await confirmDangerous(command, ctx.abortSignal) ? 'session' : false);
+            if (!answer) return `${t('dangerBlocked')}\n\nCommand: ${command}`;
+            /* 'once' means this run only: nothing is remembered, so the same command asks again
+               next time. 'session' is the explicit "do not ask again" answer. */
+            approvalNote = answer === 'session' ? 'session' : 'once';
+            if (answer === 'session') _dangerCmdApprovals.add(cacheKey);
         }
     }
 
@@ -559,6 +582,7 @@ async function toolRunShell(args, ctx = {}) {
                 stderr,
                 truncated: combinedSize >= MAX_BUF,
                 text,
+                ...(approvalNote ? { approval: approvalNote } : {}),
             });
         });
     });

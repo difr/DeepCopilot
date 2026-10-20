@@ -636,6 +636,10 @@ class ChatViewProvider {
             case 'feedback':
                 vscode.window.setStatusBarMessage((msg.value === 'up' ? '👍 Recorded' : '👎 Recorded'), 1500);
                 break;
+            /* The card in the chat answers a confirmation the executor is waiting on. */
+            case 'approvalAnswer':
+                if (this._exec) this._exec.answerApproval(String(msg.id || ''), msg.allow === true, msg.scope);
+                break;
             case 'fileSearch': {
                 const q = String(msg.query || '').toLowerCase();
                 let files = [];
