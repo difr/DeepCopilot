@@ -1122,6 +1122,14 @@
     return out.replace(/\s+$/, "");
   }
 
+  /* A passage may carry newlines: the model writes prose, not one-liners. Every line is quoted
+     on its own so a multi-line selection stays one block. Shared by the ask panel, which quotes
+     questions, and by the right-click menu. Leading spaces are kept: quoting code should not
+     flatten its indentation. */
+  function quoteLines(text){
+    return String(text || "").split(/\r?\n/).map(function(l){ return "> " + l; }).join("\n");
+  }
+
   /* ─── <ask> panel: questions the model asked ─────────────────────
      The answers are assembled into a markdown request and put into the
      composer ABOVE the draft, so the user can edit before sending. The panel
@@ -1206,10 +1214,6 @@
     /* A question may carry newlines: the model writes prose, not one-liners. Every line is
        quoted on its own so a multi-line question stays one block instead of leaking its tail
        into the answers. Blocks are separated by a blank line; inside a block there is none. */
-    function quoteLines(text){
-      return String(text || "").split(/\r?\n/).map(function(l){ return "> " + l.trim(); }).join("\n");
-    }
-
     function collect(){
       var blocks = [];
       questions.forEach(function(q){
@@ -3764,6 +3768,64 @@
     else if (action === "delete")   { deleteSession(id); }
   });
   document.addEventListener("click", closeCtx);
+
+  /* Right-click on a selection inside the chat offers Copy and Quote: the native menu has no
+     action that feeds the composer, and Copy alone is not enough to argue with the answer. */
+  var _quoteMenu = null;
+  function closeQuoteMenu(){ if (_quoteMenu) { _quoteMenu.parentNode.removeChild(_quoteMenu); _quoteMenu = null; } }
+
+  function quoteIntoComposer(text){
+    var quote = quoteLines(text);
+    if (!quote) return;
+    var draft = String(inp.value || "").replace(/\s+$/, "");
+    /* The draft keeps its place above the quote; one newline after it puts the cursor on a fresh
+       line to write the answer, without leaving a blank one behind. */
+    inp.value = (draft ? draft + "\n\n" : "") + quote + "\n";
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+    try { autosize(); } catch(_) {}
+    inp.focus();
+  }
+  function showQuoteMenu(x, y, text){
+    closeQuoteMenu();
+    /* Nothing selected means nothing to act on: no menu at all. Copy and Quote are the whole
+       list — the native one is suppressed inside the chat, where cut and paste make no sense. */
+    if (!text) return;
+    var m = document.createElement("div");
+    m.className = "ctx-quote";
+    m.innerHTML = "<button type=\"button\" data-act=\"copy\">Copy<span class=\"ctx-hint\">Ctrl+C</span></button>" +
+                  "<button type=\"button\" data-act=\"quote\">Quote</button>";
+    document.body.appendChild(m);
+    m.style.left = Math.max(8, Math.min(x, window.innerWidth  - m.offsetWidth  - 8)) + "px";
+    m.style.top  = Math.max(8, Math.min(y, window.innerHeight - m.offsetHeight - 8)) + "px";
+    m.addEventListener("click", function(ev){
+      var b = ev.target.closest && ev.target.closest("button[data-act]");
+      if (!b) return;
+      ev.stopPropagation();
+      if (b.dataset.act === "quote") quoteIntoComposer(text);
+      else if (b.dataset.act === "copy") {
+        /* writeText returns a promise: its rejection (no permission, no focus) must not surface
+           as an unhandled one, and try/catch only covers the synchronous call. */
+        try { navigator.clipboard.writeText(text).catch(function(){}); } catch(_) {}
+      }
+      closeQuoteMenu();
+    });
+    _quoteMenu = m;
+  }
+  document.addEventListener("contextmenu", function(e){
+    var t = e.target;
+    /* Fields and links keep the native menu: paste is useful in one, and "Copy link address"
+       is the only way to get the target in the other. Everywhere else in the chat the menu is
+       ours — the native one offered cut and paste over a reply. */
+    if (t.closest && t.closest("textarea,input")) return;
+    if (t.closest && t.closest("a[href]")) return;
+    if (!(t.closest && t.closest("#main"))) return;
+    e.preventDefault();
+    var sel = window.getSelection();
+    showQuoteMenu(e.clientX, e.clientY, sel ? String(sel).trim() : "");
+  });
+  document.addEventListener("click", closeQuoteMenu);
+  document.addEventListener("keydown", function(e){ if (e.key === "Escape") closeQuoteMenu(); });
+  msgs.addEventListener("scroll", closeQuoteMenu, { passive: true });
   document.addEventListener("contextmenu", function(e){
     var item = e.target.closest && e.target.closest(".si");
     if (!item) return;

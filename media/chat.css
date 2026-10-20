@@ -475,6 +475,26 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
 /* Sprite host for the bar icons — no box, no layout impact. */
 .icon-sprite{ position:absolute; width:0; height:0; overflow:hidden }
 
+/* Right-click menu over a selection: the native one has Copy but nothing that feeds the
+   composer, and quoting is the reason this exists. */
+.ctx-quote{
+  position:fixed; z-index:60; display:flex; flex-direction:column; min-width:120px;
+  padding:4px; border-radius:6px;
+  background:var(--vscode-menu-background,var(--vscode-editorWidget-background,#252526));
+  border:1px solid var(--vscode-menu-border,var(--vscode-panel-border,#454545));
+  box-shadow:0 2px 8px rgba(0,0,0,.35);
+}
+.ctx-quote button{
+  display:flex; align-items:center; justify-content:space-between; gap:18px;
+  background:none; border:none; text-align:left; padding:4px 10px; border-radius:4px;
+  color:var(--vscode-menu-foreground,inherit); font-size:12px; cursor:pointer;
+}
+.ctx-quote .ctx-hint{ opacity:.55; font-size:11px }
+.ctx-quote button:hover{
+  background:var(--vscode-menu-selectionBackground,var(--vscode-toolbar-hoverBackground,#2a2d2e));
+  color:var(--vscode-menu-selectionForeground,inherit);
+}
+
 /* ── #6 Phase 4: per-message action bar (Copilot/ChatGPT-style icon buttons) ── */
 .msgA{ position:relative }
 .msgA .msgActs{
