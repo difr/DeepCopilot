@@ -80,7 +80,7 @@ jobs:
           gh release create "$TAG" \
             --title "Deep Copilot ${TAG}" \
             --notes-file "$NOTES" \
-            "${VSIX}#Deep Copilot ${TAG} 插件安装包 (.vsix)"
+            "${VSIX}#Deep Copilot ${TAG} — VSIX package"
 
           echo ""
           echo "✅ 发布完成 / Release published"
