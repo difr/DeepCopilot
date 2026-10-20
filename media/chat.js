@@ -452,7 +452,20 @@
     return "<a class=\"flink\" data-path=\"" + escHtml(p) + "\" data-line=\"" + (line || "") + "\">" + escHtml(disp) + "</a>";
   }
 
+  /* The block table of the render pass in flight. renderMd fills it, renderInline reads it when
+     it turns a parked block back into its <pre>. */
+  var _mdCodes = null;
+
   function renderInline(t){
+    /* A code block parked by renderMd is rebuilt here, before any escaping: a placeholder
+       must not travel through the escape-and-sanitise path, it becomes opaque HTML instead. */
+    var blockStash = [];
+    t = String(t||"").replace(/\uE000CB(\d+)\uE000/g, function(tok, i){
+      var c = _mdCodes && _mdCodes[+i];
+      if (!c) return tok;
+      blockStash.push(buildCodeBlock(c));
+      return "\uE000K" + (blockStash.length - 1) + "\uE000";
+    });
     /* Step 0: extract backtick-wrapped text FIRST so $ inside backticks
        never crosses backtick boundaries and triggers false math matches. */
     var codeStash = [];
@@ -461,13 +474,13 @@
       var esc = escHtml(code);
       var fm = esc.match(inlineFileRe);
       codeStash.push(fm ? makeFileLink(fm[1], fm[2], fm[3]) : "<code class=\"ic\">" + esc + "</code>");
-      return "\u0003C" + (codeStash.length - 1) + "\u0003";
+      return "\uE000C" + (codeStash.length - 1) + "\uE000";
     });
     t = t.replace(/`([^`\n]+)`/g, function(_, code){
       var esc = escHtml(code);
       var fm = esc.match(inlineFileRe);
       codeStash.push(fm ? makeFileLink(fm[1], fm[2], fm[3]) : "<code class=\"ic\">" + esc + "</code>");
-      return "\u0003C" + (codeStash.length - 1) + "\u0003";
+      return "\uE000C" + (codeStash.length - 1) + "\uE000";
     });
 
     /* Step 1: park inline $...$ BEFORE escHtml so raw TeX is never
@@ -494,8 +507,11 @@
     x = x.replace(/\u0002M(\d+)\u0002/g, function(_, i){
       return renderMathSafe(mathStash[+i], false);
     });
-    x = x.replace(/\u0003C(\d+)\u0003/g, function(_, i){
+    x = x.replace(/\uE000C(\d+)\uE000/g, function(_, i){
       return codeStash[+i];
+    });
+    x = x.replace(/\uE000K(\d+)\uE000/g, function(_, i){
+      return blockStash[+i];
     });
     x = x.replace(/\u0001FL(\d+)\u0001/g, function(_, i){ return stash[+i]; });
     return x;
@@ -525,7 +541,7 @@
                    md:"md", markdown:"md", yaml:"yaml", yml:"yaml", toml:"toml" };
   var HL_SPEC = {
     js: {
-      re: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(const|let|var|function|class|extends|new|return|if|else|for|while|do|switch|case|break|continue|throw|try|catch|finally|async|await|yield|of|in|typeof|instanceof|delete|void|this|super|import|export|from|as|default|null|undefined|true|false|interface|type|enum)\b|\b(\d+(?:\.\d+)?)\b|([A-Za-z_$][\w$]*)(?=\s*\()/g,
+      re: /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?!`)(?:[^`\\]|\\.)*`)|\b(const|let|var|function|class|extends|new|return|if|else|for|while|do|switch|case|break|continue|throw|try|catch|finally|async|await|yield|of|in|typeof|instanceof|delete|void|this|super|import|export|from|as|default|null|undefined|true|false|interface|type|enum)\b|\b(\d+(?:\.\d+)?)\b|([A-Za-z_$][\w$]*)(?=\s*\()/g,
       classes: ["c", "s", "k", "n", "f"],
     },
     py: {
@@ -698,8 +714,46 @@
     var htmlToks = [];
     function parkHtml(tok){
       htmlToks.push(tok);
-      return "\u0000HTML" + (htmlToks.length - 1) + "\u0000";
+      return "\uE000HTML" + (htmlToks.length - 1) + "\uE000";
     }
+    /* Fenced code blocks are parked first: their triple backticks would otherwise be matched by
+       the inline-code pass below, which reads ``` as a double-backtick span and swallows the
+       whole block into a one-line code.ic with the newlines flattened. */
+    var codes = [];
+    _mdCodes = codes;
+    /* A fenced block inside a quote keeps its ">" markers in the body, because parking runs
+       before the quote lines are stripped. Drop the prefix when every non-empty line carries
+       it; a block where ">" is simply part of the code is left alone. */
+    function stripQuotePrefix(body){
+      var lines = body.split("\n");
+      var filled = 0, marked = 0;
+      for (var qi = 0; qi < lines.length; qi++){
+        if (!lines[qi].trim()) continue;
+        filled++;
+        if (/^\s*>/.test(lines[qi])) marked++;
+      }
+      if (!filled || marked !== filled) return body;
+      return lines.map(function(l){ return l.replace(/^\s*(?:>\s?)+/, ""); }).join("\n");
+    }
+    s = String(s||"").replace(/(^[ \t]*(?:>[ \t]?)*)(`{3,})([^`\n]*)[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*(?:>[ \t]?)*\2[ \t]*$/gm, function(_, prefix, fence, lang, code){
+      var L = (lang || "plaintext").toLowerCase();
+      var quoted = /^\s*>/.test(prefix || "");
+      var raw = (quoted ? stripQuotePrefix(code) : code).replace(/\n$/, "");
+      codes.push({L:L, raw:raw});
+      /* The ">" prefix stays on the line: it is what keeps the placeholder inside the quote
+         when the markdown line processor re-reads it. */
+      return (prefix || "") + "\uE000CB" + (codes.length-1) + "\uE000";
+    });
+
+    /* Inline code must stay literal: a backtick span is text, so a tag written inside it is
+       meant to be shown, not parsed. Without this the passthrough below lifts <span class="x">
+       out of the span, parks it as HTML and puts it back after escaping — the tag then lands in
+       the DOM for real and renders as an empty box. */
+    var inlineCode = [];
+    s = String(s||"").replace(/``[\s\S]*?``|`[^`\n]+`/g, function(tok){
+      inlineCode.push(tok);
+      return "\uE000IC" + (inlineCode.length - 1) + "\uE000";
+    });
     s = String(s||"").replace(SAFE_TAG_RE, function(tok){ return parkHtml(tok); });
 
     /* Step 0: extract display math $$...$$, \[...\] and inline \(...\) as
@@ -707,7 +761,7 @@
     var maths = [];
     function parkMath(tex, display){
       maths.push({ display: display, tex: tex });
-      return "\u0000MATH" + (maths.length - 1) + "\u0000";
+      return "\uE000MATH" + (maths.length - 1) + "\uE000";
     }
     var src0 = String(s||"")
       /* display: $$...$$ */
@@ -716,20 +770,13 @@
       .replace(/\\\[([\s\S]*?)\\\]/g, function(_, tex){ return parkMath(tex, true); })
       /* inline: \(...\) */
       .replace(/\\\(([\s\S]*?)\\\)/g, function(_, tex){ return parkMath(tex, false); })
-    /* Step 1: extract fenced code blocks as placeholders */
-    var codes = [];
-    var src = String(src0||"").replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, function(_, lang, code){
-      var L = (lang || "plaintext").toLowerCase();
-      var raw = code.replace(/\n$/, "");
-      codes.push({L:L, raw:raw});
-      return "\u0000CB" + (codes.length-1) + "\u0000";
-    });
+    var src = String(src0||"");
     /* Step 1.5: extract raw HTML blocks as placeholders.
        When a line starts with a structural block-level HTML element
        (<table>, <ul>, <ol>, <dl>, <div>, <section>, <article>, <aside>,
        <header>, <footer>, <main>, <nav>, <blockquote>, <fieldset>)
        we collect lines until the root tag depth returns to 0, then park
-       the whole block as \u0000HB{n}\u0000.  The Markdown line processor
+       the whole block as \uE000HB{n}\uE000.  The Markdown line processor
        never sees the raw HTML; DOMPurify sanitises it in the final pass. */
     var htmlBlocks = [];
     var HB_TAGS = "table|ul|ol|dl|div|section|article|aside|header|footer|main|nav|blockquote|fieldset|h1|h2|h3|h4|h5|h6";
@@ -756,7 +803,7 @@
             bBuf.push(slk); si++;
           }
           htmlBlocks.push(bBuf.join("\n"));
-          newArr.push("\u0000HB" + (htmlBlocks.length - 1) + "\u0000");
+          newArr.push("\uE000HB" + (htmlBlocks.length - 1) + "\uE000");
         } else { newArr.push(sln); si++; }
       }
       src = newArr.join("\n");
@@ -768,12 +815,12 @@
       if (!paraBuf.length) return;
       var joined = paraBuf.join(" ");
       /* If a paragraph is JUST a code-block placeholder, emit it raw */
-      var only = joined.match(/^\s*\u0000CB(\d+)\u0000\s*$/);
-      if (only){
+      var only = joined.match(/^\s*\uE000CB(\d+)\uE000\s*$/);
+      if (only && codes[+only[1]]){
         out.push(buildCodeBlock(codes[+only[1]]));
       } else {
         /* If a paragraph is JUST a math placeholder, emit math block */
-        var monly = joined.match(/^\s*\u0000MATH(\d+)\u0000\s*$/);
+        var monly = joined.match(/^\s*\uE000MATH(\d+)\uE000\s*$/);
         if (monly){
           out.push(renderMathBlock(maths[+monly[1]]));
         } else {
@@ -798,24 +845,24 @@
         flushPara(); out.push("<hr class=\"mhr\"/>"); i++; continue;
       }
       /* Standalone code-block placeholder line */
-      if (/^\s*\u0000CB\d+\u0000\s*$/.test(ln)){
+      if (/^\s*\uE000CB\d+\uE000\s*$/.test(ln)){
         flushPara();
-        var idx = +ln.match(/\u0000CB(\d+)\u0000/)[1];
-        out.push(buildCodeBlock(codes[idx]));
+        var idx = +ln.match(/\uE000CB(\d+)\uE000/)[1];
+        if (codes[idx]) out.push(buildCodeBlock(codes[idx]));
         i++; continue;
       }
       /* Standalone display-math placeholder line */
-      if (/^\s*\u0000MATH\d+\u0000\s*$/.test(ln)){
+      if (/^\s*\uE000MATH\d+\uE000\s*$/.test(ln)){
         flushPara();
-        var midx = +ln.match(/\u0000MATH(\d+)\u0000/)[1];
+        var midx = +ln.match(/\uE000MATH(\d+)\uE000/)[1];
         out.push(renderMathBlock(maths[midx]));
         i++; continue;
       }
       /* Standalone HTML-block placeholder line */
-      if (/^\s*\u0000HB\d+\u0000\s*$/.test(ln)){
+      if (/^\s*\uE000HB\d+\uE000\s*$/.test(ln)){
         flushPara();
-        var hbIdx = +ln.match(/\u0000HB(\d+)\u0000/)[1];
-        out.push("\u0000HBRAW" + hbIdx + "\u0000");
+        var hbIdx = +ln.match(/\uE000HB(\d+)\uE000/)[1];
+        out.push("\uE000HBRAW" + hbIdx + "\uE000");
         i++; continue;
       }
       /* Table: header | sep */
@@ -864,23 +911,36 @@
        Done after the markdown HTML is fully assembled so we don't have to
        worry about which sub-renderer escaped or transformed the placeholder. */
     var finalHtml = out.join("");
-    finalHtml = finalHtml.replace(/\u0000MATH(\d+)\u0000/g, function(_, idx){
+    /* Inline code is emitted here rather than handed back to renderInline: that pass runs the
+       backtick regex a second time, and its greedy double-backtick branch then swallows a span
+       containing ``` into one code.ic and leaves the placeholder inside it. */
+    finalHtml = finalHtml.replace(/\uE000IC(\d+)\uE000/g, function(_, idx){
+      var raw = inlineCode[+idx] || "";
+      return "<code class=\"ic\">" + escHtml(raw.replace(/^`+/, "").replace(/`+$/, "")) + "</code>";
+    });
+    /* A fenced block parked mid-block survives into quotes and list items as well, so the
+       restore happens once over the whole output rather than per paragraph. */
+    finalHtml = finalHtml.replace(/\uE000CB(\d+)\uE000/g, function(tok, idx){
+      if (!codes[+idx]) return tok;
+      return buildCodeBlock(codes[+idx]);
+    });
+    finalHtml = finalHtml.replace(/\uE000MATH(\d+)\uE000/g, function(_, idx){
       var m = maths[+idx];
       if (!m) return "";
       return m.display
         ? "<div class=\"math-block\">" + renderMathSafe(m.tex.trim(), true) + "</div>"
         : renderMathSafe(m.tex.trim(), false);
     });
-    /* Restore raw HTML blocks FIRST so that any \u0000HTML{n}\u0000 tokens
+    /* Restore raw HTML blocks FIRST so that any \uE000HTML{n}\uE000 tokens
        embedded inside them (parked by SAFE_TAG_RE before HB extraction) are
        still present when the HTML-token pass runs below. Reversing this order
        causes those embedded tokens to appear as literal "HTML12" text. */
-    finalHtml = finalHtml.replace(/\u0000HBRAW(\d+)\u0000/g, function(_, idx){
+    finalHtml = finalHtml.replace(/\uE000HBRAW(\d+)\uE000/g, function(_, idx){
       return htmlBlocks[+idx] || "";
     });
     /* Restore whitelisted HTML tag tokens (Issue #35).
        Must run AFTER HBRAW so tokens embedded inside HB blocks are caught. */
-    finalHtml = finalHtml.replace(/\u0000HTML(\d+)\u0000/g, function(_, idx){
+    finalHtml = finalHtml.replace(/\uE000HTML(\d+)\uE000/g, function(_, idx){
       return htmlToks[+idx] || "";
     });
     /* Defense-in-depth: DOMPurify strips anything not in the whitelist

@@ -94,7 +94,7 @@ body.drawer-open #session-backdrop{display:none!important}
 .msgC pre.cb .cb-h button.cb-apply:hover{background:rgba(0,116,204,.12)}
 .msgC pre.cb .cb-h button.cb-newfile{color:var(--vscode-descriptionForeground)}
 .msgC pre.cb code{display:block;padding:8px 10px;overflow-x:auto;white-space:pre;line-height:1.5}
-.msgC code.ic{background:var(--vscode-textCodeBlock-background);padding:1px 5px;border-radius:3px;font-family:var(--vscode-editor-font-family,monospace);font-size:12px}
+.msgC code.ic{display:inline-block;max-width:100%;overflow-wrap:anywhere;background:var(--vscode-textCodeBlock-background);padding:1px 5px;border-radius:3px;font-family:var(--vscode-editor-font-family,monospace);font-size:12px}
 .msgC a.flink{color:var(--vscode-textLink-foreground);text-decoration:none;background:rgba(100,160,255,.10);padding:0 4px;border-radius:3px;font-family:var(--vscode-editor-font-family,monospace);font-size:11.5px;cursor:pointer;border:1px solid transparent}
 .msgC a.flink:hover{background:rgba(100,160,255,.20);border-color:var(--vscode-textLink-foreground);text-decoration:none}
 .msgC a.flink .ico{opacity:.7;margin-right:2px}
