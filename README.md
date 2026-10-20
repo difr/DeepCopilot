@@ -232,9 +232,9 @@ Inline (ghost-text) completions have their own namespace:
 | **autopilot** | Auto-approve everything (trusted workspaces only) |
 | **readonly** | Deny all writes & shell |
 
-> Issue #89 — In `autopilot` mode, shell calls matching the dangerous-command regex (`rm -rf`, `git reset --hard`, `git push --force`, …) are silently allowed and written to the `SHELL_DANGER_AUTO_APPROVE` audit log instead of asking. In other modes, the same command is cached for the session after a single approval. Adding `run_shell` to `autoApproveTools` is equivalent to explicitly accepting shell risk — only enable it in trusted workspaces.
+> Issue #89 — In `autopilot` mode, shell calls matching the dangerous-command regex (`rm -rf`, `git reset --hard`, `git push --force`, …) are silently allowed and written to the `SHELL_DANGER_AUTO_APPROVE` audit log instead of asking. In other modes the command asks once and is remembered only when **Allow for session** is chosen — **Allow once** covers that run and nothing else. Adding `run_shell` to `autoApproveTools` is equivalent to explicitly accepting shell risk — only enable it in trusted workspaces.
 
-> Confirmations appear as a card in the chat, not a modal dialog: a destructive command can be long enough that the modal cut it off. The turn waits on the card until **Allow** or **Deny** is pressed, and aborting the turn counts as a denial. The decision stays in the feed afterwards, so the history shows what was refused and when. Sub-agents still get the modal — they have no chat to draw into.
+> Confirmations appear as a card in the chat, not a modal dialog: a destructive command can be long enough that the modal cut it off. The turn waits on the card until a button is pressed — **Allow once**, **Allow for session** or **Deny** — and aborting the turn counts as a denial. The card stays in the feed with the answer it got, and the result of the run carries it too (`approval: once` or `session`), so the model can tell an approved call from one that never asked. Write and exec approvals keep the two-button card, because those are never remembered. Sub-agents stay read-only, so they never reach this gate.
 
 ---
 
