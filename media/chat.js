@@ -1077,10 +1077,6 @@
       d.dataset.msgIdx = idx;
       d.dataset.origText = text || "";
       d.innerHTML = "<div class=\"msgU-body\">" + escHtml(text) + "</div>" + userActsHtml(ts);
-    } else if (role === "assistant"){
-      d.className = "msgA";
-      d.setAttribute("data-raw", text || "");
-      d.innerHTML = "<div class=\"msgC\">" + escHtml(text) + "</div>" + actionBarHtml(false, ts);
     } else { d.className = "err"; d.textContent = text; }
     if (thk && thk.parentNode === msgs) msgs.insertBefore(d, thk); else msgs.appendChild(d);
     ascroll();
@@ -3362,8 +3358,6 @@
         var ft = card.querySelector(".ap-ft");
         if (ft) ft.innerHTML = "<span class=\"ap-done denied\">Cancelled</span>";
       }
-    } else if (m.type === "reply"){
-      add("assistant", m.text, Date.now());
     } else if (m.type === "contextRefError"){
       var errPath = '#' + m.refType + (m.value ? ':' + m.value : '');
       var existIdx = attachedFiles.findIndex(function(f){ return f.isErr && f.path === errPath; });
