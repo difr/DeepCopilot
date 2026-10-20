@@ -58,7 +58,7 @@ function _summaryText(m) {
 // Panel entry that stands in for a compaction: the fact (how many turns went
 // into it) plus the summary body, collapsed in the webview.
 function _summaryCard(text, compacted) {
-    return { role: 'summary', text: text || '', compacted: Math.max(0, compacted | 0) };
+    return { role: 'summary', text: text || '', compacted: Math.max(0, compacted | 0), ts: Date.now() };
 }
 
 // Auto-generated session titles are capped by characters. The model names the
@@ -364,8 +364,9 @@ class SessionStore {
         const MAX_HISTORY  = policy.maxMessages; // was a hardcoded 400
         const KEEP_HISTORY = policy.keepTail;    // was a hardcoded 200
 
-        if (userText) s.messages.push({ role: 'user', text: userText });
-        if (asstText || thoughts) s.messages.push({ role: 'assistant', text: asstText || '', thoughts: thoughts || '' });
+        const ts = Date.now();
+        if (userText) s.messages.push({ role: 'user', text: userText, ts });
+        if (asstText || thoughts) s.messages.push({ role: 'assistant', text: asstText || '', thoughts: thoughts || '', ts });
 
         if (apiMessages !== undefined) {
             // reasoning_content is intentionally kept here.  Stripping it at

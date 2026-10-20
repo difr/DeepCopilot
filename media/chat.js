@@ -341,7 +341,7 @@
   msgs.addEventListener("scroll", function(){
     var nearBottom = (msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight) < 120;
     stick = nearBottom;
-    jumpBtn.classList.toggle("show", !nearBottom && busy);
+    jumpBtn.classList.toggle("show", !nearBottom);
   }, { passive: true });
   /* Disable autoscroll on user wheel/touch scroll up. */
   msgs.addEventListener("wheel", function(e){ if (e.deltaY < 0) stick = false; }, { passive: true });
@@ -956,27 +956,86 @@
   /* ─── #6 Phase 4 helper: per-message hover action bar ──────────── */
   /* Clean icon-only buttons (Copilot / ChatGPT style). SVGs use currentColor
      so they inherit the descriptionForeground / foreground colors on hover. */
-  var ICO_COPY  = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M5.5 2.5h6a1 1 0 0 1 1 1v8M3.5 5.5h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z"/></svg>';
-  var ICO_REGEN = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89M13.5 2.5v3h-3"/></svg>';
-  var ICO_UP    = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M6 13.5H3.5v-6H6m0 6 2.2 0a1.5 1.5 0 0 0 1.48-1.24l.6-3.3A1 1 0 0 0 9.3 7.75H6.8l.55-2.6A1.4 1.4 0 0 0 5.98 3.5L6 7.5v6Z"/></svg>';
-  var ICO_DOWN  = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" d="M6 2.5H3.5v6H6m0-6 2.2 0a1.5 1.5 0 0 1 1.48 1.24l.6 3.3A1 1 0 0 1 9.3 8.25H6.8l.55 2.6A1.4 1.4 0 0 1 5.98 12.5L6 8.5v-6Z"/></svg>';
+  /* One sprite for the bar icons: each path is written once and every button is a <use>, so a
+     change to an icon shape is a single edit instead of three copies of the same SVG. */
+  document.body.insertAdjacentHTML("afterbegin",
+    "<svg class=\"icon-sprite\" aria-hidden=\"true\">" +
+      "<symbol id=\"i-copy\" viewBox=\"0 0 16 16\"><path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linejoin=\"round\" d=\"M5.5 2.5h6a1 1 0 0 1 1 1v8M3.5 5.5h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z\"/></symbol>" +
+      "<symbol id=\"i-regen\" viewBox=\"0 0 16 16\"><path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M13.5 8a5.5 5.5 0 1 1-1.61-3.89M13.5 2.5v3h-3\"/></symbol>" +
+      "<symbol id=\"i-edit\" viewBox=\"0 0 16 16\"><path fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M11.5 2.5l2 2-8 8H3.5v-2z\"/></symbol>" +
+    "</svg>");
+  function icon(name){
+    return "<svg width=\"14\" height=\"14\" aria-hidden=\"true\"><use href=\"#i-" + name + "\"/></svg>";
+  }
+  var ICO_COPY  = icon("copy");
+  var ICO_REGEN = icon("regen");
+  var ICO_EDIT  = icon("edit");
   var _msgTimeFmt = new Intl.DateTimeFormat(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' });
   var _msgTimeFullFmt = new Intl.DateTimeFormat(undefined, { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
-  function timeHtml(){
-    var d = new Date();
+  function timeHtml(ts){
+    if (!ts) return "";
+    var d = new Date(ts);
     var iso = d.toISOString();
     var short = _msgTimeFmt.format(d);
     var full = _msgTimeFullFmt.format(d);
     return "<time class=\"msgTime\" datetime=\"" + iso + "\" title=\"" + escHtml(full) + "\">" + escHtml(short) + "</time>";
   }
 
-  function actionBarHtml(){
+  /* A confirmation parks the turn until it is answered, so the card stays until a button is
+     pressed. The command is shown whole, in a wrapping block — this is the reason the modal was
+     replaced: it cut long commands off. A dangerous command also offers "allow for session";
+     a plain Allow applies to this run only. */
+  function renderApprovalCard(m){
+    if (es) es.style.display = "none";
+    var d = document.createElement("div");
+    d.className = "approval";
+    d.dataset.id = m.id || "";
+    var scoped = m.scoped === true;
+    d.innerHTML =
+      "<div class=\"ap-hd\">" + escHtml(m.title || "Confirmation needed") + "</div>" +
+      "<pre class=\"ap-detail\"></pre>" +
+      "<div class=\"ap-ft\">" +
+        "<button class=\"ap-allow\" type=\"button\">Allow once</button>" +
+        (scoped ? "<button class=\"ap-session\" type=\"button\">Allow for session</button>" : "") +
+        "<button class=\"ap-deny\" type=\"button\">Deny</button>" +
+      "</div>";
+    d.querySelector(".ap-detail").textContent = String(m.detail || "");
+    var ft = d.querySelector(".ap-ft");
+    function answer(allow, scope, label){
+      vscode.postMessage({ type: "approvalAnswer", id: m.id, allow: allow, scope: scope });
+      ft.innerHTML = "<span class=\"ap-done " + (allow ? "allowed" : "denied") + "\">" + label + "</span>";
+    }
+    d.querySelector(".ap-allow").addEventListener("click", function(){ answer(true, "once", "Allowed once"); });
+    var sess = d.querySelector(".ap-session");
+    if (sess) sess.addEventListener("click", function(){ answer(true, "session", "Allowed for session"); });
+    d.querySelector(".ap-deny").addEventListener("click", function(){ answer(false, "", "Denied"); });
+    /* Above the tool line that reported the call: the question comes first, the command it
+       produced sits below it. */
+    var host = ensureBubble();
+    var flow = host.querySelector(".flow");
+    if (flow) {
+      var last = flow.lastElementChild;
+      if (last && (last.classList.contains("tl-wrap") || last.classList.contains("tl-group"))) flow.insertBefore(d, last);
+      else flow.appendChild(d);
+    } else host.appendChild(d);
+    ascroll();
+  }
+
+  function actionBarHtml(isLast, ts){
     return "<div class=\"msgActs\">" +
+      timeHtml(ts) +
       "<button class=\"ma ma-copy\" title=\"Copy\" aria-label=\"Copy\">" + ICO_COPY + "</button>" +
-      "<button class=\"ma ma-regen\" title=\"Regenerate\" aria-label=\"Regenerate\">" + ICO_REGEN + "</button>" +
-      "<button class=\"ma ma-up\" title=\"Useful\" aria-label=\"Useful\">" + ICO_UP + "</button>" +
-      "<button class=\"ma ma-down\" title=\"Not useful\" aria-label=\"Not useful\">" + ICO_DOWN + "</button>" +
-      (_replaying ? "" : timeHtml()) +
+      (isLast ? "<button class=\"ma ma-regen\" title=\"Regenerate\" aria-label=\"Regenerate\">" + ICO_REGEN + "</button>" : "") +
+    "</div>";
+  }
+
+  /* The user bubble carries the same bar as a reply: time first, then the actions. Edit lives
+     here rather than on a click anywhere in the bubble — that click was stealing selections. */
+  function userActsHtml(ts){
+    return "<div class=\"msgU-acts\">" +
+      timeHtml(ts) +
+      "<button class=\"ma ma-copy\" title=\"Copy\" aria-label=\"Copy\">" + ICO_COPY + "</button>" +
+      "<button class=\"ma ma-edit\" title=\"Edit\" aria-label=\"Edit\">" + ICO_EDIT + "</button>" +
     "</div>";
   }
 
@@ -1001,19 +1060,27 @@
     ascroll();
   }
 
-  function add(role, text){
+  /* Only the newest reply can be regenerated: the command always replays the last question,
+     so a stale button on an older reply would re-run the wrong turn. */
+  function demoteRegen(){
+    var old = msgs.querySelectorAll(".msgActs .ma-regen");
+    for (var i=0; i<old.length; i++) old[i].parentNode.removeChild(old[i]);
+  }
+
+  function add(role, text, ts){
     if (es) es.style.display = "none";
     var d = document.createElement("div");
     if (role === "user"){
+      demoteRegen();
       var idx = _userMsgCount++;
       d.className = "msgU";
       d.dataset.msgIdx = idx;
       d.dataset.origText = text || "";
-      d.innerHTML = "<div class=\"msgU-body\">" + escHtml(text) + "</div>";
+      d.innerHTML = "<div class=\"msgU-body\">" + escHtml(text) + "</div>" + userActsHtml(ts);
     } else if (role === "assistant"){
       d.className = "msgA";
       d.setAttribute("data-raw", text || "");
-      d.innerHTML = "<div class=\"msgC\">" + escHtml(text) + "</div>";
+      d.innerHTML = "<div class=\"msgC\">" + escHtml(text) + "</div>" + actionBarHtml(false, ts);
     } else { d.className = "err"; d.textContent = text; }
     if (thk && thk.parentNode === msgs) msgs.insertBefore(d, thk); else msgs.appendChild(d);
     ascroll();
@@ -2823,7 +2890,7 @@
     } else if (m.type === "thinking"){
       thk.style.display = m.show ? "block" : "none";
     } else if (m.type === "userEcho"){
-      add("user", m.text || "");
+      add("user", m.text || "", Date.now());
       if (_pendingAttachments && _pendingAttachments.length) {
         var _allU = msgs.querySelectorAll(".msgU");
         var _lastU = _allU[_allU.length - 1];
@@ -2837,7 +2904,8 @@
             return '<span class="chip chip-sent" title="' + escHtml(f.path) + '">' +
               (f.imageData ? '\ud83d\uddbc\ufe0f' : '\ud83d\udcc4') + ' ' + escHtml(_n) + _ll + '</span>';
           }).join('');
-          _lastU.appendChild(_atDiv);
+          var _acts = _lastU.querySelector(".msgU-acts");
+          if (_acts) _lastU.insertBefore(_atDiv, _acts); else _lastU.appendChild(_atDiv);
         }
         _pendingAttachments = null;
       }
@@ -2984,8 +3052,6 @@
           addToolLine(m.id, m.name, m.args);
         }
       }
-    } else if (m.type === "approvalRequest"){
-      addToolCard(m.id, m.name, m.args, { approval:true });
     } else if (m.type === "autoApproval"){
       ensureBubble();
       var holder = curBubble.querySelector(".flow");
@@ -3275,18 +3341,29 @@
           ensureTextSegment(); cur.textContent = "(no response)";
         }
         curBubble.setAttribute("data-raw", rawAll);
-        /* Strip any stale action bars from previous turn bubbles, attach only to last */
-        var prev = msgs.querySelectorAll(".msgA .msgActs");
-        for (var pi=0; pi<prev.length; pi++) prev[pi].parentNode.removeChild(prev[pi]);
-        curBubble.insertAdjacentHTML("beforeend", actionBarHtml());
+        /* The finished turn gets the full bar (time, copy, regenerate). Older replies keep the
+           copy-only bar add() gave them — stripping every bar in the feed would leave the whole
+           history without one. */
+        demoteRegen();
+        var staleBar = curBubble.querySelector(".msgActs");
+        if (staleBar) staleBar.parentNode.removeChild(staleBar);
+        curBubble.insertAdjacentHTML("beforeend", actionBarHtml(true, Date.now()));
         /* Group all contiguous tool runs (mid-turn and trailing). */
         groupAllToolRuns();
       }
       curBubble = null; cur = null; curThk = null; curText = "";
     } else if (m.type === "askPanel"){
       renderAskPanel(m.questions);
+    } else if (m.type === "approvalRequest"){
+      renderApprovalCard(m);
+    } else if (m.type === "approvalCancel"){
+      var card = msgs.querySelector(".approval[data-id=\"" + String(m.id || "").replace(/"/g, '') + "\"]");
+      if (card) {
+        var ft = card.querySelector(".ap-ft");
+        if (ft) ft.innerHTML = "<span class=\"ap-done denied\">Cancelled</span>";
+      }
     } else if (m.type === "reply"){
-      add("assistant", m.text);
+      add("assistant", m.text, Date.now());
     } else if (m.type === "contextRefError"){
       var errPath = '#' + m.refType + (m.value ? ':' + m.value : '');
       var existIdx = attachedFiles.findIndex(function(f){ return f.isErr && f.path === errPath; });
@@ -3378,7 +3455,7 @@
       var msgsArr = m.messages || [];
       for (var k=0; k<msgsArr.length; k++){
         var mm = msgsArr[k];
-        if (mm.role === "user") add("user", mm.text || "");
+        if (mm.role === "user") add("user", mm.text || "", mm.ts);
         else if (mm.role === "summary"){
           /* A compaction left behind a summary the model still carries. Shown
              collapsed, but with the fact and the body, so the panel never loses
@@ -3405,8 +3482,8 @@
           d.innerHTML = "<div class=\"lbl\">DEEP COPILOT</div><div class=\"msgC\"></div>";
           if (thk && thk.parentNode === msgs) msgs.insertBefore(d, thk); else msgs.appendChild(d);
           d.querySelector(".msgC").innerHTML = renderMd(body);
-          /* Action bar only on the very last assistant bubble (post-load) */
-          if (k === msgsArr.length - 1) d.insertAdjacentHTML("beforeend", actionBarHtml());
+          /* Every stored reply keeps a copy-only bar; regenerate belongs to the last one. */
+          d.insertAdjacentHTML("beforeend", actionBarHtml(k === msgsArr.length - 1, mm.ts));
         }
       }
       _replaying = _prevReplaying;
@@ -3790,16 +3867,6 @@
     var t = e.target;
     /* Ignore clicks inside the active editor (textarea/buttons) */
     if (t.closest && t.closest(".msgU-editor")) return;
-    /* Edit user message — click on entire bubble.
-       Allowed even during streaming: provider will stop the active run
-       before resending the edited prompt. */
-    if (t.closest(".msgU")){
-      var msgU = t.closest(".msgU");
-      if (!msgU) return;
-      if (msgU.classList.contains("editing")) return;
-      enterEditMode(msgU);
-      return;
-    }
     if (t.classList.contains("cb-copy")){
       var pre = t.closest("pre.cb"); if (!pre) return;
       var code = decodeURIComponent(pre.getAttribute("data-code") || "");
@@ -3880,12 +3947,16 @@
     /* ── #6 Phase 4: per-message action bar ── */
     var maBtn = t.closest && t.closest(".ma");
     if (maBtn){
-      var bub = maBtn.closest(".msgA"); if (!bub) return;
-      var raw = bub.getAttribute("data-raw") || "";
+      var bub = maBtn.closest(".msgA") || maBtn.closest(".msgU"); if (!bub) return;
+      var raw = bub.getAttribute("data-raw") || bub.dataset.origText || "";
       if (maBtn.classList.contains("ma-copy")){
         vscode.postMessage({type:"copy", code: raw});
         maBtn.classList.add("copied");
         setTimeout(function(){ maBtn.classList.remove("copied"); }, 1500);
+        return;
+      }
+      if (maBtn.classList.contains("ma-edit")){
+        enterEditMode(bub);
         return;
       }
       if (maBtn.classList.contains("ma-regen")){
@@ -3910,13 +3981,6 @@
         }
         bub.parentNode.removeChild(bub);
         vscode.postMessage({type:"regenerate"});
-        return;
-      }
-      if (maBtn.classList.contains("ma-up") || maBtn.classList.contains("ma-down")){
-        var sib = bub.querySelectorAll(".ma-up,.ma-down");
-        for (var si=0; si<sib.length; si++) sib[si].classList.remove("active");
-        maBtn.classList.add("active");
-        vscode.postMessage({type:"feedback", value: maBtn.classList.contains("ma-up") ? "up" : "down"});
         return;
       }
     }

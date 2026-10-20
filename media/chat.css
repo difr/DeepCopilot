@@ -31,7 +31,7 @@ body.drawer-open{padding-right:280px;transition:padding-right .15s ease}
 body.drawer-open #session-backdrop{display:none!important}
 @media (max-width:640px){body.drawer-open{padding-right:0}body.drawer-open #session-backdrop.open{display:block}}
 #main{grid-area:main;overflow-y:auto;padding:10px 24px;display:flex;flex-direction:column;gap:12px;min-height:0}
-.msgU{background:rgba(128,128,128,.18);outline:1px solid transparent;border-radius:8px 8px 2px 8px;padding:8px 12px;align-self:flex-end;max-width:88%;word-break:break-word;line-height:1.5;position:relative;cursor:pointer;transition:outline-color .15s,background .15s}
+.msgU{background:rgba(128,128,128,.18);outline:1px solid transparent;border-radius:8px 8px 2px 8px;padding:8px 12px;align-self:flex-end;max-width:88%;word-break:break-word;line-height:1.5;position:relative;transition:outline-color .15s,background .15s}
 .msgU-hd{display:none}
 .msgU-body{white-space:pre-wrap;word-break:break-word;line-height:1.5;pointer-events:none}
 .msgU-attachments{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;pointer-events:none}
@@ -475,7 +475,7 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
 /* ── #6 Phase 4: per-message action bar (Copilot/ChatGPT-style icon buttons) ── */
 .msgA{ position:relative }
 .msgA .msgActs{
-  display:flex; gap:2px;
+  display:flex; align-items:center;
   margin-top:6px;
   opacity:.55; /* faintly visible by default so it's discoverable */
   transition:opacity .15s ease;
@@ -483,33 +483,46 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
 }
 .msgA:hover .msgActs,
 .msgA .msgActs:focus-within { opacity:1 }
-.msgA .msgActs .ma{
+.msgA .msgActs .ma,
+.msgU .msgU-acts .ma{
   display:inline-flex; align-items:center; justify-content:center;
-  width:26px; height:26px; padding:0;
+  width:20px; height:20px; padding:0;
   background:transparent; border:1px solid transparent;
   color:var(--vscode-descriptionForeground);
   border-radius:6px;
   cursor:pointer; line-height:0;
 }
-.msgA .msgActs .ma:hover{
+.msgA .msgActs .ma:hover,
+.msgU .msgU-acts .ma:hover{
   background:var(--vscode-toolbar-hoverBackground, rgba(255,255,255,.08));
   color:var(--vscode-foreground);
 }
-.msgA .msgActs .ma:focus-visible{
+.msgA .msgActs .ma:focus-visible,
+.msgU .msgU-acts .ma:focus-visible{
   outline:1px solid var(--vscode-focusBorder, #0078d4); outline-offset:1px;
 }
-.msgA .msgActs .ma svg{ display:block }
-.msgA .msgActs .ma.active{
-  background:var(--vscode-toolbar-activeBackground, rgba(255,255,255,.12));
-  color:var(--vscode-foreground);
-}
-.msgA .msgActs .ma.ma-up.active{ color:#7ec99a }
-.msgA .msgActs .ma.ma-down.active{ color:#ff8c8c }
-.msgA .msgActs .ma.ma-copy.copied{ color:#7ec99a }
-.msgA .msgActs .ma.ma-copy.copied svg{ display:none }
-.msgA .msgActs .ma.ma-copy.copied::before{
+.msgA .msgActs .ma svg,
+.msgU .msgU-acts .ma svg{ display:block }
+.msgA .msgActs .ma.ma-copy.copied,
+.msgU .msgU-acts .ma.ma-copy.copied{ color:#7ec99a }
+.msgA .msgActs .ma.ma-copy.copied svg,
+.msgU .msgU-acts .ma.ma-copy.copied svg{ display:none }
+.msgA .msgActs .ma.ma-copy.copied::before,
+.msgU .msgU-acts .ma.ma-copy.copied::before{
   content:"\2713"; font-size:14px; font-weight:600; line-height:1;
 }
+
+/* The user bubble carries its own bar underneath, like a reply does: time, copy, edit. */
+.msgU .msgU-acts{
+  display:flex; align-items:center; justify-content:flex-end;
+  margin:0 -8px -6px 0;
+  opacity:.55;
+  transition:opacity .15s ease;
+}
+.msgU:hover .msgU-acts,
+.msgU .msgU-acts:focus-within{ opacity:1 }
+/* The inline editor replaces the bubble content, so its bar must not stay visible. */
+.msgU.editing .msgU-acts{ display:none }
 
 /* ── Message timestamp (action bar only) ── */
 .msgTime{
@@ -517,8 +530,11 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
   opacity:.65; white-space:nowrap;
   font-feature-settings:"tnum"; font-variant-numeric:tabular-nums;
   align-self:center;
+  padding-right:4px;
+  margin-right:6px;
+  border-right:1px solid currentColor;
+  user-select:none;
 }
-.msgActs .msgTime{ margin-left:auto; padding-left:8px; }
 
 /* ── #7 Phase 5: slash / @ command popover ── */
 #ia { position: relative }
