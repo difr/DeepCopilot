@@ -165,36 +165,35 @@ body.drawer-open #session-backdrop{display:none!important}
 .btn-no{background:var(--vscode-input-background);color:var(--vscode-foreground);border:1px solid var(--vscode-panel-border)!important}
 /* ── Prose tool lines — GH-Copilot-style: icon column + connecting spine ── */
 .tl-wrap{display:block;position:relative}
-.tl{display:flex;align-items:center;gap:0;padding:1px 2px;font-size:10.5px;color:var(--vscode-descriptionForeground);line-height:1.45;overflow:hidden;border-radius:2px}
+.tl{display:flex;align-items:center;gap:0;padding:1px 2px;font-size:10.5px;color:var(--vscode-descriptionForeground);line-height:1.45;border-radius:2px}
 .tl .ico{display:inline-grid;place-items:center;width:16px;height:16px;flex-shrink:0;margin-right:6px;font-size:12px;color:var(--vscode-descriptionForeground);opacity:.7;position:relative;z-index:1}
 .tl.run .ico{color:#e8b86d;opacity:.9}
 .tl.ok  .ico{opacity:.78}
 .tl.err .ico{color:var(--vscode-errorForeground);opacity:.95}
-/* ── Unified spine: connects ANY consecutive tool rows ──
+/* ── Unified spine: connects consecutive tool rows on the top level ──
    Covers: prose lines (.tl-wrap), cards (.tool: shell/web/agent/approval),
    and live-grouped bundles (.tl-group). The line sits in the 6px gap
    between rows, anchored at the icon column (left:10px = 2px row-padding
-   + 8px icon half-width). It vanishes automatically at group boundaries. */
-.tl-wrap + .tl-wrap,
-.tl-wrap + .tool,     .tool    + .tl-wrap,
-.tl-wrap + .tl-group, .tl-group + .tl-wrap,
-.tool    + .tool,
-.tool    + .tl-group, .tl-group + .tool,
-.tl-group + .tl-group{margin-top:6px}
-.tl-wrap:has(+ :is(.tl-wrap, .tool, .tl-group))::after,
-.tool:has(+ :is(.tl-wrap, .tool, .tl-group))::after,
-.tl-group:has(+ :is(.tl-wrap, .tool, .tl-group))::after{
+   + 8px icon half-width). Scoped to .flow so rows nested in .tl-list keep
+   their own border-left instead of a second line and an extra gap. */
+.flow > .tl-wrap + .tl-wrap,
+.flow > .tl-wrap + .tool,     .flow > .tool    + .tl-wrap,
+.flow > .tl-wrap + .tl-group, .flow > .tl-group + .tl-wrap,
+.flow > .tool    + .tool,
+.flow > .tool    + .tl-group, .flow > .tl-group + .tool,
+.flow > .tl-group + .tl-group{margin-top:6px}
+.flow > .tl-wrap:has(+ :is(.tl-wrap, .tool, .tl-group))::after,
+.flow > .tool:has(+ :is(.tl-wrap, .tool, .tl-group))::after,
+.flow > .tl-group:has(+ :is(.tl-wrap, .tool, .tl-group))::after{
     content:"";position:absolute;
     left:10px;top:100%;
     width:1px;height:6px;
     background:var(--vscode-panel-border);
     opacity:.65;pointer-events:none;
 }
-.tl .tl-prose{flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;opacity:.68}
-.tl .tl-prose code{font-family:var(--vscode-editor-font-family,monospace);font-size:10px;background:transparent;padding:0;opacity:.6;color:inherit}
-.tl-chip{display:inline-block;padding:0 5px;border-radius:3px;background:var(--vscode-badge-background,rgba(90,93,94,.38));color:var(--vscode-badge-foreground,inherit);font-size:10px;font-family:var(--vscode-editor-font-family,monospace);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;line-height:1.5;margin:0 1px}
-.tl-dot{opacity:.4;font-size:10px}
-.tl-list .tl .tl-prose code{background:var(--vscode-badge-background,rgba(90,93,94,.3));color:var(--vscode-badge-foreground,inherit);border-radius:3px;padding:0 4px;opacity:1}
+.tl-prose{display:inline-flex;align-items:baseline;gap:4px;max-width:min(600px, 60%);opacity:.68}
+.tl-prose code{display:inline-block;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--vscode-editor-font-family,monospace);font-size:10px;background:var(--vscode-badge-background,rgba(90,93,94,.38));color:var(--vscode-badge-foreground,inherit);border-radius:3px}
+.tl-chip{display:inline-block;padding:0 4px;border-radius:3px;background:var(--vscode-badge-background,rgba(90,93,94,.38));color:var(--vscode-badge-foreground,inherit);font-size:10px;font-family:var(--vscode-editor-font-family,monospace);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;line-height:1.5;margin:0 1px}
 .tl .tl-res{flex-shrink:0;font-size:10px;opacity:.55;margin-left:4px}
 .tl.run .tl-res::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:#e8b86d;margin-right:4px;vertical-align:middle;animation:thpulse 1.4s ease-out infinite}
 /* Issue #162: completion indicator lives on the row itself, not just on .tl-stream,
@@ -212,6 +211,7 @@ body.drawer-open #session-backdrop{display:none!important}
 .tl.has-detail.open .tl-exp{opacity:.7;transform:rotate(90deg)}
 /* Expandable detail pane */
 .tl-detail{display:none;margin:0 2px 4px 4px;padding:5px 8px;max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background,rgba(127,127,127,.07));border:1px solid var(--vscode-panel-border);border-radius:4px;font-family:var(--vscode-editor-font-family,monospace);font-size:10.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--vscode-editor-foreground)}
+.tl-detail .tl-cmd{margin:0 0 5px;padding:0 0 5px;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid var(--vscode-panel-border);opacity:.75}
 /* Live streaming preview for write_file / str_replace_in_file / apply_patch */
 .tl-stream{margin:2px 0 4px 4px;padding:5px 8px;max-height:220px;overflow:auto;background:var(--vscode-textCodeBlock-background,rgba(127,127,127,.08));border:1px solid var(--vscode-panel-border);border-left:2px solid var(--vscode-panel-border);border-radius:4px;font-family:var(--vscode-editor-font-family,monospace);font-size:11px;line-height:1.45;white-space:pre;color:var(--vscode-editor-foreground);position:relative}
 .tl-stream code{font-family:inherit;font-size:inherit;background:transparent;padding:0;display:block}
@@ -222,11 +222,10 @@ body.drawer-open #session-backdrop{display:none!important}
 .tl-stream.done.err{border-left-color:var(--vscode-errorForeground)}
 /* Group collapse */
 .tl-group{display:flex;flex-direction:column;position:relative}
-.tl-summary{display:flex;align-items:center;gap:0;padding:2px 2px;font-size:10.5px;color:var(--vscode-descriptionForeground);cursor:pointer;user-select:none;line-height:1.45;overflow:hidden;opacity:.68}
+.tl-summary{display:flex;align-items:center;gap:0;padding:2px 2px;font-size:10.5px;color:var(--vscode-descriptionForeground);cursor:pointer;line-height:1.45;overflow:hidden}
 .tl-summary .ico{display:inline-grid;place-items:center;width:16px;height:16px;flex-shrink:0;margin-right:6px;font-size:12px;color:var(--vscode-descriptionForeground);opacity:.7;position:relative;z-index:1}
 .tl-summary:hover{background:var(--vscode-list-hoverBackground,rgba(255,255,255,.04));border-radius:3px}
-.tl-summary .tl-prose{flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.tl-summary .tl-chev{flex-shrink:0;font-size:11px;opacity:.5;transition:transform .15s;margin-left:8px}
+.tl-summary .tl-chev{flex-shrink:0;font-size:11px;opacity:.5;transition:transform .15s;margin-left:4px}
 .tl-group.open .tl-summary .tl-chev{transform:rotate(180deg)}
 .tl-list{display:none;flex-direction:column;padding-left:8px;border-left:1px solid var(--vscode-panel-border);margin-left:6px}
 .tl-group.open .tl-list{display:flex;flex-direction:column;max-height:200px;overflow-y:auto}

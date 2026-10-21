@@ -1491,7 +1491,7 @@
     var otherCounts = {};
     others.forEach(function(v) { otherCounts[v] = (otherCounts[v] || 0) + 1; });
     Object.keys(otherCounts).forEach(function(v) {
-      parts.push(otherCounts[v] > 1 ? escHtml(v) + " \xd7" + otherCounts[v] : escHtml(v));
+      parts.push(otherCounts[v] > 1 ? chip(v) + " \xd7" + otherCounts[v] : chip(v));
     });
 
     /* Fallback to mechanical label if nothing matched */
@@ -1503,10 +1503,10 @@
       });
       return Object.keys(verbCounts).map(function(v) {
         return verbCounts[v] > 1 ? escHtml(v) + " \xd7" + verbCounts[v] : escHtml(v);
-      }).join("  \xb7  ");
+      }).join(" &amp; ");
     }
 
-    return parts.join(' <span class="tl-dot">\xb7</span> ');
+    return parts.join(" &amp; ");
   }
 
   /* Wrap a contiguous array of tool nodes into a single collapsible .tl-group. */
@@ -1617,7 +1617,9 @@
   }
 
   function shortArgs(s){
-    try { var o = JSON.parse(s||"{}"); return JSON.stringify(o); } catch(e){ return String(s||"").slice(0,200); }
+    var o = parseArgs(s);
+    /* parseArgs never throws and returns {} for junk, so fall back to the raw text here. */
+    return Object.keys(o).length ? JSON.stringify(o) : String(s||"").slice(0,200);
   }
   /* Copilot-style verb + target extraction (e.g. "Read crates/core/src/lib.rs") */
   var TOOL_META = {
@@ -1639,27 +1641,42 @@
     s = s.replace(/^&\s+/, "").replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+/, "");
     /* strip leading "cd dir &&" chains so "cd analysis && python foo.py" → "python foo.py" */
     s = s.replace(/^(?:cd\s+\S+\s*&&\s*)+/i, "");
-    var first = s.split(/\s+/)[0] || "";
+    /* A quoted program with a space in its path ("C:\Program Files\…\pwsh.exe") must be taken
+       as a whole, otherwise the first space splits it and the basename becomes "program". */
+    var first;
+    if (/^['"]/.test(s)) {
+      var q = s.charAt(0);
+      var end = s.indexOf(q, 1);
+      first = end > 0 ? s.slice(1, end) : s.split(/\s+/)[0];
+    } else {
+      first = s.split(/\s+/)[0] || "";
+    }
     /* trim quotes & path */
     first = first.replace(/^['\"]+|['\"]+$/g, "");
     var base = first.split(/[\\\/]/).pop().toLowerCase();
-    base = base.replace(/\.(exe|cmd|bat|ps1)$/, "");
+    base = base.replace(/\.(exe|cmd|bat|ps1|sh|py|js|mjs|cjs|rb|pl)$/, "");
     if (!base) return "shell";
     if (base === "pwsh" || base === "powershell") return "powershell";
     if (base === "sh" || base === "bash" || base === "zsh" || base === "fish") return base;
     return base;
   }
+  /* Tool args arrive as a JSON string; the row needs them once, so every helper accepts either
+     form and the caller parses a single time. */
+  function parseArgs(a){
+    if (a && typeof a === "object") return a;
+    try { return JSON.parse(a || "{}") || {}; } catch(e){ return {}; }
+  }
   function toolMeta(name, argStr){
     var meta = TOOL_META[name] || { verb:name, icon:"codicon-tools", kind:"other" };
     if (name === "run_shell"){
-      var o; try { o = JSON.parse(argStr||"{}"); } catch(e){ o = {}; }
+      var o = parseArgs(argStr);
       var sh = detectShell(o && (o.command || o.cmd));
       return { verb: sh, icon: meta.icon, kind: meta.kind, shell: sh };
     }
     return meta;
   }
   function toolTarget(name, argStr){
-    var o; try { o = JSON.parse(argStr||"{}"); } catch(e){ return ""; }
+    var o = parseArgs(argStr);
     if (!o || typeof o !== "object") return "";
     if (name === "read_file"){
       var p = o.path || o.file || ""; if (!p) return "";
@@ -1670,8 +1687,9 @@
     if (name === "list_dir") return o.path || o.dir || ".";
     if (name === "grep_search") return (o.pattern || o.query || "") + (o.path ? "  in " + o.path : "");
     if (name === "run_shell") {
-      var rc = String(o.command || o.cmd || "").replace(/^(?:cd\s+\S+\s*&&\s*)+/i, "").trim();
-      return rc.slice(0, 70);
+      /* No slice: this feeds the row title and the detail header, both of which wrap or
+         ellipsise on their own. */
+      return String(o.command || o.cmd || "").replace(/^(?:cd\s+\S+\s*&&\s*)+/i, "").trim();
     }
     if (name === "read_terminal"){
       var tn = o.terminal ? String(o.terminal) : "active terminal";
@@ -1683,13 +1701,13 @@
       return p.length ? (p.length + " step" + (p.length>1?"s":"")) : "";
     }
     if (name === "spawn_agent") return o.description || (o.prompt && String(o.prompt).slice(0, 80)) || "";
-    var v = o.path || o.file || o.query || o.pattern || o.command || ""; return String(v).slice(0,120);
+    var v = o.path || o.file || o.query || o.pattern || o.command || ""; return String(v);
   }
 
   /* Build an HTML prose sentence for a tool call (safe — all values go through escHtml/code). */
   function toolProseHtml(name, argStr, meta){
-    var o; try { o = JSON.parse(argStr||"{}" ); } catch(e){ o = {}; }
-    function code(s){ return "<code>" + escHtml(String(s||" ").slice(0,80)) + "</code>"; }
+    var o = parseArgs(argStr);
+    function code(s){ return "<code>" + escHtml(String(s||" ")) + "</code>"; }
     var verb = escHtml(meta.verb);
     if (name === "read_file"){
       var p = o.path || o.file || ""; if (!p) return verb;
@@ -1705,7 +1723,16 @@
     }
     if (name === "run_shell"){
       var cmd = String(o.command || o.cmd || "").replace(/^(?:cd\s+\S+\s*&&\s*)+/i, "").trim();
-      return verb + " " + code(cmd.length > 60 ? cmd.slice(0,60) + "\u2026" : cmd);
+      /* No slice here: .tl-prose has text-overflow:ellipsis, so the cut happens at whatever
+         width the row actually has. The full command lives in the title and in the detail pane.
+         The verb is the program name detected from the command itself, so printing both would
+         repeat the first word ("node node --check …"); keep it once. */
+      var sh = String(meta.verb || "");
+      var dup = sh && cmd.toLowerCase().startsWith(sh.toLowerCase()) &&
+                (cmd.length === sh.length || /[\s\\\/]/.test(cmd.charAt(sh.length)));
+      /* Keep a leading word either way: the program name when it differs, "shell" when the
+         command already starts with the program, so a row never begins mid-sentence. */
+      return (dup ? "shell " : verb + " ") + code(cmd);
     }
     if (name === "spawn_agent"){
       var lbl = String(o.description || (o.prompt && String(o.prompt).slice(0,60)) || "");
@@ -1722,15 +1749,33 @@
     var wrap = document.createElement("div");
     wrap.className = "tl-wrap";
     var d = document.createElement("div");
-    var meta = toolMeta(name, args);
+    var argsObj = parseArgs(args);
+    var meta = toolMeta(name, argsObj);
     d.className = "tl run k-" + meta.kind;
     d.innerHTML =
       "<i class=\"ico codicon " + escHtml(meta.icon) + "\"></i>" +
-      "<span class=\"tl-prose\">" + toolProseHtml(name, args, meta) + "</span>" +
+      "<span class=\"tl-prose\">" + toolProseHtml(name, argsObj, meta) + "</span>" +
       "<span class=\"tl-res\"></span>" +
       "<span class=\"tl-exp codicon codicon-chevron-right\" title=\"Expand\"></span>";
     var detail = document.createElement("div");
     detail.className = "tl-detail";
+    /* A row is expandable only when it has something to show: the top line carries the full
+       target, so a row whose result never arrives (cancelled, failed before dispatch) still
+       opens to it. Rows without a target stay inert until a result gives them a body. */
+    var cmdPre = document.createElement("pre");
+    cmdPre.className = "tl-cmd";
+    if (name === "run_shell"){
+      /* The pane shows what actually runs, so a leading "cd … &&" stays here — only the row
+         title drops it. Any trimming in this pane would hide the command the user is auditing. */
+      cmdPre.textContent = "> " + String(argsObj.command || argsObj.cmd || "");
+    } else {
+      cmdPre.textContent = toolTarget(name, argsObj);
+    }
+    var hasTarget = !!cmdPre.textContent && cmdPre.textContent !== "> ";
+    if (hasTarget){
+      detail.appendChild(cmdPre);
+      d.classList.add("has-detail");
+    }
     wrap.appendChild(d);
     wrap.appendChild(detail);
     holder.appendChild(wrap);
@@ -1753,9 +1798,10 @@
     ensureBubble();
     var holder = curBubble.querySelector(".flow");
     var d = document.createElement("div");
-    var meta = toolMeta(name, args);
+    var argsObj = parseArgs(args);
+    var meta = toolMeta(name, argsObj);
     d.className = "tool run k-" + meta.kind;
-    var target = toolTarget(name, args);
+    var target = toolTarget(name, argsObj);
     var statusTxt = opts.approval ? "Awaiting approval" : "…";
     d.innerHTML = 
       "<div class=\"h\">" +
@@ -3064,7 +3110,7 @@
         if (m.name === 'read_terminal') {
           /* Reuse the existing card for the same terminal to prevent card flooding
              during background-job polling loops (e.g. run_shell_bg + read_terminal). */
-          var _rtA; try { _rtA = JSON.parse(m.args || '{}'); } catch(e) { _rtA = {}; }
+          var _rtA = parseArgs(m.args);
           var _rtKey = String(_rtA.terminal || '_active_');
           var _prev = _readTermCardMap.get(_rtKey);
           if (_prev && _prev.root && _prev.root.parentNode) {
@@ -3099,7 +3145,8 @@
         if (_existLine && _existLine.isLine && _existLine.root) {
           _existLine.name = m.name;
           _existLine.args = m.args;
-          var _meta162 = toolMeta(m.name, m.args);
+          var _args162 = parseArgs(m.args);
+          var _meta162 = toolMeta(m.name, _args162);
           var _cls162 = (_existLine.root.className || "").split(/\s+/)
             .filter(function(c){ return c && !/^k-/.test(c); });
           _cls162.push("k-" + _meta162.kind);
@@ -3107,7 +3154,7 @@
           var _ico162 = _existLine.root.querySelector(".ico");
           if (_ico162) _ico162.className = "ico codicon " + _meta162.icon;
           var _prose162 = _existLine.root.querySelector(".tl-prose");
-          if (_prose162) _prose162.innerHTML = toolProseHtml(m.name, m.args, _meta162);
+          if (_prose162) _prose162.innerHTML = toolProseHtml(m.name, _args162, _meta162);
         } else {
           addToolLine(m.id, m.name, m.args);
         }
@@ -3116,9 +3163,10 @@
       ensureBubble();
       var holder = curBubble.querySelector(".flow");
       var d = document.createElement("div");
-      var meta2 = toolMeta(m.name, m.args);
+      var _args2 = parseArgs(m.args);
+      var meta2 = toolMeta(m.name, _args2);
       d.className = "tool k-" + meta2.kind + " " + (m.decision ? "ok" : "err");
-      var tgt2 = toolTarget(m.name, m.args);
+      var tgt2 = toolTarget(m.name, _args2);
       var label = m.decision ? ("auto-allow · " + m.mode) : ("auto-deny · " + m.mode);
       d.innerHTML = "<div class=\"h\"><span class=\"chev\">▶</span><i class=\"ico codicon " + escHtml(meta2.icon) + "\"></i><span class=\"nm\">" + escHtml(meta2.verb) + "</span><span class=\"tgt\">" + escHtml(tgt2) + "</span><span class=\"st\">" + escHtml(label) + "</span></div>" +
         "<div class=\"b\"><div class=\"args\">" + escHtml(shortArgs(m.args)) + "</div></div>";
@@ -3211,12 +3259,10 @@
       var bytes = out.length;
       var resTxt;
       if (m.ok && (m.name === "write_file" || tc.name === "write_file")){
-        try {
-          var wargs = JSON.parse(tc.args || "{}");
-          var wContent = String(wargs.content || wargs.text || "");
-          var wLines = wContent ? wContent.split(/\r?\n/).length : 0;
-          resTxt = wLines ? "+" + wLines + " lines" : "ok";
-        } catch(e){ resTxt = "ok"; }
+        var wargs = parseArgs(tc.args);
+        var wContent = String(wargs.content || wargs.text || "");
+        var wLines = wContent ? wContent.split(/\r?\n/).length : 0;
+        resTxt = wLines ? "+" + wLines + " lines" : "ok";
       } else if (m.ok && (m.name === "spawn_agent" || tc.name === "spawn_agent")){
         /* Sub-agent result is Markdown — render it, show iter/tool counts from metadata header */
         var itersMatch = out.match(/\((\d+) tool calls[^)]*\)/);
@@ -3262,18 +3308,24 @@
             var outPre = document.createElement("pre");
             outPre.className = "final-out";
             outPre.textContent = stripAnsi(runShellBody);
-            tc.body.innerHTML = ""; tc.body.appendChild(outPre);
+            tc.body.appendChild(outPre);
             tc.root.classList.add("has-detail");
             if (!tc._userToggled){
               /* Always collapse on completion (success or failure). */
               tc.root.classList.remove("open"); tc.body.style.display = "none";
             }
           } else if (tc.name === "spawn_agent" || m.name === "spawn_agent") {
-            tc.body.innerHTML = renderMd(out);
+            var mdDiv = document.createElement("div");
+            mdDiv.className = "tl-md";
+            mdDiv.innerHTML = renderMd(out);
+            tc.body.appendChild(mdDiv);
             tc.root.classList.add("has-detail", "open");
             tc.body.style.display = "block";
           } else {
-            tc.body.textContent = out;
+            var plainPre = document.createElement("pre");
+            plainPre.className = "final-out";
+            plainPre.textContent = String(out);
+            tc.body.appendChild(plainPre);
             tc.root.classList.add("has-detail");
             if (!tc._userToggled){
               /* Always collapse on completion (success or failure). */
