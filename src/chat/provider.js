@@ -19,6 +19,7 @@ const { Logger }           = require('../logger');
 const { wsRoot, resolvePath, findContainingFolder } = require('../utils/paths');
 const { openFile }         = require('./openFile');
 const { buildWebviewHtml, buildSidebarHintHtml } = require('../webview/html');
+const { buildTime } = require('../utils/build-info');
 const { mcpManager }       = require('../mcp');
 
 const { SessionStore } = require('./session-store');
@@ -260,9 +261,16 @@ class ChatViewProvider {
                 vscode.Uri.joinPath(this._context.extensionUri, 'imgs'),
             ],
         };
-        panel.webview.html = buildWebviewHtml(panel.webview, this._context.extensionUri);
+        panel.webview.html = buildWebviewHtml(panel.webview, this._context.extensionUri, this._buildInfo());
         panel.webview.onDidReceiveMessage(msg => this._onMessage(msg));
         panel.onDidDispose(() => { if (this._panel === panel) this._panel = null; });
+    }
+
+    /* Version comes from package.json, the build time from the shared helper — one source for
+       both the settings footer and the startup log. */
+    _buildInfo() {
+        const pkg = (this._context.extension && this._context.extension.packageJSON) || {};
+        return { version: pkg.version || 'unknown', when: buildTime() };
     }
 
     async _onMessage(msg) {

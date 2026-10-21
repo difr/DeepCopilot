@@ -8,10 +8,14 @@ const { str } = require('./utils/settings');
 const { ChatViewProvider } = require('./chat/provider');
 const { t, tf } = require('./utils/strings');
 const { registerInlineCompletionProvider } = require('./completion/provider');
+const { buildTime } = require('./utils/build-info');
 
 function activate(context) {
     Logger.init(context);
-    Logger.info('ACTIVATE', { version: (context.extension && context.extension.packageJSON && context.extension.packageJSON.version) || 'unknown' });
+    Logger.info('ACTIVATE', {
+        version: (context.extension && context.extension.packageJSON && context.extension.packageJSON.version) || 'unknown',
+        build: buildTime() || 'unknown',
+    });
 
     // ─── Merge user-defined provider JSONs into the registry ──────────────
     // Reads `deepseekAgent.providersDir` and re-runs the registry init so a

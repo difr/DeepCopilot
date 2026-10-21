@@ -4,7 +4,7 @@
 const vscode = require('vscode');
 const { t } = require('../utils/strings');
 
-function buildWebviewHtml(webview, extensionUri) {
+function buildWebviewHtml(webview, extensionUri, build) {
     const cssUri      = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.css'));
     const jsUri       = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.js'));
     const logoUri     = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'imgs', 'logo_black_bg.png'));
@@ -14,6 +14,9 @@ function buildWebviewHtml(webview, extensionUri) {
     const katexJsUri  = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'katex.min.js'));
     const dompurifyUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'purify.min.js'));
     const locale  = 'en';
+    const buildLabel = build && build.version
+        ? 'v' + build.version + (build.when ? ' · build ' + build.when + ' UTC' : '')
+        : '';
     const ui = {
         welcomeSub:      t('wvWelcomeSub'),
         welcomeHint:     t('wvWelcomeHint'),
@@ -226,6 +229,7 @@ function buildWebviewHtml(webview, extensionUri) {
       <button class="settings-discard-btn" id="s-discard">Discard</button>
     </div>
     <div class="settings-footer">
+      <span class="settings-version" id="settings-version">${buildLabel}</span>
       <button class="settings-cancel-btn" id="settingsCancelBtn">Cancel</button>
       <button class="settings-save-btn" id="settingsSaveBtn">Save</button>
     </div>

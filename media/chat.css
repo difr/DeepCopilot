@@ -716,6 +716,7 @@ body.vscode-light .msgC pre.cb code .hk-deco{ color:#af00db }
 @keyframes stgSlideIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .settings-header{display:flex;align-items:center;padding:11px 14px;border-bottom:1px solid var(--vscode-panel-border);flex-shrink:0}
 .settings-title{flex:1;font-size:12.5px;font-weight:600;color:var(--vscode-foreground)}
+.settings-version{flex:1;font-size:10px;color:var(--vscode-descriptionForeground);opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .settings-close{background:none;border:none;cursor:pointer;color:var(--vscode-icon-foreground);font-size:12px;padding:2px 6px;border-radius:4px;opacity:.7;line-height:1;flex-shrink:0}
 .settings-close:hover{background:var(--vscode-toolbar-hoverBackground);opacity:1}
 .settings-body{overflow-y:auto;flex:1;padding:10px 0}
