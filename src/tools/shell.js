@@ -444,6 +444,10 @@ async function toolRunShell(args, ctx = {}) {
                 shell: true,
                 windowsHide: true,
                 env: process.env,
+                /* stdin must not be a live pipe: with the default 'pipe' a command that reads
+                   stdin (findstr without a file, sort, more) waits forever, because nothing
+                   writes to it and nothing closes it. */
+                stdio: ['ignore', 'pipe', 'pipe'],
             });
         } catch (e) { return resolve(`Error: ${e.message}`); }
 
